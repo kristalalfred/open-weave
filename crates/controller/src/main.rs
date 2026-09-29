@@ -4085,6 +4085,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn view_addresses_use_the_listener_of_the_named_network() {
+        let (state, _mem) = mem_state();
+        let on_lan = |id: &str, wan: &str, lan: &str| {
+            let mut registration = node_registration(id, wan);
+            let mut second = registration.node.topology.attachments[0].clone();
+            second.id = "lan".to_string();
+            second.network = "lan".to_string();
+            second.listeners.srt.as_mut().unwrap().host = lan.to_string();
+            registration.node.topology.attachments.push(second);
+            registration
+        };
+        {
+            let mut nodes = state.nodes.write().await;
+            nodes.insert(
+                "strom-node-1".to_string(),
+                on_lan("strom-node-1", "172.26.0.10", "10.1.0.10"),
+            );
+            nodes.insert(
+                "strom-node-2".to_string(),
+                on_lan("strom-node-2", "172.27.0.10", "10.1.0.11"),
+            );
+            let mut definition = stream("basic");
+            for endpoint in [
+                &mut definition.source,
+                &mut definition.destinations[0].endpoint,
+            ] {
+                if let StreamTransport::Srt(endpoint) = endpoint {
+                    endpoint.network = Some("lan".to_string());
+                }
+            }
+            state
+                .streams
+                .write()
+                .await
+                .insert("basic".to_string(), stored_stream(definition));
+        }
+
+        reconcile_tick(&state).await;
+
+        let (_, body) = send(&open_router(state), "GET", "/view", None).await;
+        let url = body["streams"][0]["endpoints"]["ingress"]["url"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no ingress url: {body}"));
+        assert!(url.starts_with("srt://10.1.0.10:"), "{url}");
+        let output = body["streams"][0]["endpoints"]["destinations"][0]["endpoint"]["url"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no output url: {body}"));
+        assert!(output.starts_with("srt://10.1.0.11:"), "{output}");
+    }
+
+    #[tokio::test]
     async fn view_before_first_tick_has_no_report() {
         let (state, _mem) = mem_state();
         let app = open_router(state);
