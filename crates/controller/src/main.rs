@@ -47,7 +47,6 @@ use serde_json::{Value, json};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
-use tracing_subscriber::EnvFilter;
 use weave_core::auth::{
     self, Guard, NodeCaller, NodeGuard, refuse_other_node, require_bearer, require_node_token,
     unauthorized,
@@ -405,11 +404,7 @@ struct ReconcileOutcome {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    weave_core::logging::init();
 
     let args = Args::parse();
 

@@ -6,7 +6,6 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use reqwest::RequestBuilder;
 use reqwest::header::{ETAG, HeaderValue, IF_MATCH, IF_NONE_MATCH};
-use tracing_subscriber::EnvFilter;
 use weave_core::auth::{self, MIN_NODE_KEY_LEN, NodeKey, NodeKeyError, Token};
 use weave_core::{
     ApiError, NodeDescriptor, PathStatus, PlanStatus, ReconcileStatus, StatusResponse,
@@ -132,11 +131,7 @@ enum DeleteResource {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    weave_core::logging::init();
 
     let Cli {
         url,

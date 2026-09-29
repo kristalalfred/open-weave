@@ -12,7 +12,6 @@ use clap::Parser;
 use reqwest::{Client, RequestBuilder, StatusCode};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
-use tracing_subscriber::EnvFilter;
 use weave_core::auth::{self, Token};
 use weave_core::{
     AdapterDescriptor, AdapterKind, AudioCodec, AudioConstraint, DesiredHop, EgressStatus,
@@ -46,11 +45,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    weave_core::logging::init();
 
     let args = Args::parse();
     let config = AdapterConfig::load(&args.config)?;

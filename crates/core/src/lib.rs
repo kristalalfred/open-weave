@@ -3,6 +3,7 @@
 pub mod api;
 pub mod auth;
 pub mod contracts;
+pub mod logging;
 pub mod media;
 #[cfg(feature = "server")]
 pub mod upstream;

@@ -1199,6 +1199,12 @@ one does not read as a drop. Over either transport, a socket that carried media
 and whose bytes have not moved for three polls is `stalled`, whether its peer is
 still connected or gone, and the stream reads `degraded`.
 
+## Logging
+
+Every binary logs to standard output. `RUST_LOG` sets the level and defaults to `info`.
+Set `WEAVE_LOG_FORMAT=json` for one JSON object per line; any other value, or
+none, keeps the text format.
+
 ## Quickstart
 
 The fastest way to see open-weave work is the bench: a docker-compose stack with

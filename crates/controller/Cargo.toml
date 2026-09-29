@@ -23,7 +23,6 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
