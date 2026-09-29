@@ -1,0 +1,110 @@
+name: open-weave
+
+x-weave: &weave
+  image: ${WEAVE_IMAGE:-ghcr.io/kristalalfred/open-weave:latest}
+  restart: unless-stopped
+
+x-controller: &controller
+  <<: *weave
+  command: ["weave-controller"]
+  environment:
+    WEAVE_CONTROLLER_ADDR: 0.0.0.0:8082
+    DATABASE_URL: postgres://weave:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/weave
+    WEAVE_NORTHBOUND_TOKEN: ${WEAVE_NORTHBOUND_TOKEN:?set WEAVE_NORTHBOUND_TOKEN}
+    WEAVE_SOUTHBOUND_KEY: ${WEAVE_SOUTHBOUND_KEY:?set WEAVE_SOUTHBOUND_KEY}
+    WEAVE_SOUTHBOUND_MIN_EPOCHS: ${WEAVE_SOUTHBOUND_MIN_EPOCHS:-}
+    WEAVE_SRT_KEY_SECRET: ${WEAVE_SRT_KEY_SECRET:?set WEAVE_SRT_KEY_SECRET}
+  depends_on:
+    postgres:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://127.0.0.1:8082/health"]
+    interval: 5s
+    timeout: 3s
+    retries: 10
+    start_period: 5s
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: weave
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: weave
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weave -d weave"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  controller-1:
+    <<: *controller
+    ports:
+      - "127.0.0.1:8082:8082"
+
+  controller-2:
+    <<: *controller
+    ports:
+      - "127.0.0.1:8083:8082"
+
+  northbound:
+    <<: *weave
+    command: ["weave-northbound"]
+    environment:
+      WEAVE_NORTHBOUND_ADDR: 0.0.0.0:9080
+      WEAVE_CONTROLLER_URL: http://controller-1:8082,http://controller-2:8082
+      WEAVE_NORTHBOUND_TOKEN: ${WEAVE_NORTHBOUND_TOKEN:?set WEAVE_NORTHBOUND_TOKEN}
+    depends_on:
+      controller-1:
+        condition: service_healthy
+      controller-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  southbound:
+    <<: *weave
+    command: ["weave-southbound"]
+    environment:
+      WEAVE_SOUTHBOUND_ADDR: 0.0.0.0:8081
+      WEAVE_CONTROLLER_URL: http://controller-1:8082,http://controller-2:8082
+      WEAVE_SOUTHBOUND_KEY: ${WEAVE_SOUTHBOUND_KEY:?set WEAVE_SOUTHBOUND_KEY}
+      WEAVE_SOUTHBOUND_MIN_EPOCHS: ${WEAVE_SOUTHBOUND_MIN_EPOCHS:-}
+      WEAVE_SOUTHBOUND_CORS_ORIGIN: ${WEAVE_SOUTHBOUND_CORS_ORIGIN:-}
+    depends_on:
+      controller-1:
+        condition: service_healthy
+      controller-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  tls:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./tls:/tls:ro
+    ports:
+      - "443:9443"
+      - "8443:8443"
+    depends_on:
+      northbound:
+        condition: service_healthy
+      southbound:
+        condition: service_healthy
+
+volumes:
+  pgdata:

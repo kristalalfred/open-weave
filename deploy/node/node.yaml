@@ -1,0 +1,20 @@
+# Replace every <placeholder>. The node token comes from WEAVE_SOUTHBOUND_TOKEN.
+node:
+  id: <node-id>
+  southbound_url: https://<control-plane-host>:8443
+  listen: 0.0.0.0:8091
+  public_endpoint: http://<node-address>:8091
+  topology:
+    attachments:
+      - id: wan
+        network: internet
+        dial: true
+        listeners:
+          srt:
+            host: <node-public-address>
+            port_range: { start: 20000, end: 20999 }
+          whip: { base_url: http://<node-public-address>:8080/whip }
+          whep: { base_url: http://<node-public-address>:8080/whep }
+strom:
+  url: http://127.0.0.1:8080
+  poll_interval_secs: 5

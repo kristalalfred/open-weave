@@ -1,0 +1,34 @@
+name: open-weave-node
+
+services:
+  strom:
+    image: eyevinntechnology/strom:0.6.10
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      STROM_PORT: "8080"
+      STROM_DATA_DIR: /data
+    volumes:
+      - strom-data:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+  adapter:
+    image: ${WEAVE_IMAGE:-ghcr.io/kristalalfred/open-weave:latest}
+    restart: unless-stopped
+    network_mode: host
+    command: ["weave-adapter-strom", "--config", "/etc/weave/node.yaml"]
+    environment:
+      WEAVE_SOUTHBOUND_TOKEN: ${WEAVE_SOUTHBOUND_TOKEN:?set WEAVE_SOUTHBOUND_TOKEN}
+    volumes:
+      - ./node.yaml:/etc/weave/node.yaml:ro
+    depends_on:
+      strom:
+        condition: service_healthy
+
+volumes:
+  strom-data:

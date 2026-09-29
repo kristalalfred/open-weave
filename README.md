@@ -1265,6 +1265,13 @@ weave -o json get stream NAME
 
 `get endpoints STREAM` returns the resolved addresses for that stream.
 
+## Deploying
+
+`deploy/` holds a compose file for the control plane and one for a media node,
+with a `node.yaml` template. Release images are published to
+`ghcr.io/kristalalfred/open-weave` on each `v*` tag. See
+[`deploy/README.md`](deploy/README.md); it is untested outside the bench.
+
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
