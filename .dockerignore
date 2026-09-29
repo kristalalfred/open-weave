@@ -1,0 +1,9 @@
+target
+.git
+.claude
+.github
+bench
+backlog
+deploy
+nodes
+**/*.md
