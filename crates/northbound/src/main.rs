@@ -64,6 +64,7 @@ async fn main() -> Result<()> {
     tracing::info!(%addr, controllers = %controller_urls, "northbound API listening");
 
     axum::serve(listener, app)
+        .with_graceful_shutdown(weave_core::shutdown::graceful("northbound"))
         .await
         .context("northbound server error")?;
     Ok(())

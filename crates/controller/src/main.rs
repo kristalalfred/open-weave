@@ -518,18 +518,7 @@ async fn tick_every(state: &AppState, interval: Duration) -> Infallible {
 }
 
 async fn shutdown() -> Result<()> {
-    #[cfg(unix)]
-    {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .context("waiting for SIGTERM")?;
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => result.context("waiting for shutdown signal")?,
-            _ = terminate.recv() => {}
-        }
-    }
-    #[cfg(not(unix))]
-    tokio::signal::ctrl_c()
+    weave_core::shutdown::signal()
         .await
         .context("waiting for shutdown signal")?;
     tracing::info!("controller shutting down");

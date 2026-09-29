@@ -1162,6 +1162,8 @@ Strom instance, registers it with southbound, polls `/api/flows`, and reports
 Strom flows as observed endpoints. It pulls its node's desired hops from
 southbound and translates them into Strom flow create/start/delete calls.
 
+Stopping the adapter with SIGTERM or Ctrl-C leaves Strom's flows running.
+
 Requests to Strom and to southbound connect within 2 s and fail after 10 s.
 `strom.request_timeout_secs` in the node config changes the 10 s for Strom. A
 Strom that does not answer counts as a failed poll: the node reads `degraded`

@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
     );
 
     tokio::select! {
-        result = tokio::signal::ctrl_c() => {
+        result = weave_core::shutdown::signal() => {
             result.context("waiting for shutdown signal")?;
             tracing::info!("Strom adapter shutting down");
             health_server.abort();
