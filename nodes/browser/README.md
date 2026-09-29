@@ -22,6 +22,17 @@ permission for the browser) leaves `getUserMedia` pending, and a pending request
 blocks every later one in the page, so the choice is made up front rather than
 by falling back.
 
+The page gathers ICE candidates from the browser's own interfaces only. To cross
+NAT, add `&ice=<JSON>`, a URL-encoded array of `RTCIceServer` objects:
+
+```
+#ice=[{"urls":"stun:stun.example:3478"},{"urls":"turn:turn.example:3478","username":"u","credential":"c"}]
+```
+
+The credential is in the URL fragment, so it stays out of server logs. A value
+that is not a JSON array is shown as rejected and the page never registers.
+Without `&ice=` no ICE server is configured.
+
 The page's node id is the one its token names, so a page that restarts keeps its
 name. `&node=<id>` pins the id instead, and must then name the token's id. With
 neither a node token nor a pin, the page generates a `browser-<8 hex>` id per tab,

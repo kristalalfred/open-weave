@@ -3,7 +3,7 @@
 //
 //   node check.mjs --southbound http://host:8081 --token <token> [--page URL]
 //                  [--serve PORT] [--stay] [--headed] [--video-only] [--node ID]
-//                  [--executable PATH]
+//                  [--ice JSON] [--executable PATH]
 //   node check.mjs --check-only
 //
 // --video-only (or WEAVE_BROWSER_MEDIA=video) asks the page for the camera
@@ -93,6 +93,7 @@ tab.on("console", message => console.log(`[page] ${message.text()}`));
 tab.on("pageerror", error => console.log(`[page error] ${error.message}`));
 const videoOnly = args["video-only"] || process.env.WEAVE_BROWSER_MEDIA === "video";
 const media = videoOnly ? "&media=video" : "";
+const iceServers = typeof args.ice === "string" ? `&ice=${encodeURIComponent(args.ice)}` : "";
 const pinned = args.node ? `&node=${encodeURIComponent(args.node)}` : "";
 // GET /nodes still lists a node an earlier run registered, so this run counts
 // only a registration its own page got accepted.
@@ -105,7 +106,7 @@ const registeredHere = tab
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
-await tab.goto(`${page}#southbound=${encodeURIComponent(southbound)}&token=${encodeURIComponent(token)}${media}${pinned}`);
+await tab.goto(`${page}#southbound=${encodeURIComponent(southbound)}&token=${encodeURIComponent(token)}${media}${pinned}${iceServers}`);
 const nodeId = await tab.locator("#node-id").textContent();
 console.log(`page open as ${nodeId}`);
 
@@ -189,6 +190,7 @@ async function checkDeclaredConstants(required) {
   const pageSource = await read(pagePath);
   if (pageSource === null) fail(`cannot read ${pagePath}`);
   checkHopStatusContract(pageSource, pagePath);
+  checkIceServers(pageSource, pagePath);
   const coreSource = await read(corePath);
 
   for (const check of DRIFT_CHECKS) {
@@ -230,6 +232,28 @@ function checkHopStatusContract(source, path) {
     fail(`${path} still reports hop-level directional rates`);
   }
   console.log("browser hop status reports ingress and every identified egress branch");
+}
+
+function checkIceServers(source, path) {
+  const body = /^function parseIceServers\(text\) \{\n([\s\S]*?)\n\}$/m.exec(source)?.[1];
+  if (!body) fail(`${path} does not define parseIceServers()`);
+  const parse = new Function("text", body);
+  const server = [{ urls: ["turn:turn.example:3478"], username: "u", credential: "c" }];
+  for (const [text, want] of [
+    [null, []],
+    ["", []],
+    [JSON.stringify(server), server],
+    ["not json", null],
+    ['{"urls":"stun:x"}', null],
+  ]) {
+    if (JSON.stringify(parse(text)) !== JSON.stringify(want)) {
+      fail(`${path} parseIceServers(${JSON.stringify(text)}) is not ${JSON.stringify(want)}`);
+    }
+  }
+  if (!/new RTCPeerConnection\(\{ iceServers: config\.iceServers \}\)/.test(source)) {
+    fail(`${path} does not pass config.iceServers to RTCPeerConnection`);
+  }
+  console.log("browser ice servers come from the page fragment and reach RTCPeerConnection");
 }
 
 function read(path) {
