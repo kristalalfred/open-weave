@@ -5,7 +5,7 @@ mod flow;
 mod spec;
 mod stats;
 
-pub use client::{StromClient, StromError};
+pub use client::{CONNECT_TIMEOUT, REQUEST_TIMEOUT, StromClient, StromError};
 pub use flow::{FlowListResponse, StromBlock, StromElement, StromFlow};
 pub use spec::{
     Block, Element, FlowSpec, Link, MappingError, SrtUri, flow_spec_from_hop, hop_srt_uris,

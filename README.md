@@ -1162,6 +1162,11 @@ Strom instance, registers it with southbound, polls `/api/flows`, and reports
 Strom flows as observed endpoints. It pulls its node's desired hops from
 southbound and translates them into Strom flow create/start/delete calls.
 
+Requests to Strom and to southbound connect within 2 s and fail after 10 s.
+`strom.request_timeout_secs` in the node config changes the 10 s for Strom. A
+Strom that does not answer counts as a failed poll: the node reads `degraded`
+and the sync loop tries again after the poll interval.
+
 Strom UI/API edits are **drift**, like direct edits to Kubernetes managed
 objects. The source of truth is open-weave desired state; out-of-band Strom
 changes should be reconciled back or explicitly adopted into desired state.

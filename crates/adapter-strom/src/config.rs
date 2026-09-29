@@ -26,10 +26,16 @@ pub struct StromSection {
     pub token: Option<String>,
     #[serde(default = "default_poll_interval_secs")]
     pub poll_interval_secs: u64,
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
 }
 
 fn default_poll_interval_secs() -> u64 {
     5
+}
+
+fn default_request_timeout_secs() -> u64 {
+    weave_strom::REQUEST_TIMEOUT.as_secs()
 }
 
 impl StromSection {
@@ -110,6 +116,7 @@ strom:
         );
         assert_eq!(config.strom.url, "http://172.26.0.10:8080");
         assert_eq!(config.strom.poll_interval_secs, 5);
+        assert_eq!(config.strom.request_timeout_secs, 10);
         assert_eq!(config.node.validate(), Ok(()));
     }
 

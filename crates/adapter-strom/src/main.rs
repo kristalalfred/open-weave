@@ -61,7 +61,11 @@ async fn main() -> Result<()> {
     let southbound = Southbound::new(config.node.southbound_url.clone(), token);
     let strom_token = config.strom.resolve_token();
     let strom_auth = strom_token.is_some();
-    let strom = StromClient::new(&config.strom.url).with_token(strom_token);
+    let strom = StromClient::with_timeout(
+        &config.strom.url,
+        Duration::from_secs(config.strom.request_timeout_secs),
+    )
+    .with_token(strom_token);
     let health_server = spawn_health_server(config.node.listen.clone());
 
     tracing::info!(
@@ -102,7 +106,11 @@ struct Southbound {
 impl Southbound {
     fn new(url: String, token: Option<Token>) -> Self {
         Self {
-            http: Client::new(),
+            http: Client::builder()
+                .connect_timeout(weave_strom::CONNECT_TIMEOUT)
+                .timeout(weave_strom::REQUEST_TIMEOUT)
+                .build()
+                .expect("building the HTTP client"),
             url,
             token,
         }
