@@ -24,6 +24,8 @@ if (!validResourceId(nodeId)) {
   fatal = "node id must be 1–63 lowercase letters, digits, or hyphens and start and end with a letter or digit";
 } else if (tokenOwner && tokenOwner !== nodeId) {
   fatal = `the token belongs to node ${tokenOwner}, not ${nodeId}`;
+} else if (config.iceServers === null) {
+  fatal = "ice must be a JSON array of RTCIceServer objects";
 }
 
 function readConfig() {
@@ -34,7 +36,17 @@ function readConfig() {
     media: params.get("media") === "video" ? { video: true } : { video: true, audio: true },
     node: params.get("node") || "",
     network: params.get("network") || "internet",
+    iceServers: parseIceServers(params.get("ice")),
   };
+}
+
+function parseIceServers(text) {
+  if (!text) return [];
+  try {
+    const servers = JSON.parse(text);
+    if (Array.isArray(servers)) return servers;
+  } catch {}
+  return null;
 }
 
 // A node token is `<node id>.<epoch>.<mac>`, so it names the node it authenticates as.
@@ -308,7 +320,7 @@ class Hop {
   }
 
   newPeerConnection() {
-    const pc = new RTCPeerConnection();
+    const pc = new RTCPeerConnection({ iceServers: config.iceServers });
     pc.onconnectionstatechange = () => {
       if (["failed", "disconnected", "closed"].includes(pc.connectionState) && this.pc === pc) {
         log(`${this.spec.id}: connection ${pc.connectionState}; reconnecting`);
