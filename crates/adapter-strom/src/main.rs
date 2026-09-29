@@ -157,11 +157,23 @@ async fn sync_loop(
     public_endpoint: &str,
 ) -> Result<()> {
     let mut registered = false;
+    let mut strom_checked = false;
     let mut tracker = StallTracker::default();
     let mut last_desired = Vec::new();
     let interval = Duration::from_secs(config.strom.poll_interval_secs);
 
     loop {
+        if !strom_checked {
+            match check_strom_version(strom).await {
+                Ok(()) => strom_checked = true,
+                Err(error) if error.is::<UnsupportedStrom>() => {
+                    tracing::error!(%error, "Strom adapter cannot drive this Strom; exiting");
+                    return Err(error);
+                }
+                Err(error) => tracing::warn!(%error, "Strom version check failed"),
+            }
+        }
+
         match sync_once(
             southbound,
             strom,
@@ -830,6 +842,36 @@ fn whip_input_accepts() -> FormatConstraint {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("Strom {found} is older than {min}, the oldest release this adapter supports")]
+struct UnsupportedStrom {
+    found: String,
+    min: String,
+}
+
+/// Fails with [`UnsupportedStrom`] when Strom reports a version below
+/// [`weave_strom::MIN_VERSION`]. A version string that cannot be read is
+/// logged and let through; a Strom that cannot be asked fails with the request
+/// error so the check runs again on the next poll.
+async fn check_strom_version(strom: &StromClient) -> Result<()> {
+    let found = strom.version().await.context("reading Strom version")?;
+    let (major, minor, patch) = weave_strom::MIN_VERSION;
+    match weave_strom::is_supported(&found) {
+        Some(true) => tracing::info!(strom_version = %found, "Strom version supported"),
+        Some(false) => {
+            return Err(UnsupportedStrom {
+                found,
+                min: format!("{major}.{minor}.{patch}"),
+            }
+            .into());
+        }
+        None => {
+            tracing::warn!(strom_version = %found, "cannot read Strom version; not checking it")
+        }
+    }
+    Ok(())
+}
+
 /// Registration the control plane will never accept, however long this adapter
 /// keeps dialling: a protocol-version mismatch (`409`), or a token that belongs
 /// to another node (`403`). Distinct from a transient failure: the sync loop
@@ -1094,6 +1136,49 @@ mod tests {
             let _ = axum::serve(listener, app).await;
         });
         Southbound::new(format!("http://{addr}"), None)
+    }
+
+    async fn strom_reporting(version: Value) -> StromClient {
+        let app = Router::new().route(
+            "/api/version",
+            get(move || {
+                let version = version.clone();
+                async move { Json(json!({ "version": version })) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        StromClient::new(format!("http://{addr}"))
+    }
+
+    #[tokio::test]
+    async fn a_strom_below_the_minimum_version_is_refused() {
+        let error = check_strom_version(&strom_reporting(json!("0.6.8")).await)
+            .await
+            .expect_err("too old");
+
+        assert!(error.is::<UnsupportedStrom>());
+        assert!(error.to_string().contains("0.6.8"));
+    }
+
+    #[tokio::test]
+    async fn a_supported_or_unreadable_strom_version_passes() {
+        for version in ["0.6.9", "0.6.10", "not-a-version"] {
+            let strom = strom_reporting(json!(version)).await;
+            assert!(check_strom_version(&strom).await.is_ok(), "{version}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_strom_that_cannot_be_asked_is_not_a_refusal() {
+        let strom = StromClient::new("http://127.0.0.1:1");
+
+        let error = check_strom_version(&strom).await.expect_err("unreachable");
+
+        assert!(!error.is::<UnsupportedStrom>());
     }
 
     #[tokio::test]

@@ -122,6 +122,16 @@ impl StromClient {
         Ok(())
     }
 
+    /// The `version` Strom reports at `GET /api/version`.
+    pub async fn version(&self) -> Result<String, StromError> {
+        let response = self
+            .request(Method::GET, "/api/version")
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(response.json::<VersionResponse>().await?.version)
+    }
+
     pub async fn srt_stats(&self, id: &str) -> Result<Value, StromError> {
         self.flow_stats(id, "srt-stats").await
     }
@@ -138,6 +148,11 @@ impl StromClient {
             .error_for_status()?;
         Ok(response.json::<Value>().await?)
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct VersionResponse {
+    version: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,6 +211,27 @@ mod tests {
             captured.lock().unwrap().as_deref(),
             Some("Bearer strom-secret")
         );
+    }
+
+    #[tokio::test]
+    async fn reads_the_version_field_of_api_version() {
+        use axum::{Json, Router, routing::get};
+
+        let app = Router::new().route(
+            "/api/version",
+            get(|| async {
+                Json(serde_json::json!({ "version": "0.6.10", "git_hash": "abc", "in_docker": true }))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let version = StromClient::new(url).version().await.expect("version");
+
+        assert_eq!(version, "0.6.10");
     }
 
     #[tokio::test]

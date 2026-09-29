@@ -1162,6 +1162,11 @@ Strom instance, registers it with southbound, polls `/api/flows`, and reports
 Strom flows as observed endpoints. It pulls its node's desired hops from
 southbound and translates them into Strom flow create/start/delete calls.
 
+The adapter needs Strom 0.6.9 or later. It reads `GET /api/version` and exits
+with an error when the version is lower. A Strom that does not answer, or a
+version string it cannot read, does not stop the adapter; the first is asked
+again on the next poll.
+
 Stopping the adapter with SIGTERM or Ctrl-C leaves Strom's flows running.
 
 Requests to Strom and to southbound connect within 2 s and fail after 10 s.
