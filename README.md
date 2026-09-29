@@ -1170,6 +1170,18 @@ Strom instance, registers it with southbound, polls `/api/flows`, and reports
 Strom flows as observed endpoints. It pulls its node's desired hops from
 southbound and translates them into Strom flow create/start/delete calls.
 
+The adapter needs Strom 0.6.9 or later. It reads `GET /api/version` and exits
+with an error when the version is lower. A Strom that does not answer, or a
+version string it cannot read, does not stop the adapter; the first is asked
+again on the next poll.
+
+Stopping the adapter with SIGTERM or Ctrl-C leaves Strom's flows running.
+
+Requests to Strom and to southbound connect within 2 s and fail after 10 s.
+`strom.request_timeout_secs` in the node config changes the 10 s for Strom. A
+Strom that does not answer counts as a failed poll: the node reads `degraded`
+and the sync loop tries again after the poll interval.
+
 Strom UI/API edits are **drift**, like direct edits to Kubernetes managed
 objects. The source of truth is open-weave desired state; out-of-band Strom
 changes should be reconciled back or explicitly adopted into desired state.
@@ -1206,6 +1218,12 @@ not. The bytes are followed per session, so a session that ends beside a live
 one does not read as a drop. Over either transport, a socket that carried media
 and whose bytes have not moved for three polls is `stalled`, whether its peer is
 still connected or gone, and the stream reads `degraded`.
+
+## Logging
+
+Every binary logs to standard output. `RUST_LOG` sets the level and defaults to `info`.
+Set `WEAVE_LOG_FORMAT=json` for one JSON object per line; any other value, or
+none, keeps the text format.
 
 ## Quickstart
 

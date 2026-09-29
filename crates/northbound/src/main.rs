@@ -14,7 +14,6 @@ use axum::{
     routing::get,
 };
 use serde_json::{Value, json};
-use tracing_subscriber::EnvFilter;
 use weave_core::auth::{self, Guard, Token, require_bearer};
 use weave_core::upstream::{Answer, Controllers};
 use weave_core::{
@@ -44,11 +43,7 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    weave_core::logging::init();
 
     let addr = std::env::var("WEAVE_NORTHBOUND_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
     let controllers = Controllers::from_env()?;
@@ -69,6 +64,7 @@ async fn main() -> Result<()> {
     tracing::info!(%addr, controllers = %controller_urls, "northbound API listening");
 
     axum::serve(listener, app)
+        .with_graceful_shutdown(weave_core::shutdown::graceful("northbound"))
         .await
         .context("northbound server error")?;
     Ok(())

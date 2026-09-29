@@ -12,7 +12,6 @@ use clap::Parser;
 use reqwest::{Client, RequestBuilder, StatusCode};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
-use tracing_subscriber::EnvFilter;
 use weave_core::auth::{self, Token};
 use weave_core::{
     AdapterDescriptor, AdapterKind, AudioCodec, AudioConstraint, DesiredHop, EgressStatus,
@@ -46,11 +45,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    weave_core::logging::init();
 
     let args = Args::parse();
     let config = AdapterConfig::load(&args.config)?;
@@ -66,7 +61,11 @@ async fn main() -> Result<()> {
     let southbound = Southbound::new(config.node.southbound_url.clone(), token);
     let strom_token = config.strom.resolve_token();
     let strom_auth = strom_token.is_some();
-    let strom = StromClient::new(&config.strom.url).with_token(strom_token);
+    let strom = StromClient::with_timeout(
+        &config.strom.url,
+        Duration::from_secs(config.strom.request_timeout_secs),
+    )
+    .with_token(strom_token);
     let health_server = spawn_health_server(config.node.listen.clone());
 
     tracing::info!(
@@ -80,7 +79,7 @@ async fn main() -> Result<()> {
     );
 
     tokio::select! {
-        result = tokio::signal::ctrl_c() => {
+        result = weave_core::shutdown::signal() => {
             result.context("waiting for shutdown signal")?;
             tracing::info!("Strom adapter shutting down");
             health_server.abort();
@@ -107,7 +106,11 @@ struct Southbound {
 impl Southbound {
     fn new(url: String, token: Option<Token>) -> Self {
         Self {
-            http: Client::new(),
+            http: Client::builder()
+                .connect_timeout(weave_strom::CONNECT_TIMEOUT)
+                .timeout(weave_strom::REQUEST_TIMEOUT)
+                .build()
+                .expect("building the HTTP client"),
             url,
             token,
         }
@@ -154,11 +157,23 @@ async fn sync_loop(
     public_endpoint: &str,
 ) -> Result<()> {
     let mut registered = false;
+    let mut strom_checked = false;
     let mut tracker = StallTracker::default();
     let mut last_desired = Vec::new();
     let interval = Duration::from_secs(config.strom.poll_interval_secs);
 
     loop {
+        if !strom_checked {
+            match check_strom_version(strom).await {
+                Ok(()) => strom_checked = true,
+                Err(error) if error.is::<UnsupportedStrom>() => {
+                    tracing::error!(%error, "Strom adapter cannot drive this Strom; exiting");
+                    return Err(error);
+                }
+                Err(error) => tracing::warn!(%error, "Strom version check failed"),
+            }
+        }
+
         match sync_once(
             southbound,
             strom,
@@ -827,6 +842,36 @@ fn whip_input_accepts() -> FormatConstraint {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("Strom {found} is older than {min}, the oldest release this adapter supports")]
+struct UnsupportedStrom {
+    found: String,
+    min: String,
+}
+
+/// Fails with [`UnsupportedStrom`] when Strom reports a version below
+/// [`weave_strom::MIN_VERSION`]. A version string that cannot be read is
+/// logged and let through; a Strom that cannot be asked fails with the request
+/// error so the check runs again on the next poll.
+async fn check_strom_version(strom: &StromClient) -> Result<()> {
+    let found = strom.version().await.context("reading Strom version")?;
+    let (major, minor, patch) = weave_strom::MIN_VERSION;
+    match weave_strom::is_supported(&found) {
+        Some(true) => tracing::info!(strom_version = %found, "Strom version supported"),
+        Some(false) => {
+            return Err(UnsupportedStrom {
+                found,
+                min: format!("{major}.{minor}.{patch}"),
+            }
+            .into());
+        }
+        None => {
+            tracing::warn!(strom_version = %found, "cannot read Strom version; not checking it")
+        }
+    }
+    Ok(())
+}
+
 /// Registration the control plane will never accept, however long this adapter
 /// keeps dialling: a protocol-version mismatch (`409`), or a token that belongs
 /// to another node (`403`). Distinct from a transient failure: the sync loop
@@ -1091,6 +1136,49 @@ mod tests {
             let _ = axum::serve(listener, app).await;
         });
         Southbound::new(format!("http://{addr}"), None)
+    }
+
+    async fn strom_reporting(version: Value) -> StromClient {
+        let app = Router::new().route(
+            "/api/version",
+            get(move || {
+                let version = version.clone();
+                async move { Json(json!({ "version": version })) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        StromClient::new(format!("http://{addr}"))
+    }
+
+    #[tokio::test]
+    async fn a_strom_below_the_minimum_version_is_refused() {
+        let error = check_strom_version(&strom_reporting(json!("0.6.8")).await)
+            .await
+            .expect_err("too old");
+
+        assert!(error.is::<UnsupportedStrom>());
+        assert!(error.to_string().contains("0.6.8"));
+    }
+
+    #[tokio::test]
+    async fn a_supported_or_unreadable_strom_version_passes() {
+        for version in ["0.6.9", "0.6.10", "not-a-version"] {
+            let strom = strom_reporting(json!(version)).await;
+            assert!(check_strom_version(&strom).await.is_ok(), "{version}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_strom_that_cannot_be_asked_is_not_a_refusal() {
+        let strom = StromClient::new("http://127.0.0.1:1");
+
+        let error = check_strom_version(&strom).await.expect_err("unreachable");
+
+        assert!(!error.is::<UnsupportedStrom>());
     }
 
     #[tokio::test]

@@ -1,5 +1,7 @@
 //! Async HTTP client for Strom's flow API.
 
+use std::time::Duration;
+
 use reqwest::{Method, RequestBuilder};
 use serde::Deserialize;
 use serde_json::Value;
@@ -7,6 +9,10 @@ use weave_core::auth::Token;
 
 use crate::flow::{FlowListResponse, StromFlow};
 use crate::spec::{FlowSpec, MappingError};
+
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a request may take in all, answer included.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
 pub enum StromError {
@@ -26,7 +32,19 @@ pub struct StromClient {
 impl StromClient {
     #[must_use]
     pub fn new(base_url: impl Into<String>) -> Self {
-        Self::with_client(base_url, reqwest::Client::new())
+        Self::with_timeout(base_url, REQUEST_TIMEOUT)
+    }
+
+    /// A client whose requests fail after `timeout` and whose connections fail
+    /// after [`CONNECT_TIMEOUT`].
+    #[must_use]
+    pub fn with_timeout(base_url: impl Into<String>, timeout: Duration) -> Self {
+        let http = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(timeout)
+            .build()
+            .expect("building the HTTP client");
+        Self::with_client(base_url, http)
     }
 
     #[must_use]
@@ -104,6 +122,16 @@ impl StromClient {
         Ok(())
     }
 
+    /// The `version` Strom reports at `GET /api/version`.
+    pub async fn version(&self) -> Result<String, StromError> {
+        let response = self
+            .request(Method::GET, "/api/version")
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(response.json::<VersionResponse>().await?.version)
+    }
+
     pub async fn srt_stats(&self, id: &str) -> Result<Value, StromError> {
         self.flow_stats(id, "srt-stats").await
     }
@@ -120,6 +148,11 @@ impl StromClient {
             .error_for_status()?;
         Ok(response.json::<Value>().await?)
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct VersionResponse {
+    version: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -178,6 +211,39 @@ mod tests {
             captured.lock().unwrap().as_deref(),
             Some("Bearer strom-secret")
         );
+    }
+
+    #[tokio::test]
+    async fn reads_the_version_field_of_api_version() {
+        use axum::{Json, Router, routing::get};
+
+        let app = Router::new().route(
+            "/api/version",
+            get(|| async {
+                Json(serde_json::json!({ "version": "0.6.10", "git_hash": "abc", "in_docker": true }))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let version = StromClient::new(url).version().await.expect("version");
+
+        assert_eq!(version, "0.6.10");
+    }
+
+    #[tokio::test]
+    async fn a_strom_that_never_answers_times_out() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let client = StromClient::with_timeout(url, Duration::from_millis(200));
+
+        let error = client.list_flows().await.expect_err("no answer");
+
+        assert!(matches!(error, StromError::Request(source) if source.is_timeout()));
+        drop(listener);
     }
 
     #[tokio::test]

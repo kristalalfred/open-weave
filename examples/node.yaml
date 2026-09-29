@@ -34,3 +34,5 @@ strom:
   # token: <token>
   # Optional; seconds between Strom observation polls. Defaults to 5.
   poll_interval_secs: 5
+  # Optional; seconds a request to Strom may take before it fails. Defaults to 10.
+  # request_timeout_secs: 10
