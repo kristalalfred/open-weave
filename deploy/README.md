@@ -108,11 +108,9 @@ The adapter heartbeats and polls Strom every `strom.poll_interval_secs` from
 
 ### Shutdown
 
-The image starts every service under `tini`, so SIGTERM reaches it. The
-controller handles SIGTERM and gives up its lease. Northbound and southbound
-install no signal handler, and the adapter handles SIGINT only, so on SIGTERM
-they exit through the default action. `docker stop` of a test container running
-`weave-northbound` returned in under a second with exit code 143.
+The image starts every service under `tini`, so SIGTERM reaches it. Every
+service handles SIGTERM and Ctrl-C and exits 0. The controller gives up its
+lease. Draining an in-flight request on shutdown has not been tested.
 
 ## Node kit
 
