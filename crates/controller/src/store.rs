@@ -63,7 +63,14 @@ pub enum StoreError {
     DuplicateStreamName { name: String },
     #[error("this controller does not hold the controller lease")]
     NotLeader,
+    #[error(
+        "database schema is at version {found}; this controller supports version {supported}. \
+         Run a controller release that supports version {found}, or point DATABASE_URL at another database"
+    )]
+    SchemaVersion { found: i32, supported: i32 },
 }
+
+const SCHEMA_VERSION: i32 = 1;
 
 fn positive_counter(value: i64, field: &'static str) -> Result<u64, StoreError> {
     if value <= 0 {
@@ -155,7 +162,7 @@ pub struct LeaseTerm {
     pub started_micros: u64,
 }
 
-/// Postgres-backed store with its schema created idempotently on connect.
+/// Postgres-backed store. Connecting creates the schema and records its version, or refuses a database at another version.
 ///
 /// The store [`PgStore::connect`] returns takes and holds the lease and writes
 /// nothing. Writes go through [`PgStore::for_term`], one handle per term.
@@ -211,6 +218,29 @@ impl PgStore {
             .execute(&mut *transaction)
             .await
             .map_err(StoreError::Query)?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS schema_version (
+               id BOOLEAN PRIMARY KEY CHECK (id),
+               version INTEGER NOT NULL
+             )",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(StoreError::Query)?;
+        let recorded: Option<i32> =
+            sqlx::query_scalar("SELECT version FROM schema_version WHERE id")
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(StoreError::Query)?;
+        if let Some(found) = recorded {
+            if found != SCHEMA_VERSION {
+                return Err(StoreError::SchemaVersion {
+                    found,
+                    supported: SCHEMA_VERSION,
+                });
+            }
+            return Ok(());
+        }
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS streams (name TEXT PRIMARY KEY, definition JSONB NOT NULL)",
         )
@@ -297,6 +327,11 @@ impl PgStore {
         .execute(&mut *transaction)
         .await
         .map_err(StoreError::Query)?;
+        sqlx::query("INSERT INTO schema_version (id, version) VALUES (TRUE, $1)")
+            .bind(SCHEMA_VERSION)
+            .execute(&mut *transaction)
+            .await
+            .map_err(StoreError::Query)?;
         transaction.commit().await.map_err(StoreError::Query)?;
         Ok(())
     }
@@ -1838,6 +1873,89 @@ pub(crate) mod tests {
         admin.close().await;
         let (server, _) = url.rsplit_once('/').expect("DATABASE_URL names a database");
         format!("{server}/{name}")
+    }
+
+    async fn recorded_version(url: &str) -> i32 {
+        let pool = sqlx::PgPool::connect(url).await.expect("connect");
+        let version = sqlx::query_scalar("SELECT version FROM schema_version WHERE id")
+            .fetch_one(&pool)
+            .await
+            .expect("version row");
+        pool.close().await;
+        version
+    }
+
+    async fn run_sql(url: &str, statement: &str) {
+        let pool = sqlx::PgPool::connect(url).await.expect("connect");
+        sqlx::query(statement).execute(&pool).await.expect("sql");
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn a_fresh_database_is_stamped_at_the_current_version() {
+        let url = fresh_database().await;
+        PgStore::connect(&url).await.expect("connect");
+        assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
+        PgStore::connect(&url).await.expect("connect again");
+        assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn an_unversioned_database_is_stamped_and_keeps_its_data() {
+        let url = fresh_database().await;
+        let store = leading_pg_store(&url).await;
+        store
+            .create_stream(&stream("kept"))
+            .await
+            .expect("create stream");
+        store
+            .upsert_node(&registration("kept-node"))
+            .await
+            .expect("upsert node");
+        run_sql(&url, "DROP TABLE schema_version").await;
+
+        PgStore::connect(&url).await.expect("connect");
+        assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
+        assert!(
+            store
+                .load_streams()
+                .await
+                .expect("load streams")
+                .iter()
+                .any(|s| s.spec.name == "kept")
+        );
+        assert!(
+            store
+                .load_nodes()
+                .await
+                .expect("load nodes")
+                .iter()
+                .any(|n| n.node.id == "kept-node")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn a_newer_or_unknown_schema_version_is_refused() {
+        for version in [SCHEMA_VERSION + 1, 0] {
+            let url = fresh_database().await;
+            PgStore::connect(&url).await.expect("connect");
+            run_sql(
+                &url,
+                &format!("UPDATE schema_version SET version = {version}"),
+            )
+            .await;
+            match PgStore::connect(&url).await {
+                Err(StoreError::SchemaVersion { found, supported }) => {
+                    assert_eq!(found, version);
+                    assert_eq!(supported, SCHEMA_VERSION);
+                }
+                other => panic!("expected SchemaVersion, got {:?}", other.err()),
+            }
+            assert_eq!(recorded_version(&url).await, version);
+        }
     }
 
     /// A handle for the term of a lease taken for a minute.

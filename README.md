@@ -822,6 +822,14 @@ controller.
   its flows; with another southbound key it refuses every node's token; with
   other minimum epochs it accepts tokens the old leader refused, or the reverse.
 - Postgres is one instance. While no controller can reach it, none leads.
+- The database records a schema version in the `schema_version` table. A
+  controller connecting to an empty database creates the tables and records the
+  version it supports, currently `1`. A database from a release that predates
+  the record has the tables and no version; the controller records `1` and
+  leaves the data as it is. A database at any other version, newer or older, is
+  refused at startup with an error naming both versions, and nothing in it
+  changes. No release has changed the schema since version `1`, so there is no
+  migration between versions yet.
 
 Northbound and southbound take every controller in `WEAVE_CONTROLLER_URL`,
 comma-separated; unset means `http://127.0.0.1:8082`. Each entry needs an
