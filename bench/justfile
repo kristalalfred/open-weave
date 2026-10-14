@@ -48,7 +48,7 @@ default:
 # Build images and bring the whole stack up, then wait for it to be healthy.
 [group("stack")]
 up:
-    {{compose}} build
+    {{compose}} build controller
     {{compose}} up -d
     @just wait
 
@@ -651,3 +651,7 @@ netem-clear node:
 [group("impairment")]
 netem-show node:
     bash {{scripts}}/netem.sh {{node}} show
+
+[group("tests")]
+e2e *ARGS:
+    cargo run -p weave-bench -- {{ARGS}}

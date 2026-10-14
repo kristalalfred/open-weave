@@ -1,0 +1,43 @@
+name: fanout
+description: Losing one receiver degrades its branch while the other keeps decoding.
+steps:
+  - do: apply
+    file: ../manifests/fanout.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: flows
+    stream: main
+    nodes: {strom-node-1: 2, strom-node-2: 1}
+  - do: observe
+    receivers: [main/preview, main/studio]
+    seconds: 10
+  - do: observe
+    receivers: [main/preview]
+    seconds: 20
+    during:
+      - do: consumer
+        receiver: main/studio
+        running: false
+      - do: await
+        stream: main
+        destination: studio
+        status: degraded
+      - do: await
+        stream: main
+        destination: preview
+        status: flowing
+  - do: consumer
+    receiver: main/studio
+    running: true
+  - do: await
+    stream: main
+    status: flowing
+  - do: observe
+    receivers: [main/preview, main/studio]
+    seconds: 10
+  - do: delete
+    stream: main

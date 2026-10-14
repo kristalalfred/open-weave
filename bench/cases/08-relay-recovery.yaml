@@ -1,0 +1,50 @@
+name: relay-recovery
+description: Two NAT sites recover through another relay and keep it when the old relay returns.
+steps:
+  - do: apply
+    file: ../manifests/nat-transit.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+    nodes: [strom-node-3, strom-node-1, strom-node-4]
+  - do: flows
+    stream: main
+    nodes: {strom-node-1: 1, strom-node-3: 1, strom-node-4: 1}
+  - do: service
+    service: adapter-1
+    action: stop
+  - do: service
+    service: strom-1
+    action: stop
+  - do: await
+    stream: main
+    status: flowing
+    nodes: [strom-node-3, strom-node-2, strom-node-4]
+    timeout_secs: 90
+  - do: flows
+    stream: main
+    nodes: {strom-node-2: 1, strom-node-3: 1, strom-node-4: 1}
+  - do: snapshot
+    stream: main
+    as_name: recovered
+  - do: observe
+    receivers: [main/output]
+    seconds: 30
+    during:
+      - do: service
+        service: strom-1
+        action: start
+      - do: service
+        service: adapter-1
+        action: start
+  - do: await
+    stream: main
+    status: flowing
+    nodes: [strom-node-3, strom-node-2, strom-node-4]
+  - do: unchanged
+    snapshot: recovered
+  - do: delete
+    stream: main

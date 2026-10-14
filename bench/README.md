@@ -4,7 +4,8 @@ A full-system docker-compose stack: the three control-plane services, a
 Postgres, and four Strom media nodes each sitting behind its own emulated
 router, so any node's network can be impaired with `netem`. The Stroms run
 `eyevinntechnology/strom:0.6.10`. It starts **empty**
-— you drive it with stream manifests and watch what the control plane does.
+and the interactive recipes and automated scenarios apply stream manifests and
+drive media through it.
 
 This is where open-weave is verified. If you want to see the system work, start
 here.
@@ -57,6 +58,74 @@ just bench down                # tear down containers, networks, volumes
 ```
 
 `just bench` on its own lists every recipe, grouped.
+
+## Automated media tests
+
+Start an empty bench, then run the corpus:
+
+```sh
+just bench up
+just bench e2e list
+just bench e2e check
+just bench e2e run
+just bench e2e run 02-fanout 08-relay-recovery
+just bench e2e schema
+```
+
+The Rust runner reads YAML cases in `cases/`. It gives each stream its own
+producer and one consumer per destination, so several streams can carry media
+at once. Peers on the core network reach nodes through their routers. Peers at
+NAT sites run inside that site's network. The route manager installs their
+routes from bench labels, without adding routes into NAT sites.
+
+Each consumer decodes video and audio. `await` requires fresh decoded media
+when the requested status is `flowing`. `observe` checks video and audio
+progress throughout its window, including while its `during` actions execute.
+It fails on gaps above `max_gap_ms` or receiver restarts above `max_restarts`.
+Defaults are 3000 ms and zero restarts. These are sampled decoder measurements.
+They do not measure packet loss, picture quality, or delivery of the correct feed.
+
+Cases use these actions:
+
+| Action | Inputs and check |
+|---|---|
+| `apply` | `file` relative to the case; `stream` is a case-local alias. |
+| `drive` | Start a producer and all destination consumers for `stream`. |
+| `producer`, `consumer` | Set `running` for a stream's producer or a `receiver` such as `main/output`. |
+| `await` | Wait for `status`, optional `destination` and `nodes`, within `timeout_secs` (default 90). |
+| `flows` | Require running hop counts in `nodes`; omitted nodes must have zero. |
+| `observe` | Watch `receivers` for at least `seconds`; also watch until every `during` action finishes. |
+| `service` | `stop`, `start`, `restart`, or `kill` a bench control service, adapter, or Strom; `leader` selects the current controller leader. |
+| `netem`, `clear_netem` | Apply individual `tc` tokens in `args`, or clear them, on `node1` through `node4`. |
+| `snapshot`, `unchanged` | Capture a stream's ETag, generation, and runtime flow identities with `as_name`; compare using `snapshot`. |
+| `delete` | Remove endpoints and the stream; wait for its managed flows to disappear. |
+| `wait` | Wait `seconds` within a sequence or observation. |
+
+Copy an existing case and change its steps to add a test. `schema` prints the
+JSON Schema for the case format. `check` validates cases and their manifests
+without needing Docker. Unknown actions and fields are errors.
+
+A run requires the bench services to be running, all four media nodes ready,
+no streams or managed flows, and no existing router impairment. Runs are
+serialized with `bench/.e2e.lock`. The runner removes its streams and endpoint
+containers, clears its impairments, and starts services it touched after
+success, failure, Ctrl-C, or SIGTERM. A failed cleanup makes the run fail.
+SIGKILL cannot run cleanup; check for leftover resources before removing a stale
+lock.
+
+Results go to `bench/results/<run>/`: each case has a timestamped JSONL timeline,
+a result, its YAML, and service logs. The run has `summary.json`. The timeline
+includes API observations, Strom statistics, and decoder progress. SRT
+passphrases are redacted. The media image is pinned by digest, and its identity
+is recorded; `--media-image` overrides it. The runner pulls it when absent.
+
+The initial corpus covers direct links, fan-out, concurrent feeds, controller
+failover, source reconnects, delay/loss, site partitions, relay replacement,
+encrypted endpoints, southbound outages, and a media runtime restart. Its
+external peers use SRT and require both video and audio. Browser, external
+WHIP/WHEP, and RIST-specific cases are not in this corpus. Router impairment
+affects control traffic as well as media. The Media bench CI job runs the corpus
+and uploads results, including on failure.
 
 ## Stream manifests
 
@@ -118,7 +187,8 @@ just bench stream-wait basic flowing   # poll the controller until a status is r
 ```
 
 The `producer`, `consumer`, and `consumer-2` containers are **singletons**, so
-only one stream can be driven with media at a time. `stream-up <other>`
+the interactive recipes drive one stream with media at a time. The automated
+runner has separate endpoints for each stream. `stream-up <other>`
 re-points them, and the previously driven stream loses its source — it reports
 `degraded` (a path that was flowing and went quiet is a fault, distinct from one
 that never received input, which is `awaiting_input`). Applying several streams

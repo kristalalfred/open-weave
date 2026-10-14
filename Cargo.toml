@@ -8,6 +8,7 @@ members = [
     "crates/controller",
     "crates/adapter-strom",
     "crates/strom",
+    "crates/bench",
 ]
 
 [workspace.package]

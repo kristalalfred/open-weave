@@ -1,0 +1,33 @@
+name: southbound-outage
+description: Existing media survives a southbound outage and adapters reconnect.
+steps:
+  - do: apply
+    file: ../manifests/basic.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: snapshot
+    stream: main
+    as_name: established
+  - do: observe
+    receivers: [main/output]
+    seconds: 30
+    during:
+      - do: service
+        service: southbound
+        action: stop
+      - do: wait
+        seconds: 20
+      - do: service
+        service: southbound
+        action: start
+      - do: await
+        stream: main
+        status: flowing
+  - do: unchanged
+    snapshot: established
+  - do: delete
+    stream: main

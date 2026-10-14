@@ -288,6 +288,10 @@ async fn sync_once(
 /// Minimal Strom flow operations the reconciler needs, behind a trait so
 /// provisioning order stays testable with a recording fake.
 #[async_trait::async_trait]
+#[allow(
+    clippy::double_must_use,
+    reason = "async_trait emits must_use on futures"
+)]
 trait FlowApi {
     async fn list_flows(&self) -> Result<Vec<StromFlow>, StromError>;
     async fn create_flow(&self, spec: &FlowSpec) -> Result<String, StromError>;

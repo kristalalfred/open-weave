@@ -1,0 +1,29 @@
+name: partition-recovery
+description: A site partition is reported and decoded media recovers when cleared.
+steps:
+  - do: apply
+    file: ../manifests/basic.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: netem
+    node: node2
+    args: [loss, "100%"]
+  - do: await
+    stream: main
+    status: degraded
+    timeout_secs: 60
+  - do: clear_netem
+    node: node2
+  - do: await
+    stream: main
+    status: flowing
+    timeout_secs: 90
+  - do: observe
+    receivers: [main/output]
+    seconds: 15
+  - do: delete
+    stream: main

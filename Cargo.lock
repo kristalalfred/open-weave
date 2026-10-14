@@ -2503,6 +2503,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "weave-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "reqwest",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "tokio",
+ "weave-core",
+ "weave-strom",
+]
+
+[[package]]
 name = "weave-cli"
 version = "0.1.0"
 dependencies = [

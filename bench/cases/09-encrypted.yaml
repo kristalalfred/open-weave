@@ -1,0 +1,16 @@
+name: encrypted
+description: Keyed ingress and output deliver decoded media through the inter-node link.
+steps:
+  - do: apply
+    file: ../manifests/encrypted.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: observe
+    receivers: [main/output]
+    seconds: 15
+  - do: delete
+    stream: main

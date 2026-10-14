@@ -1,0 +1,29 @@
+name: basic
+description: Direct contribution decodes continuously and a no-op apply preserves flows.
+steps:
+  - do: apply
+    file: ../manifests/basic.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+    nodes: [strom-node-1, strom-node-2]
+  - do: flows
+    stream: main
+    nodes: {strom-node-1: 1, strom-node-2: 1}
+  - do: snapshot
+    stream: main
+    as_name: established
+  - do: observe
+    receivers: [main/output]
+    seconds: 15
+    during:
+      - do: apply
+        file: ../manifests/basic.yaml
+        stream: main
+  - do: unchanged
+    snapshot: established
+  - do: delete
+    stream: main

@@ -92,5 +92,17 @@ while :; do
   for c in $node2_containers; do assert_routes "$c" $node2_routes; done
   for c in $node3_containers; do assert_routes "$c" $node3_routes; done
   for c in $node4_containers; do assert_routes "$c" $node4_routes; done
+  while read -r name site; do
+    case "$site" in
+      core) assert_routes "$name" $core_routes ;;
+      node1) assert_routes "$name" $node1_routes ;;
+      node2) assert_routes "$name" $node2_routes ;;
+      node3) assert_routes "$name" $node3_routes ;;
+      node4) assert_routes "$name" $node4_routes ;;
+    esac
+  done < <(curl -s --unix-socket "$sock" --get \
+    --data-urlencode 'filters={"label":["open-weave.bench.site","open-weave.bench.project=ow-bench"]}' \
+    http://localhost/containers/json | \
+    jq -r '.[] | [.Id, .Labels["open-weave.bench.site"]] | @tsv')
   sleep "$interval"
 done

@@ -1,0 +1,26 @@
+name: runtime-recovery
+description: A receiver runtime restart rebuilds its flows and decoded media returns.
+steps:
+  - do: apply
+    file: ../manifests/basic.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: service
+    service: strom-2
+    action: restart
+  - do: await
+    stream: main
+    status: flowing
+    timeout_secs: 90
+  - do: flows
+    stream: main
+    nodes: {strom-node-1: 1, strom-node-2: 1}
+  - do: observe
+    receivers: [main/output]
+    seconds: 15
+  - do: delete
+    stream: main

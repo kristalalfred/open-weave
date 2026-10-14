@@ -1,0 +1,28 @@
+name: controller-failover
+description: Stopping the leader preserves decoded media and flow identities.
+steps:
+  - do: apply
+    file: ../manifests/basic.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: snapshot
+    stream: main
+    as_name: established
+  - do: observe
+    receivers: [main/output]
+    seconds: 30
+    during:
+      - do: service
+        service: leader
+        action: stop
+      - do: await
+        stream: main
+        status: flowing
+  - do: unchanged
+    snapshot: established
+  - do: delete
+    stream: main

@@ -1,0 +1,30 @@
+name: source-recovery
+description: Source loss is reported and decoded media returns after reconnecting.
+steps:
+  - do: apply
+    file: ../manifests/basic.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: producer
+    stream: main
+    running: false
+  - do: await
+    stream: main
+    status: degraded
+    timeout_secs: 45
+  - do: producer
+    stream: main
+    running: true
+  - do: await
+    stream: main
+    status: flowing
+    timeout_secs: 60
+  - do: observe
+    receivers: [main/output]
+    seconds: 15
+  - do: delete
+    stream: main

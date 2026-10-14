@@ -1,0 +1,39 @@
+name: concurrent
+description: Adding and removing a second feed preserves an established stream.
+steps:
+  - do: apply
+    file: ../manifests/basic.yaml
+    stream: first
+  - do: drive
+    stream: first
+  - do: await
+    stream: first
+    status: flowing
+  - do: snapshot
+    stream: first
+    as_name: established
+  - do: observe
+    receivers: [first/output]
+    seconds: 20
+    during:
+      - do: apply
+        file: ../manifests/reverse.yaml
+        stream: second
+      - do: drive
+        stream: second
+      - do: await
+        stream: second
+        status: flowing
+  - do: observe
+    receivers: [first/output, second/output]
+    seconds: 10
+  - do: observe
+    receivers: [first/output]
+    seconds: 10
+    during:
+      - do: delete
+        stream: second
+  - do: unchanged
+    snapshot: established
+  - do: delete
+    stream: first

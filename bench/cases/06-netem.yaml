@@ -1,0 +1,29 @@
+name: netem
+description: SRT carries decodable media through router delay and loss and recovers.
+steps:
+  - do: apply
+    file: ../manifests/basic.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: observe
+    receivers: [main/output]
+    seconds: 20
+    max_gap_ms: 3000
+    during:
+      - do: netem
+        node: node2
+        args: [delay, 40ms, loss, "1%"]
+  - do: clear_netem
+    node: node2
+  - do: await
+    stream: main
+    status: flowing
+  - do: observe
+    receivers: [main/output]
+    seconds: 10
+  - do: delete
+    stream: main

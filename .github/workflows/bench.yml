@@ -1,0 +1,32 @@
+name: Media bench
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  WEAVE_WEBHOOK_URL: ""
+
+jobs:
+  media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked -p weave-bench
+      - run: docker compose -f bench/docker-compose.yml build controller
+      - run: docker compose -f bench/docker-compose.yml up -d --wait --wait-timeout 180
+      - run: docker pull linuxserver/ffmpeg@sha256:abb675ffda7047f42dfba02adcd0886b3abfca6dec332adc4da831de943989ed
+      - run: target/debug/weave-bench run
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-bench-results
+          path: bench/results/
+      - if: always()
+        run: docker compose -f bench/docker-compose.yml --profile producer --profile consumer --profile browser down -v --remove-orphans

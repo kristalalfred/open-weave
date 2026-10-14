@@ -86,6 +86,10 @@ fn database_counter(value: u64, field: &'static str) -> Result<i64, StoreError> 
 /// Durable state access. Everything is written through on change and hydrated
 /// into memory on boot.
 #[async_trait]
+#[allow(
+    clippy::double_must_use,
+    reason = "async_trait emits must_use on futures"
+)]
 pub trait StateStore: Send + Sync {
     async fn load_streams(&self) -> Result<Vec<StoredStream>, StoreError>;
     async fn load_stream_sets(&self) -> Result<Vec<StoredStreamSet>, StoreError>;
