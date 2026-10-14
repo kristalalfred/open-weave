@@ -1,4 +1,5 @@
 mod media;
+mod output;
 mod report;
 mod runtime;
 mod scenario;
@@ -11,6 +12,7 @@ use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
+use output::{CaseOutput, ProgressMode};
 use report::{Report, write_json};
 use runtime::Bench;
 use scenario::Scenario;
@@ -56,6 +58,8 @@ enum Action {
         cases: Vec<PathBuf>,
         #[arg(long)]
         results: Option<PathBuf>,
+        #[arg(long, value_enum, default_value_t = ProgressMode::Auto, help = "Live terminal progress, plain log progress, or result lines only")]
+        progress: ProgressMode,
     },
 }
 
@@ -142,7 +146,10 @@ async fn main() -> Result<()> {
         }
         return Ok(());
     }
-    let Action::Run { results, .. } = cli.command else {
+    let Action::Run {
+        results, progress, ..
+    } = cli.command
+    else {
         unreachable!()
     };
     let _lock = Lock::acquire(&cli.bench)?;
@@ -155,11 +162,22 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&directory)?;
     let mut outcomes = Vec::new();
     let mut interrupted = false;
+    let case_count = cases.len();
+    let run_started = Instant::now();
     for (index, (path, scenario)) in cases.into_iter().enumerate() {
         let started = Instant::now();
         let case_dir = directory.join(&scenario.name);
-        let report = Report::new(&case_dir)?;
         let prefix = format!("e2e-{}-{index}", std::process::id());
+        let mut output = CaseOutput::new(
+            &scenario.name,
+            &prefix,
+            index + 1,
+            case_count,
+            &scenario.steps,
+            progress,
+        )?;
+        let display = output.progress();
+        let report = Report::new(&case_dir)?.with_observer(display.clone());
         let mut bench = Bench::new(
             cli.bench.clone(),
             cli.url.clone(),
@@ -168,14 +186,24 @@ async fn main() -> Result<()> {
             prefix,
             report.clone(),
         )?;
-        println!("RUN  {}", scenario.name);
         std::fs::copy(&path, case_dir.join("scenario.yaml"))?;
-        if let Err(error) = bench.preflight().await {
+        let preflight = tokio::select! {
+            result = bench.preflight() => result,
+            _ = tokio::signal::ctrl_c() => {
+                interrupted = true;
+                Err(anyhow::anyhow!("interrupted during preflight"))
+            }
+            _ = terminate() => {
+                interrupted = true;
+                Err(anyhow::anyhow!("terminated during preflight"))
+            }
+        };
+        if let Err(error) = preflight {
             let outcome = json!({"name": scenario.name, "passed": false, "preflight_error": format!("{error:#}")});
             report.event("result", &outcome)?;
             write_json(&case_dir.join("result.json"), &outcome)?;
+            output.finish(&outcome)?;
             outcomes.push(outcome);
-            eprintln!("FAIL {} preflight: {error:#}", scenario.name);
             break;
         }
         let sampler = runtime::telemetry(&bench);
@@ -191,6 +219,10 @@ async fn main() -> Result<()> {
             }
         };
         let media = bench.media_summary();
+        display.phase("collecting diagnostics", "");
+        if let Err(error) = &result {
+            display.failure(&format!("{error:#}"));
+        }
         let mut diagnostic_errors = Vec::new();
         for service in [
             "controller",
@@ -201,6 +233,7 @@ async fn main() -> Result<()> {
             "adapter-3",
             "adapter-4",
         ] {
+            display.detail(&format!("capturing {service} logs"));
             let capture = async {
                 let logs = runtime::logs(&format!("ow-{service}")).await?;
                 std::fs::write(
@@ -225,15 +258,7 @@ async fn main() -> Result<()> {
         });
         report.event("result", &outcome)?;
         write_json(&case_dir.join("result.json"), &outcome)?;
-        println!(
-            "{} {} ({:.1}s)",
-            if passed { "PASS" } else { "FAIL" },
-            scenario.name,
-            started.elapsed().as_secs_f64()
-        );
-        if let Some(error) = &error {
-            eprintln!("{error}");
-        }
+        output.finish(&outcome)?;
         outcomes.push(outcome);
         if interrupted || cleanup_error.is_some() {
             break;
@@ -244,6 +269,17 @@ async fn main() -> Result<()> {
         &directory.join("summary.json"),
         &json!({"run": run_id, "passed": passed, "cases": outcomes}),
     )?;
+    let passing = outcomes
+        .iter()
+        .filter(|outcome| outcome["passed"] == true)
+        .count();
+    println!(
+        "{} passed, {} failed, {} not run ({:.1}s)",
+        passing,
+        outcomes.len() - passing,
+        case_count - outcomes.len(),
+        run_started.elapsed().as_secs_f64()
+    );
     println!("Reports: {}", directory.display());
     if !passed {
         bail!("bench scenarios failed");

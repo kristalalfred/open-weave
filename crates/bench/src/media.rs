@@ -59,6 +59,19 @@ pub struct Progress {
 }
 
 impl Progress {
+    fn diagnostics(&self, receiver: &str, now: Instant) -> serde_json::Value {
+        json!({
+            "receiver": receiver,
+            "frames": self.total_frames,
+            "audio_samples": self.audio_samples,
+            "attempts": self.attempts,
+            "video_idle_ms": self.last_advance.map(|last| now.duration_since(last).as_millis()),
+            "audio_idle_ms": self.last_audio_advance.map(|last| now.duration_since(last).as_millis()),
+            "ended": self.ended,
+            "observer_error": self.error,
+        })
+    }
+
     pub fn line(&mut self, line: &str, now: Instant) {
         if line == "BENCH_ATTEMPT" {
             self.attempts += 1;
@@ -125,7 +138,7 @@ pub struct Probe {
 }
 
 impl Probe {
-    pub fn follow(container: String, report: Report) -> Result<Self> {
+    pub fn follow(container: String, receiver: String, report: Report) -> Result<Self> {
         let mut child = Command::new("docker")
             .args(["logs", "--follow", &container])
             .stdout(std::process::Stdio::piped())
@@ -138,6 +151,11 @@ impl Probe {
         let name = container.clone();
         let task = tokio::spawn(async move {
             let mut lines = BufReader::new(output).lines();
+            let mut reported = Instant::now();
+            let initial = state.lock().unwrap().diagnostics(&receiver, reported);
+            if let Err(error) = report.event("receiver_progress", initial) {
+                state.lock().unwrap().error = Some(error.to_string());
+            }
             loop {
                 match lines.next_line().await {
                     Ok(Some(line)) => {
@@ -145,6 +163,15 @@ impl Probe {
                         if let Err(error) = report.log(&name, &line) {
                             state.lock().unwrap().error = Some(error.to_string());
                             break;
+                        }
+                        let now = Instant::now();
+                        if now.duration_since(reported) >= Duration::from_millis(250) {
+                            let diagnostic = state.lock().unwrap().diagnostics(&receiver, now);
+                            if let Err(error) = report.event("receiver_progress", diagnostic) {
+                                state.lock().unwrap().error = Some(error.to_string());
+                                break;
+                            }
+                            reported = now;
                         }
                     }
                     Ok(None) => break,
@@ -155,6 +182,8 @@ impl Probe {
                 }
             }
             state.lock().unwrap().ended = true;
+            let final_progress = state.lock().unwrap().diagnostics(&receiver, Instant::now());
+            let _ = report.event("receiver_progress", final_progress);
             let _ = child.wait().await;
         });
         Ok(Self {

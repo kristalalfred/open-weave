@@ -12,6 +12,11 @@ use serde_json::{Value, json};
 pub struct Report {
     started: Instant,
     writer: Arc<Mutex<BufWriter<File>>>,
+    observer: Option<Arc<dyn EventObserver>>,
+}
+
+pub trait EventObserver: Send + Sync {
+    fn event(&self, kind: &str, data: &Value);
 }
 
 impl Report {
@@ -22,21 +27,33 @@ impl Report {
             writer: Arc::new(Mutex::new(BufWriter::new(File::create(
                 directory.join("timeline.jsonl"),
             )?))),
+            observer: None,
         })
     }
 
+    pub fn with_observer(mut self, observer: impl EventObserver + 'static) -> Self {
+        self.observer = Some(Arc::new(observer));
+        self
+    }
+
     pub fn event(&self, kind: &str, data: impl Serialize) -> Result<()> {
-        let mut writer = self.writer.lock().unwrap();
-        serde_json::to_writer(
-            &mut *writer,
-            &json!({
-                "elapsed_ms": self.started.elapsed().as_millis(),
-                "kind": kind,
-                "data": data,
-            }),
-        )?;
-        writeln!(writer)?;
-        writer.flush()?;
+        let data = serde_json::to_value(data)?;
+        {
+            let mut writer = self.writer.lock().unwrap();
+            serde_json::to_writer(
+                &mut *writer,
+                &json!({
+                    "elapsed_ms": self.started.elapsed().as_millis(),
+                    "kind": kind,
+                    "data": data,
+                }),
+            )?;
+            writeln!(writer)?;
+            writer.flush()?;
+        }
+        if let Some(observer) = &self.observer {
+            observer.event(kind, &data);
+        }
         Ok(())
     }
 
@@ -79,5 +96,27 @@ mod tests {
             redact("srt://a?passphrase=one&mode=caller srt://b?passphrase=two': refused"),
             "srt://a?passphrase=[redacted]&mode=caller srt://b?passphrase=[redacted]': refused"
         );
+    }
+
+    #[test]
+    fn observers_receive_the_persisted_event() {
+        struct Observer(std::path::PathBuf);
+        impl EventObserver for Observer {
+            fn event(&self, kind: &str, data: &Value) {
+                let saved: Value =
+                    serde_json::from_str(&std::fs::read_to_string(&self.0).unwrap()).unwrap();
+                assert_eq!(saved["kind"], kind);
+                assert_eq!(&saved["data"], data);
+                assert!(saved["elapsed_ms"].is_number());
+            }
+        }
+        let directory =
+            std::env::temp_dir().join(format!("weave-bench-observer-{}", std::process::id()));
+        let report = Report::new(&directory)
+            .unwrap()
+            .with_observer(Observer(directory.join("timeline.jsonl")));
+        report.event("sample", json!({"frames": 42})).unwrap();
+        drop(report);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

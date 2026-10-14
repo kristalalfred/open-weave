@@ -72,6 +72,18 @@ just bench e2e run 02-fanout 08-relay-recovery
 just bench e2e schema
 ```
 
+Interactive terminals show a live panel for the active case. It shows the
+current steps, elapsed time and timeout or observation window, stream and node
+status, receiver progress, retries, and cleanup activity. The panel collapses
+to one result line when the case finishes. `V` counts decoded video frames and
+`A` counts decoded audio samples; idle ages are video/audio milliseconds since
+the last reported progress.
+
+Redirected stderr and CI logs show step transitions and a heartbeat every ten
+seconds, without cursor controls. `run --progress plain` forces that output;
+`run --progress off` prints result lines only. Detailed JSONL diagnostics are
+recorded in every mode.
+
 The Rust runner reads YAML cases in `cases/`. It gives each stream its own
 producer and one consumer per destination, so several streams can carry media
 at once. Peers on the core network reach nodes through their routers. Peers at

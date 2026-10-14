@@ -118,6 +118,10 @@ impl Bench {
     pub async fn preflight(&self) -> Result<()> {
         for service in SERVICES {
             let container = format!("ow-{service}");
+            self.report.event(
+                "preflight_check",
+                json!({"detail": format!("checking {container}")}),
+            )?;
             let value: Value = serde_json::from_str(&docker(&["inspect", &container]).await?)?;
             ensure!(
                 value[0]["State"]["Running"] == true,
@@ -129,6 +133,10 @@ impl Bench {
             );
         }
         let deadline = Instant::now() + Duration::from_secs(45);
+        self.report.event(
+            "preflight_check",
+            json!({"detail": "waiting for controller readiness"}),
+        )?;
         loop {
             let response = self
                 .http
@@ -158,6 +166,7 @@ impl Bench {
         );
         loop {
             let nodes: Vec<NodeDescriptor> = self.get("/nodes").await?;
+            self.report.event("preflight_nodes", &nodes)?;
             if (1..=4).all(|n| {
                 nodes.iter().any(|node| {
                     node.id == format!("strom-node-{n}") && node.status == NodeStatus::Ready
@@ -185,6 +194,10 @@ impl Bench {
         let inspection = match docker(&["image", "inspect", &self.image]).await {
             Ok(value) => value,
             Err(_) => {
+                self.report.event(
+                    "preflight_check",
+                    json!({"detail": "pulling the media image"}),
+                )?;
                 docker(&["pull", &self.image]).await?;
                 docker(&["image", "inspect", &self.image]).await?
             }
@@ -472,8 +485,10 @@ impl Bench {
         let container = self
             .spawn_media(&url, &format!("{alias}-{destination}"), media::CONSUMER)
             .await?;
-        self.consumers
-            .insert(receiver, Probe::follow(container, self.report.clone())?);
+        self.consumers.insert(
+            receiver.clone(),
+            Probe::follow(container, receiver, self.report.clone())?,
+        );
         Ok(())
     }
 
@@ -775,13 +790,30 @@ impl Bench {
     }
 
     pub async fn cleanup(&mut self) -> Result<()> {
+        let _ = self.report.event(
+            "cleanup_started",
+            json!({
+                "streams": self.streams.len(),
+                "endpoints": self.containers.len(),
+                "impairments": self.impaired.len(),
+                "services": self.services.len(),
+            }),
+        );
         let mut errors = Vec::new();
         for node in &self.impaired {
+            let _ = self.report.event(
+                "cleanup_action",
+                json!({"detail": format!("clearing impairment on {node}")}),
+            );
             if let Err(error) = self.netem_command(node, &["clear".into()]).await {
                 errors.push(format!("clear {node}: {error:#}"));
             }
         }
         for service in &self.services {
+            let _ = self.report.event(
+                "cleanup_action",
+                json!({"detail": format!("restoring {service}")}),
+            );
             if let Err(error) = docker(&["start", &format!("ow-{service}")]).await {
                 errors.push(format!("restore {service}: {error:#}"));
             }
@@ -789,12 +821,20 @@ impl Bench {
         self.stopped.clear();
         self.consumers.clear();
         for container in &self.containers {
+            let _ = self.report.event(
+                "cleanup_action",
+                json!({"detail": format!("removing {container}")}),
+            );
             if let Err(error) = docker(&["rm", "-f", container]).await {
                 errors.push(format!("remove {container}: {error:#}"));
             }
         }
         let deadline = Instant::now() + Duration::from_secs(45);
         for spec in self.streams.values() {
+            let _ = self.report.event(
+                "cleanup_action",
+                json!({"detail": format!("deleting {}", spec.name)}),
+            );
             loop {
                 match self.delete_resource(&spec.name).await {
                     Ok(()) => break,
@@ -807,6 +847,10 @@ impl Bench {
             }
         }
         for spec in self.streams.values() {
+            let _ = self.report.event(
+                "cleanup_action",
+                json!({"detail": format!("waiting for {} flows to disappear", spec.name)}),
+            );
             loop {
                 match self.flows(&spec.name).await {
                     Ok(flows) if flows.is_empty() => break,
