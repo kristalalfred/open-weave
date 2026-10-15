@@ -479,8 +479,6 @@ impl PgStore {
         prune: bool,
         expected_revision: Option<u64>,
     ) -> Result<StreamSetWrite, StoreError> {
-        use sqlx::Row;
-
         let desired = streams_by_name(streams)?;
         let desired_names: Vec<String> = desired.keys().cloned().collect();
         let mut transaction = self.pool.begin().await.map_err(StoreError::Query)?;
@@ -528,27 +526,8 @@ impl PgStore {
         .await
         .map_err(StoreError::Query)?;
         let mut existing = std::collections::BTreeMap::new();
-        for row in rows {
-            let spec = row
-                .try_get::<sqlx::types::Json<StreamDefinition>, _>("definition")
-                .map_err(StoreError::Decode)?
-                .0;
-            let stored = StoredStream {
-                generation: positive_counter(
-                    row.try_get::<i64, _>("generation")
-                        .map_err(StoreError::Decode)?,
-                    "generation",
-                )?,
-                revision: positive_counter(
-                    row.try_get::<i64, _>("revision")
-                        .map_err(StoreError::Decode)?,
-                    "revision",
-                )?,
-                owner: row
-                    .try_get::<Option<String>, _>("owner")
-                    .map_err(StoreError::Decode)?,
-                spec,
-            };
+        for row in &rows {
+            let stored = decode_stored_stream(row)?;
             existing.insert(stored.spec.name.clone(), stored);
         }
 
@@ -588,7 +567,7 @@ impl PgStore {
                     .fetch_one(&mut *transaction)
                     .await
                     .map_err(StoreError::Query)?;
-                    result.insert(name.clone(), stored_stream_from_row(spec, &row)?);
+                    result.insert(name.clone(), stored_stream_from_row(spec.clone(), &row)?);
                     actions.insert(name.clone(), StreamSetMemberAction::Updated);
                     changed = true;
                 }
@@ -606,7 +585,7 @@ impl PgStore {
                     .await
                     .map_err(StoreError::Query)?
                     .ok_or_else(|| StoreError::OwnershipConflict { name: name.clone() })?;
-                    result.insert(name.clone(), stored_stream_from_row(spec, &row)?);
+                    result.insert(name.clone(), stored_stream_from_row(spec.clone(), &row)?);
                     actions.insert(name.clone(), StreamSetMemberAction::Created);
                     changed = true;
                 }
@@ -684,35 +663,12 @@ fn streams_by_name(
 #[async_trait]
 impl StateStore for PgStore {
     async fn load_streams(&self) -> Result<Vec<StoredStream>, StoreError> {
-        use sqlx::Row;
-        let rows = sqlx::query(
-            "SELECT definition, generation, revision, owner FROM streams ORDER BY name",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(StoreError::Query)?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(StoredStream {
-                    spec: row
-                        .try_get::<sqlx::types::Json<StreamDefinition>, _>("definition")
-                        .map_err(StoreError::Decode)?
-                        .0,
-                    generation: positive_counter(
-                        row.try_get::<i64, _>("generation")
-                            .map_err(StoreError::Decode)?,
-                        "generation",
-                    )?,
-                    revision: positive_counter(
-                        row.try_get::<i64, _>("revision")
-                            .map_err(StoreError::Decode)?,
-                        "revision",
-                    )?,
-                    owner: row
-                        .try_get::<Option<String>, _>("owner")
-                        .map_err(StoreError::Decode)?,
-                })
-            })
+        sqlx::query("SELECT definition, generation, revision, owner FROM streams ORDER BY name")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StoreError::Query)?
+            .iter()
+            .map(decode_stored_stream)
             .collect()
     }
 
@@ -792,7 +748,7 @@ impl StateStore for PgStore {
         .await
         .map_err(StoreError::Query)?;
         if let Some(row) = row {
-            let stored = stored_stream_from_row(stream, &row)?;
+            let stored = stored_stream_from_row(stream.clone(), &row)?;
             transaction.commit().await.map_err(StoreError::Query)?;
             return Ok(stored);
         }
@@ -848,7 +804,7 @@ impl StateStore for PgStore {
         .await
         .map_err(StoreError::Query)?
         .ok_or(StoreError::PreconditionFailed)?;
-        let stored = stored_stream_from_row(stream, &row)?;
+        let stored = stored_stream_from_row(stream.clone(), &row)?;
         transaction.commit().await.map_err(StoreError::Query)?;
         Ok(stored)
     }
@@ -993,14 +949,24 @@ impl StateStore for PgStore {
     }
 }
 
+fn decode_stored_stream(row: &sqlx::postgres::PgRow) -> Result<StoredStream, StoreError> {
+    use sqlx::Row;
+
+    let spec = row
+        .try_get::<sqlx::types::Json<StreamDefinition>, _>("definition")
+        .map_err(StoreError::Decode)?
+        .0;
+    stored_stream_from_row(spec, row)
+}
+
 fn stored_stream_from_row(
-    stream: &StreamDefinition,
+    spec: StreamDefinition,
     row: &sqlx::postgres::PgRow,
 ) -> Result<StoredStream, StoreError> {
     use sqlx::Row;
 
     Ok(StoredStream {
-        spec: stream.clone(),
+        spec,
         generation: positive_counter(
             row.try_get::<i64, _>("generation")
                 .map_err(StoreError::Decode)?,
