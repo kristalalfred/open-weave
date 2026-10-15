@@ -257,26 +257,31 @@ impl Bench {
             } => {
                 let deadline = Instant::now() + Duration::from_secs(*timeout_secs);
                 loop {
-                    let flows = self.flows(self.name(stream)?).await?;
-                    let mut counts = BTreeMap::new();
-                    for flow in &flows {
-                        *counts
-                            .entry(format!("strom-node-{}", flow.node))
-                            .or_insert(0_usize) += 1;
-                    }
-                    if flows.iter().all(|flow| flow.running)
-                        && (1..=4).all(|n| {
-                            let node = format!("strom-node-{n}");
-                            counts.get(&node).copied().unwrap_or(0)
-                                == nodes.get(&node).copied().unwrap_or(0)
-                        })
-                    {
-                        self.report.event("flows_verified", flows)?;
-                        break;
-                    }
+                    let last = match self.flows(self.name(stream)?).await {
+                        Ok(flows) => {
+                            let mut counts = BTreeMap::new();
+                            for flow in &flows {
+                                *counts
+                                    .entry(format!("strom-node-{}", flow.node))
+                                    .or_insert(0_usize) += 1;
+                            }
+                            if flows.iter().all(|flow| flow.running)
+                                && (1..=4).all(|n| {
+                                    let node = format!("strom-node-{n}");
+                                    counts.get(&node).copied().unwrap_or(0)
+                                        == nodes.get(&node).copied().unwrap_or(0)
+                                })
+                            {
+                                self.report.event("flows_verified", flows)?;
+                                break;
+                            }
+                            format!("{flows:?}")
+                        }
+                        Err(error) => format!("{error:#}"),
+                    };
                     ensure!(
                         Instant::now() < deadline,
-                        "{stream} has wrong or stopped runtime flows: {flows:?}"
+                        "{stream} has wrong or stopped runtime flows; last: {last}"
                     );
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
@@ -559,7 +564,8 @@ impl Bench {
         nodes: Option<&[String]>,
     ) -> Result<()> {
         let name = self.name(alias)?;
-        let deadline = Instant::now() + Duration::from_secs(seconds);
+        let started = Instant::now();
+        let deadline = started + Duration::from_secs(seconds);
         let mut last = String::new();
         loop {
             match self.get::<StatusResponse>("/status").await {
@@ -579,8 +585,8 @@ impl Bench {
                             expected.iter().collect::<BTreeSet<_>>()
                                 == got_nodes.iter().collect::<BTreeSet<_>>()
                         });
-                        let media =
-                            status != PathStatus::Flowing || self.receiving(alias, destination);
+                        let media = status != PathStatus::Flowing
+                            || self.receiving(alias, destination, started);
                         if got == Some(status)
                             && stream.observed_generation == Some(stream.generation)
                             && nodes_match
@@ -601,7 +607,7 @@ impl Bench {
         }
     }
 
-    fn receiving(&self, alias: &str, destination: Option<&str>) -> bool {
+    fn receiving(&self, alias: &str, destination: Option<&str>, since: Instant) -> bool {
         let spec = &self.streams[alias];
         let destinations = spec
             .destinations
@@ -613,11 +619,9 @@ impl Bench {
                 self.consumers
                     .get(&format!("{alias}/{}", d.id))
                     .is_some_and(|probe| {
-                        probe
-                            .progress
-                            .lock()
-                            .unwrap()
-                            .healthy(Instant::now(), Duration::from_secs(2))
+                        let progress = probe.progress.lock().unwrap();
+                        progress.healthy(Instant::now(), Duration::from_secs(2))
+                            && progress.advanced_since(since)
                     })
             })
     }
@@ -658,11 +662,35 @@ impl Bench {
             ServiceAction::Stop => {
                 self.stopped.insert(actual);
             }
-            ServiceAction::Start | ServiceAction::Restart | ServiceAction::Kill => {
+            ServiceAction::Start | ServiceAction::Restart => {
+                self.stopped.remove(&actual);
+                self.await_ready(&container).await?;
+            }
+            ServiceAction::Kill => {
                 self.stopped.remove(&actual);
             }
         }
         Ok(())
+    }
+
+    async fn await_ready(&self, container: &str) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(90);
+        loop {
+            let value: Value = serde_json::from_str(&docker(&["inspect", container]).await?)?;
+            let state = &value[0]["State"];
+            if ready(state) {
+                self.report.event(
+                    "service_ready",
+                    json!({"container": container, "state": state}),
+                )?;
+                return Ok(());
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "{container} did not become ready in 90s; last state: {state}"
+            );
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
     }
 
     async fn netem_command(&self, node: &str, args: &[String]) -> Result<String> {
@@ -894,6 +922,13 @@ pub fn media_url(endpoint: &EndpointAddr, spec: &StreamTransport) -> Result<Stri
     Ok(url.to_string())
 }
 
+fn ready(state: &Value) -> bool {
+    state["Running"] == true
+        && state["Health"]["Status"]
+            .as_str()
+            .is_none_or(|health| health == "healthy")
+}
+
 pub async fn docker(args: &[&str]) -> Result<String> {
     let mut command = Command::new("docker");
     command.args(args);
@@ -975,4 +1010,26 @@ pub fn telemetry(bench: &Bench) -> tokio::task::JoinHandle<()> {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_started_container_is_ready_only_once_its_healthcheck_passes() {
+        assert!(!ready(
+            &json!({"Running": true, "Health": {"Status": "starting"}})
+        ));
+        assert!(!ready(
+            &json!({"Running": true, "Health": {"Status": "unhealthy"}})
+        ));
+        assert!(!ready(
+            &json!({"Running": false, "Health": {"Status": "healthy"}})
+        ));
+        assert!(ready(
+            &json!({"Running": true, "Health": {"Status": "healthy"}})
+        ));
+        assert!(ready(&json!({"Running": true})));
+    }
 }

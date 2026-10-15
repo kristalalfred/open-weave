@@ -90,9 +90,10 @@ at once. Peers on the core network reach nodes through their routers. Peers at
 NAT sites run inside that site's network. The route manager installs their
 routes from bench labels, without adding routes into NAT sites.
 
-Each consumer decodes video and audio. `await` requires fresh decoded media
-when the requested status is `flowing`. `observe` checks video and audio
-progress throughout its window, including while its `during` actions execute.
+Each consumer decodes video and audio. `await` requires media decoded after
+the step began when the requested status is `flowing`. `observe` checks video
+and audio progress throughout its window, including while its `during` actions
+execute.
 It fails on gaps above `max_gap_ms` or receiver restarts above `max_restarts`.
 Defaults are 3000 ms and zero restarts. These are sampled decoder measurements.
 They do not measure packet loss, picture quality, or delivery of the correct feed.
@@ -107,7 +108,7 @@ Cases use these actions:
 | `await` | Wait for `status`, optional `destination` and `nodes`, within `timeout_secs` (default 90). |
 | `flows` | Require running hop counts in `nodes`; omitted nodes must have zero. |
 | `observe` | Watch `receivers` for at least `seconds`; also watch until every `during` action finishes. |
-| `service` | `stop`, `start`, `restart`, or `kill` a bench control service, adapter, or Strom; `leader` selects the current controller leader. |
+| `service` | `stop`, `start`, `restart`, or `kill` a bench control service, adapter, or Strom; `leader` selects the current controller leader. `start` and `restart` wait until the container runs and passes its healthcheck. |
 | `netem`, `clear_netem` | Apply individual `tc` tokens in `args`, or clear them, on `node1` through `node4`. |
 | `snapshot`, `unchanged` | Capture a stream's ETag, generation, and runtime flow identities with `as_name`; compare using `snapshot`. |
 | `delete` | Remove endpoints and the stream; wait for its managed flows to disappear. |

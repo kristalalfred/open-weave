@@ -129,6 +129,11 @@ impl Progress {
                 .last_audio_advance
                 .is_some_and(|last| now.duration_since(last) <= gap)
     }
+
+    pub fn advanced_since(&self, since: Instant) -> bool {
+        self.last_advance.is_some_and(|last| last > since)
+            && self.last_audio_advance.is_some_and(|last| last > since)
+    }
 }
 
 pub struct Probe {
@@ -365,6 +370,19 @@ mod tests {
                 .check(start + Duration::from_secs(1), Duration::from_secs(2), 0)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn media_decoded_before_a_step_does_not_count_for_it() {
+        let start = Instant::now();
+        let mut state = Progress::default();
+        state.line("BENCH_ATTEMPT", start);
+        progress(&mut state, 30, 1_000_000, start);
+        let step = start + Duration::from_millis(500);
+        assert!(state.healthy(step, Duration::from_secs(2)));
+        assert!(!state.advanced_since(step));
+        progress(&mut state, 60, 2_000_000, step + Duration::from_millis(250));
+        assert!(state.advanced_since(step));
     }
 
     #[test]

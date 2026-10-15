@@ -1,5 +1,5 @@
 name: runtime-recovery
-description: A receiver runtime restart rebuilds its flows and decoded media returns.
+description: After a receiver runtime restart the stream flows again with decoded media and one running flow per node.
 steps:
   - do: apply
     file: ../manifests/basic.yaml
