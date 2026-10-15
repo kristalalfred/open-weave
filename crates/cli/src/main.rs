@@ -6,11 +6,12 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use reqwest::RequestBuilder;
 use reqwest::header::{ETAG, HeaderValue, IF_MATCH, IF_NONE_MATCH};
+use serde::Serialize;
 use weave_core::auth::{self, MIN_NODE_KEY_LEN, NodeKey, NodeKeyError, Token};
 use weave_core::{
-    ApiError, NodeDescriptor, PathStatus, PlanStatus, ReconcileStatus, StatusResponse,
-    StreamAccepted, StreamDefinition, StreamEndpoints, StreamPlan, StreamResource,
-    StreamSetAccepted, StreamSetAction, StreamSetApply, StreamSetResource, validate_resource_id,
+    ApiError, NodeDescriptor, StatusResponse, StreamAccepted, StreamDefinition, StreamEndpoints,
+    StreamPlan, StreamResource, StreamSetAccepted, StreamSetApply, StreamSetResource,
+    validate_resource_id,
 };
 
 #[derive(Parser)]
@@ -317,7 +318,7 @@ fn render_nodes(nodes: &[NodeDescriptor]) -> String {
                 .join(",");
             vec![
                 node.id.clone(),
-                format!("{:?}", node.status).to_ascii_lowercase(),
+                wire_name(&node.status),
                 node.endpoint.clone(),
                 profiles,
                 networks,
@@ -327,23 +328,11 @@ fn render_nodes(nodes: &[NodeDescriptor]) -> String {
     table(&["ID", "STATUS", "ENDPOINT", "PROFILES", "NETWORKS"], rows)
 }
 
-fn path_status_name(status: PathStatus) -> &'static str {
-    match status {
-        PathStatus::Idle => "idle",
-        PathStatus::Failed => "failed",
-        PathStatus::Pending => "pending",
-        PathStatus::AwaitingInput => "awaiting_input",
-        PathStatus::Degraded => "degraded",
-        PathStatus::Flowing => "flowing",
-    }
-}
-
-fn reconcile_status_name(status: ReconcileStatus) -> &'static str {
-    match status {
-        ReconcileStatus::Idle => "idle",
-        ReconcileStatus::Converging => "converging",
-        ReconcileStatus::Converged => "converged",
-        ReconcileStatus::Degraded => "degraded",
+fn wire_name(value: &impl Serialize) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        Ok(other) => other.to_string(),
+        Err(error) => format!("<{error}>"),
     }
 }
 
@@ -362,7 +351,7 @@ fn render_status(status: &StatusResponse) -> String {
                         stream
                             .observed_generation
                             .map_or_else(|| "-".to_string(), |value| value.to_string()),
-                        path_status_name(stream.status).to_string(),
+                        wire_name(&stream.status),
                         if stream.nodes.is_empty() {
                             "-".to_string()
                         } else {
@@ -373,7 +362,7 @@ fn render_status(status: &StatusResponse) -> String {
                 .collect();
             format!(
                 "STATUS: {}\nSUMMARY: {}\n\n{}",
-                reconcile_status_name(status.status),
+                wire_name(&status.status),
                 status.summary,
                 table(&["NAME", "GENERATION", "OBSERVED", "STATUS", "NODES"], rows,)
             )
@@ -443,14 +432,9 @@ fn render_stream_set_accepted(accepted: &StreamSetAccepted) -> String {
         .streams
         .iter()
         .map(|stream| {
-            let action = match stream.action {
-                StreamSetAction::Created => "created",
-                StreamSetAction::Updated => "updated",
-                StreamSetAction::Unchanged => "unchanged",
-            };
             vec![
                 stream.name.clone(),
-                action.to_string(),
+                wire_name(&stream.action),
                 stream.generation.to_string(),
             ]
         })
@@ -470,16 +454,11 @@ fn render_stream_set_accepted(accepted: &StreamSetAccepted) -> String {
 }
 
 fn render_plan(plan: &StreamPlan) -> String {
-    let status = match plan.status {
-        PlanStatus::Disabled => "disabled",
-        PlanStatus::Placed => "placed",
-        PlanStatus::Unplaced => "unplaced",
-    };
     table(
         &["NAME", "STATUS", "NODES", "REASON"],
         vec![vec![
             plan.name.clone(),
-            status.to_string(),
+            wire_name(&plan.status),
             if plan.nodes.is_empty() {
                 "-".to_string()
             } else {
@@ -936,8 +915,8 @@ mod tests {
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
     use weave_core::{
-        ApiErrorCode, SrtEndpoint, StreamAccepted, StreamDestination, StreamSetMemberResult,
-        StreamTransport,
+        ApiErrorCode, SrtEndpoint, StreamAccepted, StreamDestination, StreamSetAction,
+        StreamSetMemberResult, StreamTransport,
     };
 
     #[test]
