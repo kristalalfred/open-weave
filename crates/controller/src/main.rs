@@ -51,6 +51,7 @@ use weave_core::auth::{
     self, Guard, NodeCaller, NodeGuard, refuse_other_node, require_bearer, require_node_token,
     unauthorized,
 };
+use weave_core::logging::ErrorChain;
 use weave_core::webhook::{EventType, NodeSummary, StreamSummary, Subject};
 use weave_core::{
     AcceptedState, ApiError, ApiErrorCode, DesiredHop, EndpointDescriptor, NodeAccepted,
@@ -703,7 +704,7 @@ async fn run_with_lease(
             }
             Err(err) => {
                 step_down(&pg, leadership, hold).await;
-                tracing::error!(err = %format!("{err:#}"), "loading state after taking the controller lease failed; standing by");
+                tracing::error!(error = %ErrorChain(err.as_ref()), "loading state after taking the controller lease failed; standing by");
                 tokio::select! {
                     () = tokio::time::sleep(timing.retry_every) => continue,
                     result = &mut shutdown => return result,
@@ -731,7 +732,7 @@ async fn step_down(pg: &PgStore, leadership: &Leadership, hold: JoinHandle<&'sta
     hold.abort();
     leadership.stand_by();
     if let Err(err) = pg.release_lease().await {
-        tracing::warn!(%err, "releasing the controller lease failed; it expires on its own");
+        tracing::warn!(error = %ErrorChain(&err), "releasing the controller lease failed; it expires on its own");
     }
 }
 
@@ -755,7 +756,9 @@ async fn wait_for_lease(pg: &PgStore, holder: &str, timing: LeaseTiming) -> (Lea
                 held_elsewhere = true;
             }
             Ok(None) => {}
-            Err(err) => tracing::warn!(%err, "taking the controller lease failed; retrying"),
+            Err(err) => {
+                tracing::warn!(error = %ErrorChain(&err), "taking the controller lease failed; retrying")
+            }
         }
         tokio::time::sleep(timing.retry_every).await;
     }
@@ -786,7 +789,7 @@ async fn hold_lease(
             }
             Ok(Ok(false)) => break "the lease expired or another controller took it",
             Ok(Err(err)) => {
-                tracing::warn!(%err, "renewing the controller lease failed; retrying");
+                tracing::warn!(error = %ErrorChain(&err), "renewing the controller lease failed; retrying");
                 wait = timing.retry_every;
             }
             Err(_) => break "no renewal succeeded in time",
@@ -827,7 +830,7 @@ async fn reconcile_tick(state: &AppState) {
         to_store.extend(transitioned);
         for registration in to_store.iter().filter_map(|id| nodes.get(id)) {
             if let Err(err) = state.store.upsert_node(registration).await {
-                tracing::warn!(%err, node_id = %registration.node.id, "storing a node failed; retrying next tick");
+                tracing::warn!(error = %ErrorChain(&err), node_id = %registration.node.id, "storing a node failed; retrying next tick");
                 state.unsaved().nodes.insert(registration.node.id.clone());
             }
         }
@@ -835,7 +838,7 @@ async fn reconcile_tick(state: &AppState) {
         let mut forgotten = Vec::new();
         for id in forgettable(&nodes, &last_seen, &named, now, state.node_forget) {
             if let Err(err) = state.store.delete_node(&id).await {
-                tracing::warn!(%err, node_id = %id, "forgetting an offline node failed; retrying next tick");
+                tracing::warn!(error = %ErrorChain(&err), node_id = %id, "forgetting an offline node failed; retrying next tick");
                 continue;
             }
             last_seen.remove(&id);
@@ -895,7 +898,7 @@ async fn reconcile_tick(state: &AppState) {
     if !statuses.is_empty()
         && let Err(err) = state.store.save_stream_statuses(&statuses).await
     {
-        tracing::warn!(%err, "storing stream statuses failed; retrying next tick");
+        tracing::warn!(error = %ErrorChain(&err), "storing stream statuses failed; retrying next tick");
         state
             .unsaved()
             .streams
@@ -1724,7 +1727,7 @@ async fn put_stream_set(
             }
             Err(StoreError::NotLeader) => return not_leader(),
             Err(err) => {
-                tracing::error!(%err, %owner, "persisting stream set failed");
+                tracing::error!(error = %ErrorChain(&err), %owner, "persisting stream set failed");
                 return error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ApiErrorCode::PersistenceFailed,
@@ -1887,7 +1890,7 @@ async fn submit_stream(
             }
             Err(StoreError::NotLeader) => return not_leader(),
             Err(err) => {
-                tracing::error!(%err, %name, "persisting stream failed");
+                tracing::error!(error = %ErrorChain(&err), %name, "persisting stream failed");
                 return error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ApiErrorCode::PersistenceFailed,
@@ -2023,7 +2026,7 @@ async fn delete_stream(
         }
         Err(StoreError::NotLeader) => return not_leader(),
         Err(err) => {
-            tracing::error!(%err, %name, "deleting stream failed");
+            tracing::error!(error = %ErrorChain(&err), %name, "deleting stream failed");
             return error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ApiErrorCode::PersistenceFailed,
@@ -2175,7 +2178,7 @@ async fn register_node(
             Ok(()) => {}
             Err(StoreError::NotLeader) => return not_leader(),
             Err(err) => {
-                tracing::error!(%err, %node_id, "persisting node registration failed");
+                tracing::error!(error = %ErrorChain(&err), %node_id, "persisting node registration failed");
                 return error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ApiErrorCode::PersistenceFailed,
@@ -2271,7 +2274,7 @@ async fn node_heartbeat(
             Ok(()) => {}
             Err(StoreError::NotLeader) => return not_leader(),
             Err(err) => {
-                tracing::warn!(%err, %node_id, "storing a changed node report failed; retrying next tick");
+                tracing::warn!(error = %ErrorChain(&err), %node_id, "storing a changed node report failed; retrying next tick");
                 state.unsaved().nodes.insert(node_id.clone());
             }
         }
@@ -2854,7 +2857,7 @@ fn reconcile(
                         Some(endpoints)
                     }
                     Err(error) => {
-                        tracing::warn!(stream = %stream.name, %error, "cannot resolve stream endpoints");
+                        tracing::warn!(stream = %stream.name, error = %ErrorChain(&error), "cannot resolve stream endpoints");
                         None
                     }
                 };
@@ -2924,7 +2927,7 @@ fn reconcile(
                 status
             }
             Err(error) => {
-                tracing::warn!(stream = %stream.name, %error, "cannot place stream; retrying next tick");
+                tracing::warn!(stream = %stream.name, error = %ErrorChain(&error), "cannot place stream; retrying next tick");
                 let conditions = placement_failed_conditions(stream, &error);
                 stream_statuses.push(StreamStatus {
                     name: stream.name.clone(),

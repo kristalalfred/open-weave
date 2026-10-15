@@ -2,10 +2,11 @@
 
 use std::time::Duration;
 
-use reqwest::{Method, RequestBuilder};
+use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
 use weave_core::auth::Token;
+use weave_core::logging::{ErrorChain, excerpt};
 
 use crate::flow::{FlowListResponse, StromFlow};
 use crate::spec::{FlowSpec, MappingError};
@@ -18,8 +19,39 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 pub enum StromError {
     #[error("strom request failed")]
     Request(#[from] reqwest::Error),
+    #[error("strom answered {status} for url ({url}){}", quoted(.body))]
+    Status {
+        status: StatusCode,
+        url: String,
+        /// An [`excerpt`] of what Strom answered.
+        body: String,
+    },
     #[error(transparent)]
     Mapping(#[from] MappingError),
+}
+
+/// Send `request`, failing with [`StromError::Status`] unless Strom
+/// answers `2xx`.
+async fn send(request: RequestBuilder) -> Result<Response, StromError> {
+    let response = request.send().await?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    let url = response.url().to_string();
+    let body = match response.text().await {
+        Ok(body) => excerpt(&body),
+        Err(error) => format!("<failed to read body: {}>", ErrorChain(&error)),
+    };
+    Err(StromError::Status { status, url, body })
+}
+
+fn quoted(body: &str) -> String {
+    if body.is_empty() {
+        String::new()
+    } else {
+        format!(": {body}")
+    }
 }
 
 #[derive(Clone)]
@@ -80,55 +112,33 @@ impl StromClient {
     }
 
     pub async fn list_flows(&self) -> Result<Vec<StromFlow>, StromError> {
-        let response = self
-            .request(Method::GET, "/api/flows")
-            .send()
-            .await?
-            .error_for_status()?;
+        let response = send(self.request(Method::GET, "/api/flows")).await?;
         Ok(response.json::<FlowListResponse>().await?.flows)
     }
 
     pub async fn create_flow(&self, spec: &FlowSpec) -> Result<String, StromError> {
-        let response = self
-            .request(Method::POST, "/api/flows")
-            .json(spec)
-            .send()
-            .await?
-            .error_for_status()?;
+        let response = send(self.request(Method::POST, "/api/flows").json(spec)).await?;
         Ok(response.json::<CreateFlowResponse>().await?.flow.id)
     }
 
     pub async fn start_flow(&self, id: &str) -> Result<(), StromError> {
-        self.request(Method::POST, &format!("/api/flows/{id}/start"))
-            .send()
-            .await?
-            .error_for_status()?;
+        send(self.request(Method::POST, &format!("/api/flows/{id}/start"))).await?;
         Ok(())
     }
 
     pub async fn stop_flow(&self, id: &str) -> Result<(), StromError> {
-        self.request(Method::POST, &format!("/api/flows/{id}/stop"))
-            .send()
-            .await?
-            .error_for_status()?;
+        send(self.request(Method::POST, &format!("/api/flows/{id}/stop"))).await?;
         Ok(())
     }
 
     pub async fn delete_flow(&self, id: &str) -> Result<(), StromError> {
-        self.request(Method::DELETE, &format!("/api/flows/{id}"))
-            .send()
-            .await?
-            .error_for_status()?;
+        send(self.request(Method::DELETE, &format!("/api/flows/{id}"))).await?;
         Ok(())
     }
 
     /// The `version` Strom reports at `GET /api/version`.
     pub async fn version(&self) -> Result<String, StromError> {
-        let response = self
-            .request(Method::GET, "/api/version")
-            .send()
-            .await?
-            .error_for_status()?;
+        let response = send(self.request(Method::GET, "/api/version")).await?;
         Ok(response.json::<VersionResponse>().await?.version)
     }
 
@@ -141,11 +151,7 @@ impl StromClient {
     }
 
     async fn flow_stats(&self, id: &str, kind: &str) -> Result<Value, StromError> {
-        let response = self
-            .request(Method::GET, &format!("/api/flows/{id}/{kind}"))
-            .send()
-            .await?
-            .error_for_status()?;
+        let response = send(self.request(Method::GET, &format!("/api/flows/{id}/{kind}"))).await?;
         Ok(response.json::<Value>().await?)
     }
 }
@@ -254,5 +260,43 @@ mod tests {
         client.list_flows().await.expect("list flows");
 
         assert_eq!(captured.lock().unwrap().as_deref(), None);
+    }
+
+    /// A Strom answering every request with `status` and `body`.
+    async fn strom_answering(status: u16, body: String) -> StromClient {
+        let status = axum::http::StatusCode::from_u16(status).unwrap();
+        let app = axum::Router::new().fallback(move || async move { (status, body) });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        StromClient::new(url)
+    }
+
+    #[tokio::test]
+    async fn a_refused_request_names_the_status_and_what_strom_answered() {
+        let body = "{\n  \"error\": \"Flow not found\",\n  \"details\": \"no flow abc\"\n}\n";
+        let client = strom_answering(404, body.to_string()).await;
+
+        let error = client.start_flow("abc").await.expect_err("refused");
+
+        let text = ErrorChain(&error).to_string();
+        assert!(text.contains("404 Not Found"), "{text}");
+        assert!(text.contains(r#""details": "no flow abc""#), "{text}");
+        assert!(!text.contains('\n'), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_long_answer_is_cut_short() {
+        let body = "x".repeat(100_000);
+        let client = strom_answering(500, body).await;
+
+        let error = client.list_flows().await.expect_err("refused");
+
+        let text = ErrorChain(&error).to_string();
+        assert!(text.contains("500 Internal Server Error"), "{text}");
+        assert!(text.contains(&"x".repeat(500)), "{text}");
+        assert!(text.len() < 2_000, "{} bytes", text.len());
     }
 }

@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use axum::body::Bytes;
 
+use crate::logging::ErrorChain;
 use crate::{ApiError, ApiErrorCode};
 
 /// A comma-separated list of controller base URLs.
@@ -28,7 +29,7 @@ pub enum ControllersError {
 
 /// A request no controller answered.
 #[derive(Debug, thiserror::Error)]
-#[error("{url}: {source}")]
+#[error("no answer from {url}")]
 pub struct Unanswered {
     pub url: String,
     #[source]
@@ -40,7 +41,7 @@ impl Unanswered {
     /// may have acted on the request, and `502 controller_unreachable`
     /// otherwise.
     pub fn response(&self) -> axum::response::Response {
-        tracing::warn!(err = %self.source, url = %self.url, "proxying to controller failed");
+        tracing::warn!(error = %ErrorChain(&self.source), url = %self.url, "proxying to controller failed");
         if self.source.is_timeout() && !self.source.is_connect() {
             ApiError::new(
                 ApiErrorCode::ControllerTimeout,
@@ -164,7 +165,7 @@ impl Controllers {
             let answer = match answer {
                 Ok(answer) => answer,
                 Err(source) if source.is_connect() || method == reqwest::Method::GET => {
-                    tracing::debug!(%source, %url, "controller did not answer; trying the next");
+                    tracing::debug!(error = %ErrorChain(&source), %url, "controller did not answer; trying the next");
                     unanswered = Some(Unanswered { url, source });
                     continue;
                 }
