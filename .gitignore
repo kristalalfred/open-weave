@@ -8,3 +8,5 @@ nodes/browser/node_modules/
 bench/tls/
 bench/results/
 bench/.e2e.lock
+deploy/*/.env
+deploy/control-plane/tls/
