@@ -16,8 +16,20 @@ just fmt-check        # cargo fmt --all --check
 just board            # backlog items by status
 ```
 
-CI runs `fmt-check`, `lint` and `test` on the workspace, plus the browser-node
-check as a separate job. Run all four before proposing a change.
+CI runs `fmt-check`, `lint` and `test` on the workspace, then the controller's
+`#[ignore]`d tests against a Postgres service, plus the browser-node check as a
+separate job. Run all four before proposing a change. The Postgres tests need a
+database:
+
+```sh
+DATABASE_URL=postgres://... cargo test --workspace --bin weave-controller -- --ignored --test-threads=1
+```
+
+Two more workflows run on every push: `bench.yml` runs the `bench/` media
+scenarios, and `release.yml` builds the image for linux/amd64 and linux/arm64
+and the binaries, publishing them only on a `v*` tag. The workspace declares
+Rust 1.88, the release image's toolchain, so `just lint` flags a standard
+library API newer than that.
 
 Tests are `#[cfg(test)]` modules beside the code they cover; there is no
 `tests/` directory.
@@ -60,6 +72,7 @@ not start without one.
 | `crates/southbound` | Adapter-facing API |
 | `crates/adapter-strom` | Southbound adapter for Strom |
 | `crates/strom` | HTTP client for Strom's own API |
+| `crates/bench` (`weave-bench`) | Runner for the media scenarios in `bench/cases` |
 
 `nodes/browser/` is a media node that runs in a page. `bench/` is a
 docker-compose stack of real Strom instances behind per-node `netem` routers.

@@ -13,9 +13,13 @@ have not been tried.
 - `node/`: Strom, the Strom adapter and a `node.yaml` template, for each media
   node.
 
-Both use the image `ghcr.io/kristalalfred/open-weave`, published on each `v*`
-tag. To build it yourself, run `docker build -t open-weave:local .` at the
-repository root and set `WEAVE_IMAGE=open-weave:local`. The image holds `weave`,
+Both use the image `ghcr.io/kristalalfred/open-weave`. Each `v*` tag publishes
+it for linux/amd64 and linux/arm64 under the version, such as `0.1.0` or
+`0.1.0-rc.1`. `latest` and `0.1` follow the newest tag without a pre-release
+part, so set `WEAVE_IMAGE` to the version when running a pre-release. No version
+has been tagged yet. To build the image yourself, run
+`docker build -t open-weave:local .` at the repository root and set
+`WEAVE_IMAGE=open-weave:local`. The image holds `weave`,
 `weave-northbound`, `weave-southbound`, `weave-controller` and
 `weave-adapter-strom`, runs as uid 10001 and starts under `tini`.
 
@@ -126,10 +130,6 @@ Run on each media node host.
    node's token and `STROM_API_KEY` to the output of `openssl rand -hex 32`.
 3. `docker compose up -d` in `node/`.
 
-Strom runs `eyevinntechnology/strom:0.6.10`, the version the bench runs. Both
-containers use host networking, so the SRT port range in `node.yaml` is the
-host's own. Host networking does not work on Docker Desktop.
-
 ### Strom's API key
 
 Strom listens on every interface, and host networking puts its port 8080 on the
@@ -139,6 +139,10 @@ key set, Strom's `/api` routes that list, create, start and delete flows require
 it, and so does `GET /api/flows`, which returns the SRT link keys. The WHIP and
 WHEP routes, `/whip/<id>` and `/whep/<id>`, do not, so outside senders and
 players need no key.
+
+Strom runs `eyevinntechnology/strom:0.6.10`, the version the bench runs. Both
+containers use host networking, so the SRT port range in `node.yaml` is the
+host's own. Host networking does not work on Docker Desktop.
 
 If southbound's certificate is signed by a private CA, mount the CA as a PEM file
 in the adapter container and set `SSL_CERT_FILE` to it.

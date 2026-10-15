@@ -1337,9 +1337,16 @@ weave -o json get stream NAME
 ## Deploying
 
 `deploy/` holds a compose file for the control plane and one for a media node,
-with a `node.yaml` template. Release images are published to
-`ghcr.io/kristalalfred/open-weave` on each `v*` tag. See
-[`deploy/README.md`](deploy/README.md); it is untested outside the bench.
+with a `node.yaml` template. See [`deploy/README.md`](deploy/README.md), which
+also says what they have been run on.
+
+Each `v*` tag publishes the image `ghcr.io/kristalalfred/open-weave` for
+linux/amd64 and linux/arm64, and a GitHub release with the five binaries for
+x86_64 and aarch64 Linux and aarch64 macOS. The tag must be `v` followed by the
+workspace version. A tag with a pre-release part, such as `v0.1.0-rc.1`, makes a
+pre-release and moves neither `latest` nor `0.1`. No version has been tagged
+yet. The same image and binary builds run, without publishing, on every push to
+`main` and every pull request.
 
 ## License
 
