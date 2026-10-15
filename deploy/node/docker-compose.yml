@@ -8,6 +8,7 @@ services:
     environment:
       STROM_PORT: "8080"
       STROM_DATA_DIR: /data
+      STROM_API_KEY: ${STROM_API_KEY:?set STROM_API_KEY}
     volumes:
       - strom-data:/data
     healthcheck:
@@ -24,6 +25,7 @@ services:
     command: ["weave-adapter-strom", "--config", "/etc/weave/node.yaml"]
     environment:
       WEAVE_SOUTHBOUND_TOKEN: ${WEAVE_SOUTHBOUND_TOKEN:?set WEAVE_SOUTHBOUND_TOKEN}
+      WEAVE_STROM_TOKEN: ${STROM_API_KEY:?set STROM_API_KEY}
     volumes:
       - ./node.yaml:/etc/weave/node.yaml:ro
     depends_on:

@@ -37,6 +37,14 @@ struct Cli {
         global = true
     )]
     token: String,
+    #[arg(
+        long,
+        env = "WEAVE_STROM_TOKEN",
+        default_value = "bench-strom-key-for-local-use-only",
+        hide_env_values = true,
+        global = true
+    )]
+    strom_token: String,
     #[arg(long, default_value = media::IMAGE, global = true)]
     media_image: String,
     #[command(subcommand)]
@@ -182,6 +190,7 @@ async fn main() -> Result<()> {
             cli.bench.clone(),
             cli.url.clone(),
             cli.token.clone(),
+            cli.strom_token.clone(),
             cli.media_image.clone(),
             prefix,
             report.clone(),

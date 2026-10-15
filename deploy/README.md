@@ -1,9 +1,12 @@
 # Deploying open-weave
 
-A reference for running open-weave outside the bench. **Nothing here has been
-run end to end outside the bench.** The compose files pass `docker compose
-config` and the image builds and starts; a control plane and node brought up
-from these files, with real nodes registering, has not been tried.
+A reference for running open-weave outside the bench. These files have been run
+end to end on one Docker host only: the control plane and two node kits, the
+second with its Strom, adapter and SRT ports moved so both fit on one host.
+Nodes registered through the nginx TLS proxy with a private CA, an SRT stream
+carried media from one node to the other, it kept flowing while the leading
+controller stopped, and deleting it removed every Strom flow. Separate hosts
+have not been tried.
 
 - `control-plane/`: northbound, southbound, two controllers, Postgres and an
   nginx that terminates TLS.
@@ -50,11 +53,11 @@ controllers (8082) are not published. They are reachable on the compose network.
 
 ### Minting node tokens
 
-A node's token is derived from `WEAVE_SOUTHBOUND_KEY`. With the key in the
-environment, no service is called:
+A node's token is derived from `WEAVE_SOUTHBOUND_KEY`, and minting one calls no
+service. With the key in `control-plane/.env`:
 
 ```sh
-docker run --rm -e WEAVE_SOUTHBOUND_KEY ghcr.io/kristalalfred/open-weave:latest \
+docker run --rm --env-file control-plane/.env ghcr.io/kristalalfred/open-weave:latest \
   weave node-token strom-node-1
 ```
 
@@ -119,12 +122,23 @@ Run on each media node host.
 1. Copy `node/node.yaml` and replace every `<placeholder>`. `node.id` must match
    the id the token was minted for. `southbound_url` is the control plane's 8443.
    The `listeners` addresses are what other nodes dial to reach this node's Strom.
-2. Copy `node/env.example` to `node/.env` and set `WEAVE_SOUTHBOUND_TOKEN`.
+2. Copy `node/env.example` to `node/.env`. Set `WEAVE_SOUTHBOUND_TOKEN` to the
+   node's token and `STROM_API_KEY` to the output of `openssl rand -hex 32`.
 3. `docker compose up -d` in `node/`.
 
 Strom runs `eyevinntechnology/strom:0.6.10`, the version the bench runs. Both
 containers use host networking, so the SRT port range in `node.yaml` is the
 host's own. Host networking does not work on Docker Desktop.
+
+### Strom's API key
+
+Strom listens on every interface, and host networking puts its port 8080 on the
+host's addresses. The kit starts Strom with `STROM_API_KEY` and gives the adapter
+the same value as `WEAVE_STROM_TOKEN`; it refuses to start without one. With the
+key set, Strom's `/api` routes that list, create, start and delete flows require
+it, and so does `GET /api/flows`, which returns the SRT link keys. The WHIP and
+WHEP routes, `/whip/<id>` and `/whep/<id>`, do not, so outside senders and
+players need no key.
 
 If southbound's certificate is signed by a private CA, mount the CA as a PEM file
 in the adapter container and set `SSL_CERT_FILE` to it.
@@ -134,7 +148,7 @@ in the adapter container and set `SSL_CERT_FILE` to it.
 | Port | Protocol | Open to |
 |---|---|---|
 | 20000-20999 | UDP | Other nodes and external peers, the `port_range` in `node.yaml`. Change both together. |
-| 8080 | TCP | Only if the node serves WHIP or WHEP. This is also Strom's own API, which has no authentication. |
+| 8080 | TCP | Only if the node serves WHIP or WHEP. This is also Strom's own API, which requires `STROM_API_KEY` (see [Strom's API key](#stroms-api-key)). |
 | 8091 | TCP | The adapter's `/health`. Nothing needs it beyond your own monitoring. |
 
 The node dials out to the control plane on 8443.

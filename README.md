@@ -553,8 +553,9 @@ registers with a `browser://<id>` endpoint, which is a placeholder: the
 controller never dials any node's endpoint.
 
 The Strom adapter also presents a token that open-weave never accepts, so it
-is not in the table. When Strom requires a bearer token, the adapter presents
-`WEAVE_STROM_TOKEN`, or `strom.token` from its config, which takes precedence.
+is not in the table. When Strom requires a bearer token (Strom's
+`STROM_API_KEY`), the adapter presents `WEAVE_STROM_TOKEN`, or `strom.token`
+from its config, which takes precedence.
 With neither set no `Authorization` header is sent, so an unauthenticated Strom
 keeps working.
 
@@ -649,8 +650,9 @@ Where keys appear:
   only for a stream that sets `allow_cleartext_links` (see
   [Capabilities and topology](#capabilities-and-topology)).
 - Strom returns the keys in its own `GET /api/flows`, and its SRT blocks log them
-  at INFO. `WEAVE_STROM_TOKEN` guards that API when Strom requires a token;
-  nothing in open-weave changes what Strom logs.
+  at INFO. Strom started with `STROM_API_KEY` requires that key on the route, and
+  the adapter presents it as `WEAVE_STROM_TOKEN`. The node kit in `deploy/node`
+  and the bench both set it. Nothing in open-weave changes what Strom logs.
 
 ## Webhooks
 

@@ -455,7 +455,7 @@ payload and the delivery guarantees.
 | 29081 | southbound, plaintext (`/nodes` shows registered capabilities; `just bench page` uses it) |
 | 29082 | controller: dashboard at `/ui`, `/view`; API at `/status`, `/streams/{name}/endpoints` |
 | 29083 | controller-2, the same routes; whichever does not lead answers `503 not_leader` |
-| 28080 | strom-1 API |
+| 28080 | strom-1 API; `/api` routes need `WEAVE_STROM_TOKEN` |
 | 28081 | strom-2 API |
 | 28082 | strom-3 API (host→container; grants no route into net_node3) |
 | 28083 | strom-4 API (host→container; grants no route into net_node4) |
@@ -477,6 +477,7 @@ defaults to development values so `just bench up` stays a single command:
 | `WEAVE_BROWSER_2_TOKEN` | `browser-bench-2`'s epoch-0 token under the default key | the second in-bench page (`browser-2`) |
 | `WEAVE_SRT_KEY_SECRET` | `bench-srt-key-secret-for-local-use-only` | both controllers, to derive the keys of SRT links between nodes |
 | `WEAVE_SOUTHBOUND_MIN_EPOCHS` | unset | southbound, both controllers: `<id>=<epoch>` pairs that revoke a node's older tokens |
+| `WEAVE_STROM_TOKEN` | `bench-strom-key-for-local-use-only` | every Strom as `STROM_API_KEY`, every adapter, the recipes and `weave-bench`; `/whip` and `/whep` need no key |
 
 `docker-compose.yml` passes each adapter its token as `WEAVE_SOUTHBOUND_TOKEN`.
 The adapter configs leave `node.southbound_token` unset and inherit it. The node
@@ -491,6 +492,7 @@ it explicitly:
 ```sh
 curl -s -H "Authorization: Bearer $(just bench node-token strom-node-1)" localhost:29081/nodes | jq
 curl -s -H "Authorization: Bearer bench-northbound-token" localhost:29080/streams | jq
+curl -s -H "Authorization: Bearer bench-strom-key-for-local-use-only" localhost:28080/api/flows | jq
 ```
 
 Without a valid token these return `401` and `WWW-Authenticate: Bearer`. A node

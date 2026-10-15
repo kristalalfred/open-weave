@@ -7,11 +7,12 @@ use reqwest::header::{ETAG, IF_MATCH, IF_NONE_MATCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::process::Command;
+use weave_core::auth::Token;
 use weave_core::{
     EndpointAddr, NodeDescriptor, NodeStatus, PathStatus, StatusResponse, StreamDefinition,
     StreamEndpoints, StreamResource, StreamTransport,
 };
-use weave_strom::{FlowListResponse, StromClient};
+use weave_strom::StromClient;
 
 use crate::media::{self, Probe, Watch};
 use crate::report::{Report, redact};
@@ -59,6 +60,7 @@ pub struct Bench {
     pub http: reqwest::Client,
     pub url: String,
     pub token: String,
+    strom_token: Option<Token>,
     pub prefix: String,
     image: String,
     streams: BTreeMap<String, StreamDefinition>,
@@ -77,6 +79,7 @@ impl Bench {
         root: PathBuf,
         url: String,
         token: String,
+        strom_token: String,
         image: String,
         prefix: String,
         report: Report,
@@ -101,6 +104,7 @@ impl Bench {
             http: builder.build()?,
             url,
             token,
+            strom_token: Token::new(&strom_token),
             prefix,
             image,
             streams: BTreeMap::new(),
@@ -701,16 +705,14 @@ impl Bench {
     }
 
     async fn flows_on(&self, node: usize) -> Result<Vec<FlowIdentity>> {
-        let response: FlowListResponse = self
-            .http
-            .get(format!("http://localhost:{}/api/flows", 28079 + node))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-        Ok(response
-            .flows
+        let flows = StromClient::with_timeout(
+            format!("http://localhost:{}", 28079 + node),
+            Duration::from_secs(5),
+        )
+        .with_token(self.strom_token.clone())
+        .list_flows()
+        .await?;
+        Ok(flows
             .into_iter()
             .filter(|f| f.name.starts_with("weave-"))
             .map(|f| FlowIdentity {
@@ -966,6 +968,7 @@ pub fn telemetry(bench: &Bench) -> tokio::task::JoinHandle<()> {
     let http = bench.http.clone();
     let url = bench.url.clone();
     let token = bench.token.clone();
+    let strom_token = bench.strom_token.clone();
     let report = bench.report.clone();
     let prefix = format!("weave-{}-", bench.prefix);
     tokio::spawn(async move {
@@ -985,7 +988,8 @@ pub fn telemetry(bench: &Bench) -> tokio::task::JoinHandle<()> {
                 let strom = StromClient::with_timeout(
                     format!("http://localhost:{}", 28079 + node),
                     Duration::from_secs(2),
-                );
+                )
+                .with_token(strom_token.clone());
                 match strom.list_flows().await {
                     Ok(flows) => {
                         for flow in flows

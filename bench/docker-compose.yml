@@ -356,6 +356,7 @@ services:
     environment:
       STROM_PORT: "8080"
       STROM_DATA_DIR: /data
+      STROM_API_KEY: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
     volumes:
       - strom1-data:/data
     ports:
@@ -376,6 +377,7 @@ services:
     command: ["weave-adapter-strom", "--config", "/etc/weave/node.yaml"]
     environment:
       WEAVE_SOUTHBOUND_TOKEN: ${WEAVE_ADAPTER_1_TOKEN:-strom-node-1.0.dc18eb10e0f080536c55f9ff6569abb31d2da3ce4f782b294dd0d32fcbd8dbaf}
+      WEAVE_STROM_TOKEN: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
       SSL_CERT_FILE: /tls/ca.pem
     volumes:
       - ./config/adapter-1.yaml:/etc/weave/node.yaml:ro
@@ -400,6 +402,7 @@ services:
     environment:
       STROM_PORT: "8080"
       STROM_DATA_DIR: /data
+      STROM_API_KEY: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
     volumes:
       - strom2-data:/data
     ports:
@@ -420,6 +423,7 @@ services:
     command: ["weave-adapter-strom", "--config", "/etc/weave/node.yaml"]
     environment:
       WEAVE_SOUTHBOUND_TOKEN: ${WEAVE_ADAPTER_2_TOKEN:-strom-node-2.0.f6a9e27d3f0c5cac5cadb705f27e8659a31a43836822b29d2aac602607ea79f3}
+      WEAVE_STROM_TOKEN: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
       SSL_CERT_FILE: /tls/ca.pem
     volumes:
       - ./config/${WEAVE_ADAPTER_2_CONFIG:-adapter-2.yaml}:/etc/weave/node.yaml:ro
@@ -444,6 +448,7 @@ services:
     environment:
       STROM_PORT: "8080"
       STROM_DATA_DIR: /data
+      STROM_API_KEY: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
     volumes:
       - strom3-data:/data
     # Published for debugging from the host. This is a host→container path
@@ -467,6 +472,7 @@ services:
     command: ["weave-adapter-strom", "--config", "/etc/weave/node.yaml"]
     environment:
       WEAVE_SOUTHBOUND_TOKEN: ${WEAVE_ADAPTER_3_TOKEN:-strom-node-3.0.63f1a6fc0325ad42d897365d027ebbc08c60b9f4b5a3f82c4ff1cda8cb5ca267}
+      WEAVE_STROM_TOKEN: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
       SSL_CERT_FILE: /tls/ca.pem
     volumes:
       - ./config/adapter-3.yaml:/etc/weave/node.yaml:ro
@@ -491,6 +497,7 @@ services:
     environment:
       STROM_PORT: "8080"
       STROM_DATA_DIR: /data
+      STROM_API_KEY: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
     volumes:
       - strom4-data:/data
     # Published for debugging from the host, like strom-3's.
@@ -512,6 +519,7 @@ services:
     command: ["weave-adapter-strom", "--config", "/etc/weave/node.yaml"]
     environment:
       WEAVE_SOUTHBOUND_TOKEN: ${WEAVE_ADAPTER_4_TOKEN:-strom-node-4.0.dc5a557a1c746f319ed4f7590f21a9aaa5c19d0d4ffcff9d0ecd81ca1f69c14f}
+      WEAVE_STROM_TOKEN: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
       SSL_CERT_FILE: /tls/ca.pem
     volumes:
       - ./config/adapter-4.yaml:/etc/weave/node.yaml:ro

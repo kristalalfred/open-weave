@@ -30,6 +30,11 @@ sb_key   := env("WEAVE_SOUTHBOUND_KEY", "bench-southbound-key-for-local-use-only
 sb_token := env("WEAVE_ADAPTER_1_TOKEN", "strom-node-1.0.dc18eb10e0f080536c55f9ff6569abb31d2da3ce4f782b294dd0d32fcbd8dbaf")
 sb_auth  := "-H 'Authorization: Bearer " + sb_token + "'"
 
+# Strom's API key, which docker-compose.yml gives every Strom and adapter. Strom
+# answers /whip and /whep without it.
+strom_key  := env("WEAVE_STROM_TOKEN", "bench-strom-key-for-local-use-only")
+strom_auth := "-H 'Authorization: Bearer " + strom_key + "'"
+
 # The in-bench page takes its node id from its token, so the browser manifests
 # keep naming it across restarts.
 browser_token := env("WEAVE_BROWSER_TOKEN", "browser-bench.0.ed7971623b06be894b581ccca99662bdb3983d232e8737a2c3e5a46455b00540")
@@ -61,10 +66,10 @@ wait:
         curl -sf {{tls}} {{sb}}/health >/dev/null 2>&1 && \
         curl -sf {{ctrl}}/health >/dev/null 2>&1 && \
         curl -sf {{ctrl2}}/health >/dev/null 2>&1 && \
-        curl -sf {{strom1}}/api/version >/dev/null 2>&1 && \
-        curl -sf {{strom2}}/api/version >/dev/null 2>&1 && \
-        curl -sf {{strom3}}/api/version >/dev/null 2>&1 && \
-        curl -sf {{strom4}}/api/version >/dev/null 2>&1 && \
+        curl -sf {{strom_auth}} {{strom1}}/api/version >/dev/null 2>&1 && \
+        curl -sf {{strom_auth}} {{strom2}}/api/version >/dev/null 2>&1 && \
+        curl -sf {{strom_auth}} {{strom3}}/api/version >/dev/null 2>&1 && \
+        curl -sf {{strom_auth}} {{strom4}}/api/version >/dev/null 2>&1 && \
         { echo "stack ready"; exit 0; }; \
         sleep 2; \
     done; echo "timeout waiting for stack" >&2; {{compose}} ps; exit 1
@@ -107,10 +112,10 @@ status:
     @printf "controller:  "; curl -sf {{ctrl}}/health >/dev/null && echo ok || echo DOWN
     @printf "controller-2:"; curl -sf {{ctrl2}}/health >/dev/null && echo " ok" || echo " DOWN"
     @printf "leading:     "; just leader 2>&1 || true
-    @printf "strom-1:     "; curl -sf {{strom1}}/api/version >/dev/null && echo ok || echo DOWN
-    @printf "strom-2:     "; curl -sf {{strom2}}/api/version >/dev/null && echo ok || echo DOWN
-    @printf "strom-3:     "; curl -sf {{strom3}}/api/version >/dev/null && echo ok || echo DOWN
-    @printf "strom-4:     "; curl -sf {{strom4}}/api/version >/dev/null && echo ok || echo DOWN
+    @printf "strom-1:     "; curl -sf {{strom_auth}} {{strom1}}/api/version >/dev/null && echo ok || echo DOWN
+    @printf "strom-2:     "; curl -sf {{strom_auth}} {{strom2}}/api/version >/dev/null && echo ok || echo DOWN
+    @printf "strom-3:     "; curl -sf {{strom_auth}} {{strom3}}/api/version >/dev/null && echo ok || echo DOWN
+    @printf "strom-4:     "; curl -sf {{strom_auth}} {{strom4}}/api/version >/dev/null && echo ok || echo DOWN
     @echo "== registered nodes (southbound) =="
     @curl -sf {{tls}} {{sb_auth}} {{sb}}/nodes | (jq . 2>/dev/null || cat)
     @echo "== /status (northbound, from the leading controller) =="
@@ -319,10 +324,10 @@ controller-restart stream="basic" how="restart":
     }
     snapshot() {
         for strom in {{strom1}} {{strom2}} {{strom3}} {{strom4}}; do
-            curl -sf "$strom/api/flows" \
+            curl -sf {{strom_auth}} "$strom/api/flows" \
                 | jq -r '.flows[] | select(.name | startswith("weave-")) | "\(.name) \(.id)"' \
                 | while read -r name id; do
-                    moved="$(curl -sf "$strom/api/flows/$id/srt-stats" \
+                    moved="$(curl -sf {{strom_auth}} "$strom/api/flows/$id/srt-stats" \
                         | jq '[.. | objects | (.bytes_received // 0) + (.bytes_sent // 0)] | add // 0')"
                     echo "$name $id $moved"
                 done
