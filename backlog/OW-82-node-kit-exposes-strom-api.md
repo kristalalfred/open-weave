@@ -2,7 +2,7 @@
 id: OW-82
 title: "The node kit exposes Strom's API, link keys included"
 type: bug
-status: in-progress
+status: done
 depends_on: []
 assignee: claude-rc
 ---
@@ -27,15 +27,36 @@ The bench also runs Strom without a key, so nothing exercises the adapter's
 
 ## Done when
 
-- [ ] The node kit refuses to start without `STROM_API_KEY`, and gives it to
+- [x] The node kit refuses to start without `STROM_API_KEY`, and gives it to
       Strom and, as `WEAVE_STROM_TOKEN`, to the adapter.
-- [ ] With the kit running, Strom's `/api/flows` answers 401 without the key, a
+- [x] With the kit running, Strom's `/api/flows` answers 401 without the key, a
       WHIP route does not ask for it, and media flows between two kit nodes.
-- [ ] The bench runs every Strom with an API key, its recipes and runner present
+- [x] The bench runs every Strom with an API key, its recipes and runner present
       it, and `weave-bench run` passes.
-- [ ] `deploy/README.md` and the README describe the key, and no doc still calls
+- [x] `deploy/README.md` and the README describe the key, and no doc still calls
       the kit's Strom API unauthenticated.
 
 ## Log
 
 - 2026-10-15: filed and started by claude-rc from the 0.1 release review.
+- 2026-10-15: `deploy/node/docker-compose.yml` sets `STROM_API_KEY` on Strom
+  and passes the same value to the adapter as `WEAVE_STROM_TOKEN`, both with
+  `:?`. `docker compose config` with `STROM_API_KEY=` empty exits 1. Box 1
+  ticked.
+- 2026-10-15: two node kits and the control-plane kit on one colima host, the
+  second node's ports moved, image built from f5491cf: without the key Strom's
+  `/api/flows` answered 401, with it 200, and `OPTIONS /whip/probe` 200 with no
+  key. The adapters registered through nginx TLS and an SRT stream from node 1
+  to node 2 reached `flowing`; a receiver decoded 1779 frames in 60 s. The
+  same check at 8e4d161 got 200 without a key. Not bench. Box 2 ticked.
+- 2026-10-15: every bench Strom runs with `STROM_API_KEY`, each adapter gets
+  `WEAVE_STROM_TOKEN`, the `bench/justfile` recipes send it, and `weave-bench`
+  presents it through `StromClient` for its flow checks and telemetry. On the
+  rebuilt bench strom-1 and strom-2 answered `/api/flows` 401 without the key
+  and 200 with it. `weave-bench run` passed 11 of 11, once on the OW-82 change
+  and again at f5491cf. Bench. Box 3 ticked.
+- 2026-10-15: `deploy/README.md` has a "Strom's API key" section, its node step
+  and ports table name the key, and the README's Strom token and key-exposure
+  paragraphs say Strom with `STROM_API_KEY` requires it. A grep of the three
+  READMEs finds no claim that the kit's Strom API is unauthenticated. Box 4
+  ticked.
