@@ -3576,6 +3576,21 @@ mod tests {
 
         let restarted = controller_on(store).await;
         assert_eq!(etag_and_body(&restarted, "/streams/fan-out").await, before);
+
+        let mut changed = two_destination_stream("fan-out");
+        changed.enabled = false;
+        let (status, headers, body) = send_with_headers(
+            &restarted,
+            "POST",
+            "/streams",
+            Some(serde_json::to_value(&changed).unwrap()),
+            &[("if-match", &etag)],
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let accepted: StreamAccepted = serde_json::from_value(body).unwrap();
+        assert_eq!((accepted.generation, accepted.changed), (2, true));
+        assert_ne!(response_etag(&headers), etag);
     }
 
     #[tokio::test]

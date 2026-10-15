@@ -660,6 +660,35 @@ fn streams_by_name(
     Ok(by_name)
 }
 
+enum StreamUpdate {
+    Unchanged(Box<StoredStream>),
+    Changed { generation: u64 },
+}
+
+impl StreamUpdate {
+    fn resolve(
+        current: Option<StoredStream>,
+        stream: &StreamDefinition,
+        expected_revision: u64,
+    ) -> Result<Self, StoreError> {
+        let current = current.ok_or(StoreError::PreconditionFailed)?;
+        if current.owner.is_some() {
+            return Err(StoreError::OwnershipConflict {
+                name: stream.name.clone(),
+            });
+        }
+        if current.revision != expected_revision {
+            return Err(StoreError::PreconditionFailed);
+        }
+        if current.spec == *stream {
+            return Ok(Self::Unchanged(Box::new(current)));
+        }
+        Ok(Self::Changed {
+            generation: current.generation + 1,
+        })
+    }
+}
+
 #[async_trait]
 impl StateStore for PgStore {
     async fn load_streams(&self) -> Result<Vec<StoredStream>, StoreError> {
@@ -771,39 +800,36 @@ impl StateStore for PgStore {
         stream: &StreamDefinition,
         expected_revision: u64,
     ) -> Result<StoredStream, StoreError> {
-        let expected_revision = database_counter(expected_revision, "revision")?;
         let mut transaction = self.pool.begin().await.map_err(StoreError::Query)?;
         self.fence(&mut transaction).await?;
-        let owner = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT owner FROM streams WHERE name = $1 FOR UPDATE",
+        let current = sqlx::query(
+            "SELECT definition, generation, revision, owner FROM streams WHERE name = $1 FOR UPDATE",
         )
         .bind(&stream.name)
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(StoreError::Query)?;
-        if owner.is_some_and(|owner| owner.is_some()) {
-            return Err(StoreError::OwnershipConflict {
-                name: stream.name.clone(),
-            });
-        }
+        .map_err(StoreError::Query)?
+        .as_ref()
+        .map(decode_stored_stream)
+        .transpose()?;
+        let generation = match StreamUpdate::resolve(current, stream, expected_revision)? {
+            StreamUpdate::Unchanged(current) => return Ok(*current),
+            StreamUpdate::Changed { generation } => generation,
+        };
         let row = sqlx::query(
             "UPDATE streams SET
                definition = $2,
-               generation = CASE WHEN definition = $2 THEN generation ELSE generation + 1 END,
-               revision = CASE
-                 WHEN definition = $2 THEN revision
-                 ELSE nextval('stream_revision_seq')
-               END
-             WHERE name = $1 AND revision = $3 AND owner IS NULL
+               generation = $3,
+               revision = nextval('stream_revision_seq')
+             WHERE name = $1
              RETURNING generation, revision, owner",
         )
         .bind(&stream.name)
         .bind(sqlx::types::Json(stream))
-        .bind(expected_revision)
-        .fetch_optional(&mut *transaction)
+        .bind(database_counter(generation, "generation")?)
+        .fetch_one(&mut *transaction)
         .await
-        .map_err(StoreError::Query)?
-        .ok_or(StoreError::PreconditionFailed)?;
+        .map_err(StoreError::Query)?;
         let stored = stored_stream_from_row(stream.clone(), &row)?;
         transaction.commit().await.map_err(StoreError::Query)?;
         Ok(stored)
@@ -1232,26 +1258,15 @@ impl StateStore for MemStore {
         {
             inner.upsert_stream_calls += 1;
         }
-        let current = inner
-            .streams
-            .get(&stream.name)
-            .cloned()
-            .ok_or(StoreError::PreconditionFailed)?;
-        if current.owner.is_some() {
-            return Err(StoreError::OwnershipConflict {
-                name: stream.name.clone(),
-            });
-        }
-        if current.revision != expected_revision {
-            return Err(StoreError::PreconditionFailed);
-        }
-        if current.spec == *stream {
-            return Ok(current);
-        }
+        let current = inner.streams.get(&stream.name).cloned();
+        let generation = match StreamUpdate::resolve(current, stream, expected_revision)? {
+            StreamUpdate::Unchanged(current) => return Ok(*current),
+            StreamUpdate::Changed { generation } => generation,
+        };
         inner.next_revision += 1;
         let stored = StoredStream {
             spec: stream.clone(),
-            generation: current.generation + 1,
+            generation,
             revision: inner.next_revision,
             owner: None,
         };
