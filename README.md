@@ -16,7 +16,8 @@ destinations:
 ```
 
 `weave apply -f` that, and `weave get streams` reports it `flowing` once the
-nodes it names have registered and their hops are up.
+nodes it names have registered, their hops are up and media reaches the
+destinations.
 
 It does **not** define a new media data plane, and no media passes through
 open-weave itself. The northbound side speaks operator intent; the southbound
@@ -1230,69 +1231,106 @@ format `-o` selects, and errors to standard error.
 
 ## Quickstart
 
-The fastest way to see open-weave work is the bench: a docker-compose stack with
-four Strom nodes behind emulated routers, which starts empty and takes stream
-manifests. `just bench up` then `just bench stream-up basic` drives a stream end
-to end. See [`bench/README.md`](bench/README.md).
+Each path below ends with `weave get stream NAME` reporting a stream `flowing`,
+or showing why it is not.
 
-To run the services directly instead, note that `run-north`, `run-south`,
-`run-controller` and `run-strom-adapter` are each a long-running server and want
-a terminal of their own.
+### On one machine: the bench
 
-Every service needs its secret (see [Authentication](#authentication)), and the
-controller its SRT key secret, so export them first, and the adapter its node
-token — or set
-`WEAVE_AUTH_DISABLED=1` to run without any:
+The bench is a docker-compose stack with the control plane, Postgres and four
+Strom nodes behind emulated routers. It needs Docker, `just`, a Rust toolchain
+and `jq`; see [`bench/README.md`](bench/README.md).
 
 ```sh
-export WEAVE_NORTHBOUND_TOKEN=$(openssl rand -hex 32)
-export WEAVE_SOUTHBOUND_KEY=$(openssl rand -hex 32)
-export WEAVE_SRT_KEY_SECRET=$(openssl rand -hex 32)
-export WEAVE_SOUTHBOUND_TOKEN=$(just cli node-token strom-node-1)
+just bench up
+just bench stream-up basic
+```
+
+`stream-up basic` applies a stream across Strom nodes 1 and 2, starts an ffmpeg
+producer and consumer, and ends with `basic: flowing`. `just bench stream-down
+basic` and `just bench down` remove it.
+
+### On Linux hosts: `deploy/`
+
+`deploy/control-plane` runs the control plane and `deploy/node` runs one media
+node. [`deploy/README.md`](deploy/README.md) covers secrets, TLS and ports.
+`examples/stream.yaml` names `strom-node-1` and `strom-node-2`, so bring up two
+node kits with those ids, then:
+
+```sh
+export WEAVE_NORTHBOUND_URL=https://<control-plane-host>
+export WEAVE_NORTHBOUND_TOKEN=<the control plane's northbound token>
+weave apply -f examples/stream.yaml
+weave get endpoints cam1-to-studio
+```
+
+Send a test source to the `ingress` URL and play a destination URL:
+
+```sh
+ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 \
+  -f lavfi -i sine=frequency=1000:sample_rate=48000 \
+  -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 30 \
+  -c:a aac -f mpegts "srt://<ingress host>:<port>?mode=caller"
+ffplay "srt://<studio host>:<port>?mode=caller"
 ```
 
 ```sh
-just build
-just run-north           # 127.0.0.1:9080
-just run-south           # 127.0.0.1:8081
-just run-controller      # 127.0.0.1:8082 health endpoint
-just run-strom-adapter --config examples/node.yaml
-just cli --help
+weave get stream cam1-to-studio
+```
+
+The stream reads `flowing` once media reaches every destination. Until then its
+DESTINATION table names the destinations that are not flowing and the reason;
+a destination nothing is pulling from reads `degraded` with `media_degraded`.
+
+### From source: the control plane only
+
+`just run-north`, `just run-south` and `just run-controller` start northbound,
+southbound and the controller on `127.0.0.1:9080`, `:8081` and `:8082`, each in
+the foreground. Every service and the CLI need the same secrets (see
+[Authentication](#authentication)). Write them once and source the file in each
+terminal, or set `WEAVE_AUTH_DISABLED=1` in each to run without authentication:
+
+```sh
+printf 'export WEAVE_NORTHBOUND_TOKEN=%s\nexport WEAVE_SOUTHBOUND_KEY=%s\nexport WEAVE_SRT_KEY_SECRET=%s\n' \
+  "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > ~/.weave-dev.env
+. ~/.weave-dev.env
+```
+
+```sh
+just run-north
+just run-south
+just run-controller
 just apply               # examples/stream.yaml through northbound
-just get-streams
-just get-nodes
-just get-status
+just get-stream cam1-to-studio
 ```
 
-The adapter needs a node config, from `--config` or `WEAVE_NODE_CONFIG`; it will
-not start without one. `examples/node.yaml` names the bench's southbound and
-Strom addresses, so point them at your own before running it anywhere else —
-until they answer, the adapter serves `/health` and keeps retrying.
+With no nodes registered, the stream reads `pending` and its conditions say
+`node strom-node-1 is not registered`. To carry media, run
+`weave-adapter-strom --config <file>` against a Strom instance for each node,
+with a token from `just cli node-token <node-id>`. `examples/node.yaml` is an
+annotated node config; its addresses are the bench's.
 
-`just apply` and the `just get-*` commands call northbound, so it has to be up. The
-applied stream stays `Pending` until the nodes it names register.
+### CLI output
 
-The CLI picks `WEAVE_NORTHBOUND_TOKEN` up from the environment; `--token`
-overrides it.
+The CLI reads `WEAVE_NORTHBOUND_URL` (default `http://127.0.0.1:9080`) and
+`WEAVE_NORTHBOUND_TOKEN` from the environment; `--url` and `--token` override
+them.
 
-CLI output defaults to a compact human-readable form. The global
-`-o human|yaml|json` option selects an explicit format; YAML and JSON are useful
-for scripts and for retaining every response field.
+Output defaults to tables. `weave get streams` and `weave get stream NAME` add
+each stream's status from `/status`, and `get stream` adds its conditions and
+destinations. The global `-o yaml` or `-o json` prints the API response as
+returned, for scripts.
 
 ```sh
 weave get nodes
 weave get status
-weave get endpoints STREAM
 weave get streams
 weave get stream NAME
+weave get endpoints NAME
 weave get stream-sets
 weave get stream-set OWNER
 weave apply-set OWNER -f examples/stream-set.yaml
-weave -o yaml get status
 weave -o json get stream NAME
 ```
-
-`get endpoints STREAM` returns the resolved addresses for that stream.
 
 ## Deploying
 
