@@ -2555,7 +2555,6 @@ dependencies = [
  "serde_json",
  "serde_norway",
  "tokio",
- "tracing",
  "weave-core",
 ]
 

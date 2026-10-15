@@ -1221,9 +1221,12 @@ still connected or gone, and the stream reads `degraded`.
 
 ## Logging
 
-Every binary logs to standard output. `RUST_LOG` sets the level and defaults to `info`.
-Set `WEAVE_LOG_FORMAT=json` for one JSON object per line; any other value, or
-none, keeps the text format.
+The services and the adapter log to standard output. `RUST_LOG` sets the level
+and defaults to `info`. Set `WEAVE_LOG_FORMAT=json` for one JSON object per line;
+any other value, or none, keeps the text format.
+
+The `weave` CLI logs nothing. It prints its result to standard output, in the
+format `-o` selects, and errors to standard error.
 
 ## Quickstart
 

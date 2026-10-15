@@ -132,8 +132,6 @@ enum DeleteResource {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    weave_core::logging::init();
-
     let Cli {
         url,
         token,
@@ -551,7 +549,6 @@ async fn apply_stream(
         );
     }
 
-    tracing::info!(name = %stream.name, %status, "stream applied");
     let accepted: StreamAccepted =
         serde_json::from_str(&body).context("decoding accepted stream")?;
     let human = table(
@@ -814,7 +811,6 @@ async fn delete_stream(
         );
     }
 
-    tracing::info!(%name, %status, "stream deleted");
     emit(
         output,
         serde_json::json!({ "deleted": name }),
