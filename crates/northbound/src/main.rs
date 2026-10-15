@@ -15,6 +15,7 @@ use axum::{
 };
 use serde_json::{Value, json};
 use weave_core::auth::{self, Guard, Token, require_bearer};
+use weave_core::logging::ErrorChain;
 use weave_core::upstream::{Answer, Controllers};
 use weave_core::{
     ApiError, ApiErrorCode, ROUTE_NODES, ROUTE_STATUS, ROUTE_STREAM, ROUTE_STREAM_ENDPOINTS,
@@ -154,7 +155,7 @@ async fn submit_stream(
     let body = match serde_json::to_vec(&stream) {
         Ok(body) => body,
         Err(err) => {
-            tracing::error!(%err, "serializing validated stream failed");
+            tracing::error!(error = %ErrorChain(&err), "serializing validated stream failed");
             return error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ApiErrorCode::EncodingFailed,
@@ -188,7 +189,7 @@ async fn plan_stream(
     let body = match serde_json::to_vec(&stream) {
         Ok(body) => body,
         Err(err) => {
-            tracing::error!(%err, "serializing validated stream plan failed");
+            tracing::error!(error = %ErrorChain(&err), "serializing validated stream plan failed");
             return error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ApiErrorCode::EncodingFailed,
@@ -244,7 +245,7 @@ async fn put_stream_set(
     let body = match serde_json::to_vec(&apply) {
         Ok(body) => body,
         Err(err) => {
-            tracing::error!(%err, "serializing stream set failed");
+            tracing::error!(error = %ErrorChain(&err), "serializing stream set failed");
             return error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ApiErrorCode::EncodingFailed,

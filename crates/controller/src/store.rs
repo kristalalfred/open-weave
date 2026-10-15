@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use weave_core::logging::ErrorChain;
 use weave_core::{NodeRegistration, StreamDefinition, StreamStatus, protocol_compatible};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,7 +147,7 @@ fn decode_registrations(rows: Vec<(String, serde_json::Value)>) -> Vec<NodeRegis
                 Err(error) => {
                     tracing::warn!(
                         node_id = %id,
-                        %error,
+                        error = %ErrorChain(&error),
                         "dropping a stored registration this build cannot read; the node re-registers on its next heartbeat"
                     );
                     None
@@ -207,7 +208,7 @@ impl PgStore {
             match options.clone().connect(url).await {
                 Ok(pool) => return Ok(pool),
                 Err(error) => {
-                    tracing::warn!(attempt, "postgres not ready, retrying");
+                    tracing::warn!(attempt, error = %ErrorChain(&error), "postgres not ready, retrying");
                     last = Some(error);
                     tokio::time::sleep(backoff).await;
                 }
@@ -964,7 +965,7 @@ impl StateStore for PgStore {
                     .inspect_err(|error| {
                         tracing::warn!(
                             stream = %name,
-                            %error,
+                            error = %ErrorChain(error),
                             "dropping a stored stream status this build cannot read; the next tick computes it afresh"
                         );
                     })

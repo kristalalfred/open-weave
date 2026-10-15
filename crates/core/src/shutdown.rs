@@ -2,6 +2,8 @@
 
 use std::io;
 
+use crate::logging::ErrorChain;
+
 /// Resolves when the process receives SIGTERM or Ctrl-C (SIGINT). On platforms
 /// without SIGTERM it resolves on Ctrl-C only.
 ///
@@ -28,7 +30,7 @@ pub async fn graceful(name: &str) {
     match signal().await {
         Ok(()) => tracing::info!("{name} shutting down"),
         Err(error) => {
-            tracing::error!(%error, "cannot listen for shutdown signals; {name} will not stop on them");
+            tracing::error!(error = %ErrorChain(&error), "cannot listen for shutdown signals; {name} will not stop on them");
             std::future::pending::<()>().await;
         }
     }

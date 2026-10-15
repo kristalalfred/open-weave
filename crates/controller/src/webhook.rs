@@ -17,6 +17,7 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use weave_core::auth::Token;
+use weave_core::logging::ErrorChain;
 use weave_core::webhook::{Event, EventType, Subject};
 
 #[derive(Debug, Clone)]
@@ -74,7 +75,7 @@ impl Emitter {
         let client = match Client::builder().timeout(config.timeout).build() {
             Ok(client) => client,
             Err(err) => {
-                tracing::error!(%err, "building the webhook HTTP client failed; webhooks are off");
+                tracing::error!(error = %ErrorChain(&err), "building the webhook HTTP client failed; webhooks are off");
                 return None;
             }
         };
@@ -253,7 +254,7 @@ async fn deliver(
             ),
             Err(err) => tracing::warn!(
                 event_id = %event.event_id,
-                %err,
+                error = %ErrorChain(&err),
                 attempt,
                 "webhook delivery failed"
             ),

@@ -1,5 +1,8 @@
 //! Log output shared by every binary.
 
+use std::error::Error;
+use std::fmt;
+
 use tracing_subscriber::EnvFilter;
 
 /// Environment variable selecting the log format: `json` for one JSON object
@@ -41,9 +44,47 @@ pub fn init() {
     }
 }
 
+/// An error followed by each of its sources, joined by `: ` on one line, as
+/// anyhow's `{:#}` renders a chain. Every logged error goes through it, as
+/// `error = %ErrorChain(&error)`, so a log line names the cause and not only
+/// the outermost context.
+pub struct ErrorChain<'a>(pub &'a (dyn Error + 'static));
+
+impl fmt::Display for ErrorChain<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)?;
+        let mut source = self.0.source();
+        while let Some(error) = source {
+            write!(f, ": {error}")?;
+            source = error.source();
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("registering the node")]
+    struct Registering(#[source] Handshake);
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("TLS handshake failed")]
+    struct Handshake(#[source] std::io::Error);
+
+    #[test]
+    fn an_error_chain_names_every_cause_on_one_line() {
+        let error = Registering(Handshake(std::io::Error::other(
+            "invalid peer certificate: UnknownIssuer",
+        )));
+
+        assert_eq!(
+            ErrorChain(&error).to_string(),
+            "registering the node: TLS handshake failed: invalid peer certificate: UnknownIssuer"
+        );
+    }
 
     #[test]
     fn json_is_opt_in() {

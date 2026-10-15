@@ -13,6 +13,7 @@ use reqwest::{Client, RequestBuilder, StatusCode};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
 use weave_core::auth::{self, Token};
+use weave_core::logging::ErrorChain;
 use weave_core::{
     AdapterDescriptor, AdapterKind, AudioCodec, AudioConstraint, DesiredHop, EgressStatus,
     EndpointDescriptor, EndpointKind, FormatConstraint, HopEndpointClass, HopProfile, HopState,
@@ -167,10 +168,12 @@ async fn sync_loop(
             match check_strom_version(strom).await {
                 Ok(()) => strom_checked = true,
                 Err(error) if error.is::<UnsupportedStrom>() => {
-                    tracing::error!(%error, "Strom adapter cannot drive this Strom; exiting");
+                    tracing::error!(error = %ErrorChain(error.as_ref()), "Strom adapter cannot drive this Strom; exiting");
                     return Err(error);
                 }
-                Err(error) => tracing::warn!(%error, "Strom version check failed"),
+                Err(error) => {
+                    tracing::warn!(error = %ErrorChain(error.as_ref()), "Strom version check failed")
+                }
             }
         }
 
@@ -189,14 +192,14 @@ async fn sync_loop(
             Err(error) if error.is::<RegistrationRejected>() => {
                 tracing::error!(
                     node_id = %config.node.id,
-                    %error,
+                    error = %ErrorChain(error.as_ref()),
                     "Strom adapter cannot register with this control plane; exiting"
                 );
                 return Err(error);
             }
             Err(error) => {
                 registered = false;
-                tracing::warn!(%error, "Strom adapter sync failed");
+                tracing::warn!(error = %ErrorChain(error.as_ref()), "Strom adapter sync failed");
             }
         }
 
@@ -217,7 +220,7 @@ async fn sync_once(
     let (status, flows) = match strom.list_flows().await {
         Ok(flows) => (NodeStatus::Ready, Some(flows)),
         Err(error) => {
-            tracing::warn!(%error, "Strom observation failed");
+            tracing::warn!(error = %ErrorChain(&error), "Strom observation failed");
             (NodeStatus::Degraded, None)
         }
     };
@@ -358,7 +361,7 @@ async fn hop_status(
     {
         Ok(hop_status) => hop_status,
         Err(error) => {
-            tracing::warn!(%error, "provisioning desired hops failed; reporting the last desired hops");
+            tracing::warn!(error = %ErrorChain(error.as_ref()), "provisioning desired hops failed; reporting the last desired hops");
             hop_statuses(
                 strom,
                 last_desired,
@@ -432,20 +435,22 @@ async fn reconcile(
     for flow_id in &plan.delete {
         match flow_api.delete_flow(flow_id).await {
             Ok(()) => tracing::info!(flow_id = %flow_id, "deleted undesired managed flow"),
-            Err(error) => tracing::warn!(flow_id = %flow_id, %error, "deleting flow failed"),
+            Err(error) => {
+                tracing::warn!(flow_id = %flow_id, error = %ErrorChain(&error), "deleting flow failed")
+            }
         }
     }
 
     let mut failed = std::collections::HashSet::new();
     for hop in &plan.create {
         if let Err(error) = provision_hop(flow_api, hop).await {
-            tracing::warn!(hop = %hop.id, %error, "provisioning hop failed");
+            tracing::warn!(hop = %hop.id, error = %ErrorChain(error.as_ref()), "provisioning hop failed");
             failed.insert(hop.id.clone());
         }
     }
     for flow_id in &plan.start {
         if let Err(error) = flow_api.start_flow(flow_id).await {
-            tracing::warn!(flow_id = %flow_id, %error, "starting adopted flow failed");
+            tracing::warn!(flow_id = %flow_id, error = %ErrorChain(&error), "starting adopted flow failed");
         }
     }
 
@@ -503,7 +508,7 @@ async fn redial_unconnected_callers(
             Err(error) => tracing::warn!(
                 hop = %hop.id,
                 flow_id = %flow.id,
-                %error,
+                error = %ErrorChain(&error),
                 "restarting a flow whose SRT caller has not finished a handshake failed"
             ),
         }
@@ -525,7 +530,7 @@ async fn hop_statuses(
             Some(flow) => match strom.srt_stats(&flow.id).await {
                 Ok(value) => Some(parse_flow_stats(&value)),
                 Err(error) => {
-                    tracing::debug!(hop = %hop.id, %error, "srt-stats unavailable");
+                    tracing::debug!(hop = %hop.id, error = %ErrorChain(&error), "srt-stats unavailable");
                     None
                 }
             },
@@ -535,7 +540,7 @@ async fn hop_statuses(
             Some(flow) if carries_webrtc(hop) => match strom.webrtc_stats(&flow.id).await {
                 Ok(value) => Some(parse_webrtc_stats(&value)),
                 Err(error) => {
-                    tracing::debug!(hop = %hop.id, %error, "webrtc-stats unavailable");
+                    tracing::debug!(hop = %hop.id, error = %ErrorChain(&error), "webrtc-stats unavailable");
                     None
                 }
             },
@@ -945,7 +950,7 @@ async fn ensure_success(response: reqwest::Response, context: &str) -> Result<()
 async fn response_body(response: reqwest::Response) -> String {
     match response.text().await {
         Ok(body) => body,
-        Err(error) => format!("<failed to read body: {error}>"),
+        Err(error) => format!("<failed to read body: {}>", ErrorChain(&error)),
     }
 }
 
@@ -1935,5 +1940,95 @@ mod tests {
             )],
             "with Strom unlisted, the last desired hops are reported pending"
         );
+    }
+
+    /// The events this crate logs while installed, each as its fields rendered
+    /// the way a log line shows them.
+    #[derive(Clone, Default)]
+    struct LogCapture(std::sync::Arc<Mutex<Vec<std::collections::BTreeMap<String, String>>>>);
+
+    impl LogCapture {
+        /// The `error` field of the first event logged with `message`.
+        fn error_of(&self, message: &str) -> Option<String> {
+            self.0
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|fields| fields.get("message").map(String::as_str) == Some(message))
+                .and_then(|fields| fields.get("error").cloned())
+        }
+
+        /// Drive `run` until it logs `message`, and return that event's
+        /// `error` field.
+        async fn error_logged_by(&self, run: impl Future, message: &str) -> String {
+            let logged = async {
+                loop {
+                    if let Some(error) = self.error_of(message) {
+                        return error;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            };
+            let raced = async {
+                tokio::select! {
+                    _ = run => panic!("returned without logging {message:?}"),
+                    error = logged => error,
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(10), raced)
+                .await
+                .unwrap_or_else(|_| panic!("{message:?} was not logged"))
+        }
+    }
+
+    impl tracing::Subscriber for LogCapture {
+        fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+            metadata.target().starts_with(env!("CARGO_CRATE_NAME"))
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut fields = Fields::default();
+            event.record(&mut fields);
+            self.0.lock().unwrap().push(fields.0);
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    #[derive(Default)]
+    struct Fields(std::collections::BTreeMap<String, String>);
+
+    impl tracing::field::Visit for Fields {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            self.0
+                .insert(field.name().to_string(), format!("{value:?}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_southbound_that_cannot_be_reached_is_logged_with_its_cause() {
+        let strom = strom_reporting(json!("0.6.10")).await;
+        let unreachable = "http://127.0.0.1:1";
+        let config: AdapterConfig = serde_norway::from_str(&format!(
+            "node:\n  id: strom-node-1\n  southbound_url: {unreachable}\n  listen: 127.0.0.1:0\n  topology: {{ attachments: [] }}\nstrom:\n  url: {}\n",
+            strom.base_url()
+        ))
+        .unwrap();
+        let southbound = Southbound::new(unreachable.to_string(), None);
+        let logs = LogCapture::default();
+        let _logging = tracing::subscriber::set_default(logs.clone());
+
+        let error = logs
+            .error_logged_by(
+                sync_loop(&southbound, &strom, &config, "http://strom-node-1"),
+                "Strom adapter sync failed",
+            )
+            .await;
+
+        assert!(error.contains("Connection refused"), "{error}");
     }
 }
