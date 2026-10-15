@@ -13,7 +13,7 @@ use reqwest::{Client, RequestBuilder, StatusCode};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
 use weave_core::auth::{self, Token};
-use weave_core::logging::ErrorChain;
+use weave_core::logging::{ErrorChain, excerpt};
 use weave_core::{
     AdapterDescriptor, AdapterKind, AudioCodec, AudioConstraint, DesiredHop, EgressStatus,
     EndpointDescriptor, EndpointKind, FormatConstraint, HopEndpointClass, HopProfile, HopState,
@@ -740,13 +740,13 @@ async fn provision_hop(strom: &dyn FlowApi, hop: &DesiredHop) -> Result<()> {
 }
 
 async fn fetch_desired(southbound: &Southbound, node_id: &str) -> Result<Vec<DesiredHop>> {
-    southbound
+    let response = southbound
         .get(&format!("/nodes/{node_id}/desired"))
         .send()
         .await
-        .context("fetching desired hops")?
-        .error_for_status()
-        .context("southbound desired request failed")?
+        .context("fetching desired hops")?;
+    ensure_success(response, "southbound desired request failed")
+        .await?
         .json::<Vec<DesiredHop>>()
         .await
         .context("decoding desired hops")
@@ -937,10 +937,10 @@ async fn heartbeat_node(southbound: &Southbound, heartbeat: &NodeHeartbeat) -> R
     bail!("southbound heartbeat failed: {status}: {body}")
 }
 
-async fn ensure_success(response: reqwest::Response, context: &str) -> Result<()> {
+async fn ensure_success(response: reqwest::Response, context: &str) -> Result<reqwest::Response> {
     let status = response.status();
     if status.is_success() {
-        return Ok(());
+        return Ok(response);
     }
 
     let body = response_body(response).await;
@@ -949,7 +949,7 @@ async fn ensure_success(response: reqwest::Response, context: &str) -> Result<()
 
 async fn response_body(response: reqwest::Response) -> String {
     match response.text().await {
-        Ok(body) => body,
+        Ok(body) => excerpt(&body),
         Err(error) => format!("<failed to read body: {}>", ErrorChain(&error)),
     }
 }
@@ -1958,26 +1958,23 @@ mod tests {
                 .and_then(|fields| fields.get("error").cloned())
         }
 
-        /// Drive `run` until it logs `message`, and return that event's
-        /// `error` field.
+        /// Drive `run` until it logs `message` or returns, and return that
+        /// event's `error` field.
         async fn error_logged_by(&self, run: impl Future, message: &str) -> String {
             let logged = async {
-                loop {
-                    if let Some(error) = self.error_of(message) {
-                        return error;
-                    }
+                while self.error_of(message).is_none() {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
             };
-            let raced = async {
+            let _ = tokio::time::timeout(Duration::from_secs(10), async {
                 tokio::select! {
-                    _ = run => panic!("returned without logging {message:?}"),
-                    error = logged => error,
+                    _ = run => {}
+                    () = logged => {}
                 }
-            };
-            tokio::time::timeout(Duration::from_secs(10), raced)
-                .await
-                .unwrap_or_else(|_| panic!("{message:?} was not logged"))
+            })
+            .await;
+            self.error_of(message)
+                .unwrap_or_else(|| panic!("{message:?} was not logged"))
         }
     }
 
@@ -2030,5 +2027,43 @@ mod tests {
             .await;
 
         assert!(error.contains("Connection refused"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_flow_strom_refuses_is_logged_with_what_strom_answered() {
+        let app = Router::new().route(
+            "/api/flows",
+            axum::routing::post(|| async {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "{\n  \"error\": \"Invalid flow\",\n  \"details\": \"no such element: srtsrcx\"\n}",
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        let strom = StromClient::new(format!("http://{addr}"));
+        let logs = LogCapture::default();
+        let _logging = tracing::subscriber::set_default(logs.clone());
+
+        let error = logs
+            .error_logged_by(
+                reconcile(
+                    &strom,
+                    &[hop("weave-basic-sender", 7001)],
+                    &[],
+                    None,
+                    &mut StallTracker::default(),
+                ),
+                "provisioning hop failed",
+            )
+            .await;
+
+        assert!(error.contains("400 Bad Request"), "{error}");
+        assert!(error.contains("no such element: srtsrcx"), "{error}");
+        assert!(!error.contains('\n'), "{error}");
     }
 }

@@ -2,7 +2,7 @@
 id: OW-87
 title: "Adapter logs drop the cause of an error"
 type: bug
-status: in-progress
+status: done
 depends_on: []
 assignee: claude-rc-errors
 ---
@@ -21,7 +21,7 @@ response body, so why Strom refused a flow is not visible anywhere.
 
 - [x] An adapter that cannot reach southbound logs the underlying cause; a test
       shows a connection or TLS failure's cause in the logged text.
-- [ ] A Strom request answered with a non-2xx status logs the status and
+- [x] A Strom request answered with a non-2xx status logs the status and
       Strom's response body; a test covers it.
 - [x] No service or the adapter logs an error with a source chain through
       `%error` or `Display` alone.
@@ -47,3 +47,19 @@ response body, so why Strom refused a flow is not visible anywhere.
   (Connect): invalid peer certificate: UnknownIssuer`, and with
   `WEAVE_LOG_FORMAT=json` the same text in one JSON object per line. Boxes 1
   and 3 ticked. Unit tests and a local run; not bench.
+- 2026-10-15: a Strom request answered other than `2xx` fails with
+  `StromError::Status`, which says `strom answered <status> for url (<url>):
+  <body>`; the body is quoted through `logging::excerpt`, on one line and cut
+  at 1024 bytes. The adapter quotes southbound answers the same way, and a
+  refused desired fetch now carries southbound's answer too. Tests
+  `client::tests::a_refused_request_names_the_status_and_what_strom_answered`
+  and `a_long_answer_is_cut_short` (weave-strom) and
+  `a_flow_strom_refuses_is_logged_with_what_strom_answered` (adapter, reads
+  the logged `provisioning hop failed` line) failed before the change with
+  `HTTP status client error (400 Bad Request) for url (...)` and no body; they
+  pass after it. Ran the adapter binary against a stub Strom answering
+  `/api/flows` with `500` and a multi-line JSON body: before,
+  `error=strom request failed`; after, `error=strom answered 500 Internal
+  Server Error for url (http://127.0.0.1:28080/api/flows): { "error": "Failed
+  to list flows", "details": "storage locked" }`. Box 2 ticked; all boxes
+  ticked. Unit tests and a local run; not bench.

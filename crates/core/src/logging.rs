@@ -62,6 +62,29 @@ impl fmt::Display for ErrorChain<'_> {
     }
 }
 
+/// How much of a response body an error quotes.
+const EXCERPT_BYTES: usize = 1024;
+
+/// `text` on one line, each run of whitespace collapsed to one space, and cut
+/// to [`EXCERPT_BYTES`] followed by `…` when longer: how an error quotes the
+/// body of a response it failed on.
+#[must_use]
+pub fn excerpt(text: &str) -> String {
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+        if line.len() > EXCERPT_BYTES {
+            line.truncate(line.floor_char_boundary(EXCERPT_BYTES));
+            line.push('…');
+            break;
+        }
+    }
+    line
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +107,15 @@ mod tests {
             ErrorChain(&error).to_string(),
             "registering the node: TLS handshake failed: invalid peer certificate: UnknownIssuer"
         );
+    }
+
+    #[test]
+    fn an_excerpt_never_splits_a_character() {
+        let quoted = excerpt(&"€".repeat(1000));
+
+        assert!(quoted.starts_with("€€€"), "{quoted}");
+        assert!(quoted.ends_with('…'), "{quoted}");
+        assert!(quoted.len() <= EXCERPT_BYTES + '…'.len_utf8());
     }
 
     #[test]
