@@ -1184,6 +1184,85 @@ streams:
     }
 
     #[test]
+    fn human_tables_name_states_as_the_api_does() {
+        let status: StatusResponse = serde_json::from_value(serde_json::json!({
+            "status": "converging",
+            "summary": "0/1 stream(s) flowing across 2 node(s)",
+            "streams": [{
+                "name": "cam1-to-studio",
+                "generation": 2,
+                "observed_generation": 1,
+                "status": "awaiting_input",
+                "nodes": ["strom-node-1", "strom-node-2"],
+                "conditions": [],
+                "ingress": null,
+                "destinations": []
+            }]
+        }))
+        .unwrap();
+        let rendered = render_status(&status);
+        assert_eq!(rendered.lines().next(), Some("STATUS: converging"));
+        assert_eq!(
+            rendered
+                .lines()
+                .last()
+                .unwrap()
+                .split_whitespace()
+                .collect::<Vec<_>>(),
+            [
+                "cam1-to-studio",
+                "2",
+                "1",
+                "awaiting_input",
+                "strom-node-1,strom-node-2"
+            ]
+        );
+
+        let plan: StreamPlan = serde_json::from_value(serde_json::json!({
+            "name": "cam1-to-studio",
+            "status": "unplaced",
+            "nodes": [],
+            "hops": [],
+            "reason": "no node named strom-node-9"
+        }))
+        .unwrap();
+        assert_eq!(
+            render_plan(&plan)
+                .lines()
+                .last()
+                .unwrap()
+                .split_whitespace()
+                .collect::<Vec<_>>(),
+            [
+                "cam1-to-studio",
+                "unplaced",
+                "-",
+                "no",
+                "node",
+                "named",
+                "strom-node-9"
+            ]
+        );
+
+        let nodes: Vec<NodeDescriptor> = serde_json::from_value(serde_json::json!([{
+            "id": "strom-node-1",
+            "endpoint": "http://strom-node-1:8091",
+            "status": "offline",
+            "topology": { "attachments": [] }
+        }]))
+        .unwrap();
+        assert_eq!(
+            render_nodes(&nodes)
+                .lines()
+                .last()
+                .unwrap()
+                .split_whitespace()
+                .collect::<Vec<_>>(),
+            ["strom-node-1", "offline", "http://strom-node-1:8091"]
+        );
+    }
+
+    #[test]
     fn parsed_yaml_serializes_to_northbound_json_shape() {
         let yaml = r#"
 name: paused
