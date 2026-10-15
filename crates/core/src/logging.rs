@@ -77,7 +77,11 @@ pub fn excerpt(text: &str) -> String {
         }
         line.push_str(word);
         if line.len() > EXCERPT_BYTES {
-            line.truncate(line.floor_char_boundary(EXCERPT_BYTES));
+            let cut = (0..=EXCERPT_BYTES)
+                .rev()
+                .find(|&index| line.is_char_boundary(index))
+                .unwrap_or(0);
+            line.truncate(cut);
             line.push('…');
             break;
         }
