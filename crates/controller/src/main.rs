@@ -3511,6 +3511,173 @@ mod tests {
         assert_eq!(resource.streams[0].spec.name, "alpha");
     }
 
+    fn two_destination_stream(name: &str) -> StreamDefinition {
+        let mut stream = stream(name);
+        stream.destinations.push(StreamDestination {
+            id: "preview".to_string(),
+            paths: 1,
+            endpoint: srt_endpoint("strom-node-3", 1000),
+        });
+        stream
+    }
+
+    fn with_destinations_reversed(mut stream: StreamDefinition) -> StreamDefinition {
+        stream.destinations.reverse();
+        stream
+    }
+
+    async fn controller_on(store: Arc<dyn StateStore>) -> Router {
+        open_router(
+            AppState::hydrate(
+                store,
+                Duration::from_secs(15),
+                Duration::from_secs(300),
+                None,
+                LinkKeys::for_tests(),
+            )
+            .await
+            .unwrap(),
+        )
+    }
+
+    async fn etag_and_body(app: &Router, uri: &str) -> (String, Value) {
+        let (status, headers, body) = send_with_headers(app, "GET", uri, None, &[]).await;
+        assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+        (response_etag(&headers), body)
+    }
+
+    async fn assert_a_reordered_reapply_is_a_noop(store: Arc<dyn StateStore>) {
+        let app = controller_on(store.clone()).await;
+        let original = two_destination_stream("fan-out");
+        let (status, headers, body) = send_with_headers(
+            &app,
+            "POST",
+            "/streams",
+            Some(serde_json::to_value(&original).unwrap()),
+            &[("if-none-match", "*")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let etag = response_etag(&headers);
+        let before = etag_and_body(&app, "/streams/fan-out").await;
+
+        let (status, headers, body) = send_with_headers(
+            &app,
+            "POST",
+            "/streams",
+            Some(serde_json::to_value(with_destinations_reversed(original)).unwrap()),
+            &[("if-match", &etag)],
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let accepted: StreamAccepted = serde_json::from_value(body).unwrap();
+        assert_eq!((accepted.generation, accepted.changed), (1, false));
+        assert_eq!(response_etag(&headers), etag);
+
+        let restarted = controller_on(store).await;
+        assert_eq!(etag_and_body(&restarted, "/streams/fan-out").await, before);
+
+        let mut changed = two_destination_stream("fan-out");
+        changed.enabled = false;
+        let (status, headers, body) = send_with_headers(
+            &restarted,
+            "POST",
+            "/streams",
+            Some(serde_json::to_value(&changed).unwrap()),
+            &[("if-match", &etag)],
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let accepted: StreamAccepted = serde_json::from_value(body).unwrap();
+        assert_eq!((accepted.generation, accepted.changed), (2, true));
+        assert_ne!(response_etag(&headers), etag);
+    }
+
+    #[tokio::test]
+    async fn a_reordered_reapply_keeps_the_generation_and_etag() {
+        assert_a_reordered_reapply_is_a_noop(Arc::new(MemStore::new())).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn a_reordered_reapply_on_postgres_keeps_the_generation_and_etag() {
+        let url = store::tests::fresh_database().await;
+        assert_a_reordered_reapply_is_a_noop(Arc::new(store::tests::leading_pg_store(&url).await))
+            .await;
+    }
+
+    async fn assert_a_reordered_stream_set_reapply_is_a_noop(store: Arc<dyn StateStore>) {
+        let app = controller_on(store.clone()).await;
+        let original = two_destination_stream("fan-out");
+        let apply = |stream: StreamDefinition| {
+            Some(
+                serde_json::to_value(StreamSetApply {
+                    streams: vec![stream],
+                    prune: true,
+                })
+                .unwrap(),
+            )
+        };
+        let (status, headers, body) = send_with_headers(
+            &app,
+            "PUT",
+            "/stream-sets/studio-a",
+            apply(original.clone()),
+            &[("if-none-match", "*")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let etag = response_etag(&headers);
+        let set_before = etag_and_body(&app, "/stream-sets/studio-a").await;
+        let member_before = etag_and_body(&app, "/streams/fan-out").await;
+
+        let (status, headers, body) = send_with_headers(
+            &app,
+            "PUT",
+            "/stream-sets/studio-a",
+            apply(with_destinations_reversed(original)),
+            &[("if-match", &etag)],
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let accepted: StreamSetAccepted = serde_json::from_value(body).unwrap();
+        assert!(!accepted.changed);
+        assert_eq!(
+            accepted
+                .streams
+                .iter()
+                .map(|stream| (stream.name.as_str(), stream.generation, stream.action))
+                .collect::<Vec<_>>(),
+            [("fan-out", 1, StreamSetAction::Unchanged)]
+        );
+        assert_eq!(response_etag(&headers), etag);
+
+        let restarted = controller_on(store).await;
+        assert_eq!(
+            etag_and_body(&restarted, "/stream-sets/studio-a").await,
+            set_before
+        );
+        assert_eq!(
+            etag_and_body(&restarted, "/streams/fan-out").await,
+            member_before
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reordered_stream_set_reapply_keeps_generations_and_etags() {
+        assert_a_reordered_stream_set_reapply_is_a_noop(Arc::new(MemStore::new())).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn a_reordered_stream_set_reapply_on_postgres_keeps_generations_and_etags() {
+        let url = store::tests::fresh_database().await;
+        assert_a_reordered_stream_set_reapply_is_a_noop(Arc::new(
+            store::tests::leading_pg_store(&url).await,
+        ))
+        .await;
+    }
+
     #[tokio::test]
     async fn stream_set_conflicts_do_not_partially_apply() {
         let (state, _mem) = mem_state();

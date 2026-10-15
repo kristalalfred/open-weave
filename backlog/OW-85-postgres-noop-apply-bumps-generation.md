@@ -2,7 +2,7 @@
 id: OW-85
 title: "A reordered no-op apply bumps the generation on Postgres"
 type: bug
-status: in-progress
+status: done
 depends_on: []
 assignee: claude-rc-store
 ---
@@ -25,14 +25,41 @@ CI runs no Postgres test: the 15 Postgres tests are `#[ignore]` and
 
 ## Done when
 
-- [ ] A Postgres test applies a stream, then the same stream with its
+- [x] A Postgres test applies a stream, then the same stream with its
       destinations reordered, and finds the generation and ETag unchanged. It
       fails before the fix.
-- [ ] The same holds for a stream-set write, with a test.
-- [ ] Postgres and `MemStore` decide "unchanged" by one rule.
-- [ ] CI runs the Postgres tests against a Postgres service.
+- [x] The same holds for a stream-set write, with a test.
+- [x] Postgres and `MemStore` decide "unchanged" by one rule.
+- [x] CI runs the Postgres tests against a Postgres service.
 
 ## Log
 
 - 2026-10-15: filed by claude-rc from the 0.1 release review; assigned to
   claude-rc-store.
+- 2026-10-15: reproduced in unit tests against a `postgres:16` container, not
+  on `bench/`. `a_reordered_reapply_on_postgres_keeps_the_generation_and_etag`
+  fails: the reordered reapply answers generation 2 with `changed: false`. Its
+  MemStore twin passes. `psql` shows JSONB `=` is false for reordered arrays and
+  true for reordered object keys, so `definition = $2` in
+  `PgStore::update_stream` is the split.
+- 2026-10-15: `a_reordered_stream_set_reapply_on_postgres_keeps_generations_and_etags`
+  passes before any fix, because `PgStore::write_stream_set` decodes each stored
+  definition and compares with `StreamDefinition`'s `PartialEq`. With that
+  comparison swapped for serialized-JSON equality the test fails, so it covers
+  this bug.
+- 2026-10-15: fixed. `PgStore::update_stream` decodes the row it locks, and both
+  stores decide a single-stream update through `StreamUpdate::resolve`, which
+  uses `StreamDefinition`'s `PartialEq` for "unchanged". The SQL
+  `definition = $2` comparison is gone; the stream-set writes of both stores
+  already compared with `PartialEq`. With `DATABASE_URL` set against a
+  `postgres:16` container, `cargo test -p weave-controller -- --ignored
+  --test-threads=1` passes all 22, including the reordered reapply. That test
+  also applies a real change afterwards and gets generation 2 and a new ETag.
+  Unit tests, not `bench/`.
+- 2026-10-15: the `rust` job in `.github/workflows/ci.yml` now has a
+  `postgres:16` service and, after `cargo test --workspace`, runs
+  `cargo test --workspace --bin weave-controller -- --ignored --test-threads=1`
+  with `DATABASE_URL` set. `--workspace` keeps that step on the test binary the
+  step before built. `actionlint` passes. The same command against a local
+  `postgres:16` container compiled nothing and passed all 22 in 34.7 s; with
+  `DATABASE_URL` unset or unreachable it fails. It has not run on GitHub yet.
