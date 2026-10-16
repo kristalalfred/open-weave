@@ -1740,8 +1740,9 @@ pub struct NodeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub southbound_token: Option<String>,
     pub listen: String,
-    /// Endpoint peers use to reach this node's control API. Defaults to
-    /// `http://{listen}` via [`NodeConfig::public_endpoint`].
+    /// The endpoint the node registers, which `GET /nodes` and the dashboard
+    /// show. Nothing dials it. Defaults to `http://{listen}` via
+    /// [`NodeConfig::public_endpoint`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_endpoint: Option<String>,
     pub topology: NodeTopology,

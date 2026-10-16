@@ -20,6 +20,9 @@ from `WEAVE_STROM_TOKEN` or `strom.token` (see [Security](security.md)).
   when the version is lower. A Strom that does not answer is asked again on the
   next poll, and a version string the adapter cannot read does not stop it. The
   bench and the node kit run 0.6.10.
+- Before it registers, it asks southbound for its node's desired hops, so a
+  restarted adapter reports the flows Strom still runs and keeps their ports. A
+  `5xx`, or no answer, delays registration to the next poll.
 - It creates and deletes no Strom flow until its first registration is accepted.
 - A `409` protocol-version mismatch or a `403` at registration is fatal, and the
   adapter exits.

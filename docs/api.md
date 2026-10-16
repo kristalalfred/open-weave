@@ -16,7 +16,9 @@ request without a valid token gets `401` instead.
 
 Outside the contracts:
 
-- `/health` on every service, for healthchecks and load balancers.
+- `/health` on every service and the Strom adapter, for healthchecks and load
+  balancers. It answers `{"status":"ok","version":"0.1.0"}` with the release's
+  version.
 - `/`, `/ui` and `/view` on the controller: the dashboard and its data. `/view`
   has no stability guarantee and can change in any release. Script against
   `/status`.

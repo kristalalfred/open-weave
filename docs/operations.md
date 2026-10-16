@@ -7,10 +7,10 @@ in [Webhooks](webhooks.md).
 
 | Variable | Used by | Default | Meaning |
 |---|---|---|---|
-| `WEAVE_NORTHBOUND_ADDR` | northbound | `127.0.0.1:9080` | Listen address. |
-| `WEAVE_SOUTHBOUND_ADDR` | southbound | `127.0.0.1:8081` | Listen address. |
-| `WEAVE_CONTROLLER_ADDR` | controller | `127.0.0.1:8082` | Listen address. |
-| `WEAVE_CONTROLLER_URL` | northbound, southbound | `http://127.0.0.1:8082` | Comma-separated controller URLs. |
+| `WEAVE_NORTHBOUND_ADDR` | northbound | `127.0.0.1:9080` | Listen address, or `--listen`. |
+| `WEAVE_SOUTHBOUND_ADDR` | southbound | `127.0.0.1:8081` | Listen address, or `--listen`. |
+| `WEAVE_CONTROLLER_ADDR` | controller | `127.0.0.1:8082` | Listen address, or `--listen`. |
+| `WEAVE_CONTROLLER_URL` | northbound, southbound | `http://127.0.0.1:8082` | Comma-separated controller URLs, or `--controller-url`. |
 | `DATABASE_URL` | controller | unset | Postgres URL. Unset keeps state in memory, and a restart loses it. |
 | `WEAVE_RECONCILE_INTERVAL_SECS` | controller | `5` | Seconds between reconcile ticks. |
 | `WEAVE_NODE_TTL_SECS` | controller | `15` | Seconds without a heartbeat before a node reads `offline`. |

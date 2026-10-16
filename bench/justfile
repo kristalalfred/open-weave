@@ -451,8 +451,9 @@ producer-up stream="basic" passphrase="":
 producer-down:
     -@{{compose}} --profile producer rm -sf producer producer-3 producer-4
 
-# Pass a stream name; the first output address is resolved via discovery. A
-# passphrase, when given, goes into the consumer's SRT URL.
+# Pass a stream name and a destination id; that destination's address is
+# resolved via discovery. A passphrase, when given, goes into the consumer's SRT
+# URL.
 [doc("Start the external ffmpeg consumer (SRT caller pulling a receiver output).")]
 [group("media")]
 consumer-up stream="basic" destination="output" passphrase="":
@@ -469,9 +470,10 @@ consumer-up stream="basic" destination="output" passphrase="":
 consumer-down:
     -@{{compose}} --profile consumer rm -sf consumer consumer-3 consumer-4
 
-# For fan-out: one consumer per receiver output, so every receiver hop can flow.
-# Pass a stream name; the second output address is resolved via discovery.
-[doc("Start a second external consumer, attached to a stream's output 1.")]
+# For fan-out: a second consumer, so a second receiver hop can flow. Pass a
+# stream name and a destination id; that destination's address is resolved via
+# discovery.
+[doc("Start a second external consumer, attached to one destination of a stream.")]
 [group("media")]
 consumer-2-up stream="fanout" destination="studio" passphrase="":
     #!/usr/bin/env bash
