@@ -2,7 +2,7 @@
 id: OW-89
 title: "A restarted Strom adapter registers with no hops, and two streams' ports can swap"
 type: bug
-status: in-progress
+status: done
 depends_on: []
 assignee: claude-rc-fixes
 ---
@@ -44,7 +44,7 @@ an adapter together with its Strom, so its empty report is true there.
 - [x] With Strom unlisted, the reported hops keep their listener addresses.
 - [x] In the `feed` and `a47` reproduction on two Strom nodes, restarting
       `studio`'s adapter moves no port and recreates no flow.
-- [ ] A bench case restarts an adapter while its Strom keeps running, and
+- [x] A bench case restarts an adapter while its Strom keeps running, and
       checks that flows are unchanged and media keeps decoding.
 
 ## Easy to break
@@ -78,3 +78,8 @@ an adapter together with its Strom, so its empty report is true there.
   to strom-node-1, the sender and receiver flows were recreated and the
   receiver reconnected. Not yet run on images with the fix: rebuilding the
   shared bench was refused in this session.
+- 2026-10-16: with the bench rebuilt from `main` at `faffda8`, `weave-bench run
+  bench/cases/12-adapter-restart.yaml` passed in 103.8 s: the stream read
+  `flowing` through the restart of adapter-2, the `relayed` snapshot was
+  unchanged, and the receiver decoded 1986 frames with no restart during the
+  30 s window. Bench only. Box 4 ticked.
