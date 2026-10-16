@@ -134,10 +134,12 @@ The services do not serve TLS. Terminate it at a reverse proxy in front of
 northbound and southbound. The bench does this with nginx (see "TLS" in
 [`bench/README.md`](../bench/README.md)).
 
-The `weave` CLI and `weave-adapter-strom` trust the Mozilla roots built into
-them and the platform's certificate store. `SSL_CERT_FILE` set to a PEM file
-replaces the platform store with that file, which is how they trust a private
-CA. A browser node trusts what its browser trusts. There is no mTLS.
+The `weave` CLI, `weave-adapter-strom`, northbound and southbound calling an
+`https` controller URL, and the controller calling an `https` webhook URL trust
+the Mozilla roots built into them and the platform's certificate store.
+`SSL_CERT_FILE` set to a PEM file replaces the platform store with that file,
+which is how they trust a private CA. A browser node trusts what its
+browser trusts. There is no mTLS.
 
 ## SRT encryption
 

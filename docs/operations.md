@@ -18,7 +18,7 @@ in [Webhooks](webhooks.md).
 | `WEAVE_LEASE_TTL_SECS` | controller | `10` | Seconds the lease lasts without a renewal. |
 | `WEAVE_NODE_CONFIG` | Strom adapter | none | Node config path, or `--config`. The adapter does not start without one. |
 | `WEAVE_NORTHBOUND_URL` | `weave` | `http://127.0.0.1:9080` | Northbound base URL, or `--url`. |
-| `SSL_CERT_FILE` | `weave`, Strom adapter | unset | PEM file that replaces the platform certificate store. |
+| `SSL_CERT_FILE` | `weave`, services, Strom adapter | unset | PEM file that replaces the platform certificate store for every outbound HTTPS request. |
 | `RUST_LOG` | services, Strom adapter | `info` | Log level. |
 | `WEAVE_LOG_FORMAT` | services, Strom adapter | text | `json` writes one JSON object per line. |
 

@@ -10,7 +10,9 @@ Both are stateless proxies onto the controller, which serves both.
 
 Routes carry no version before a stable release. Routes, payloads and error
 shapes can change between pre-release versions without aliases or a deprecation
-window, and a prefixed route such as `/v1/status` returns `404`.
+window. A prefixed route such as `/v1/status` returns `404 route_not_found`.
+Northbound and southbound check the token first, so with authentication on, a
+request without a valid token gets `401` instead.
 
 Outside the contracts:
 
