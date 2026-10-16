@@ -1,10 +1,3 @@
-//! What a northbound client or a webhook receiver reads.
-//!
-//! The model types refuse any field or value they do not name, as a server
-//! reading a request must. These types name only what a client reads, ignore
-//! every other field, and take each enumeration as [`Open`], so a body from a
-//! newer server decodes.
-
 use std::fmt;
 
 use serde::de::{DeserializeOwned, IntoDeserializer};
@@ -16,16 +9,12 @@ use crate::{
     StreamConditionReason, StreamConditionStatus, StreamConditionType, StreamSetAction,
 };
 
-/// A value of the enumeration `E`, or one `E` does not name.
-///
-/// [`fmt::Display`] prints the wire value either way.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Open<E> {
     Known(E),
     Unknown(Unrecognized),
 }
 
-/// A wire value no variant names, as it was received.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Unrecognized(String);
 
@@ -184,7 +173,6 @@ pub enum StatusResponse {
 }
 
 impl StatusResponse {
-    /// Every stream's status, none while the controller is starting.
     #[must_use]
     pub fn streams(&self) -> &[StreamStatus] {
         match self {
@@ -274,8 +262,6 @@ pub struct NetworkAttachment {
     pub network: String,
 }
 
-/// A webhook delivery. An event about a subject this crate does not know has
-/// neither `node` nor `stream`.
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct Event {
@@ -314,7 +300,6 @@ mod tests {
         serde_json::to_value(settings.into_generator().into_root_schema_for::<T>()).unwrap()
     }
 
-    /// Every way the reader `R` fails to take what the model `S` sends.
     fn misreads_of<R: JsonSchema, S: JsonSchema>() -> Vec<String> {
         let read = rendered::<R>(SchemaSettings::draft2020_12().for_deserialize());
         let sent = rendered::<S>(SchemaSettings::draft2020_12().for_serialize());
@@ -364,9 +349,6 @@ mod tests {
             .collect()
     }
 
-    /// Collects where `read` would refuse a value `sent` describes, or names a
-    /// property `sent` never has. `sent` is the closed rendering of what the
-    /// server serializes, so it names every property a server can send.
     fn misread(read: &Value, sent: &Value, at: &str, misreads: &mut Vec<String>) {
         if sent.get("properties").is_none()
             && let Some(branches) = union(sent)
@@ -440,7 +422,6 @@ mod tests {
         }
     }
 
-    /// Where the reader `R` takes only the values it names.
     fn closed_enumerations_of<R: JsonSchema>() -> Vec<String> {
         let mut closed = Vec::new();
         closed_enumerations(

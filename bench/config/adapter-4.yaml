@@ -1,8 +1,3 @@
-# Node 4 Strom adapter config. Mounted read-only and passed via --config.
-#
-# A second NAT'd site, set up like node 3 behind router-4. Its site network has
-# its own name: sharing `node-3-local` would tell the planner that nodes 3 and 4
-# can dial each other, which router-3 and router-4 do not allow.
 node:
   id: strom-node-4
   southbound_url: https://10.97.25.25:8443

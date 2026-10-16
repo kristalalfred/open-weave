@@ -27,7 +27,6 @@ fn profile(id: &str, ingress: HopEndpointClass, egress: HopEndpointClass) -> Hop
     }
 }
 
-/// A node offering what the Strom adapter offers for SRT and RIST.
 fn node(id: &str, attachments: Vec<NetworkAttachment>) -> NodeDescriptor {
     let srt = || class(Transport::Srt, RoleSet::both());
     NodeDescriptor {
@@ -97,7 +96,6 @@ fn endpoint(node: &str) -> StreamTransport {
     })
 }
 
-/// A stream that allows cleartext links, so the planner may use RIST.
 fn stream(destinations: &[&str]) -> StreamDefinition {
     StreamDefinition {
         name: "feed".to_string(),
@@ -142,8 +140,6 @@ fn source() -> NodeDescriptor {
     )
 }
 
-/// A studio that takes RIST from the internet, never dials out, and serves SRT
-/// only on its own LAN.
 fn rist_only_studio(rist: PortRange, srt: PortRange) -> NodeDescriptor {
     node(
         "studio",

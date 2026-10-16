@@ -1,11 +1,3 @@
-//! `weave-controller` — the single stateful control-plane service. It owns the
-//! stream and node registries (persisted to Postgres), serves the northbound and
-//! southbound HTTP surfaces, and reconciles desired streams into per-node desired
-//! hops on a fixed interval, entirely from in-memory state.
-//!
-//! With Postgres, any number of controllers can share one database. The one
-//! holding the lease serves; the others answer `503 not_leader` until it lapses.
-
 mod desired;
 #[cfg(test)]
 mod hop_id_tests;
@@ -96,9 +88,7 @@ struct Args {
         default_value_t = 5
     )]
     interval_secs: u64,
-    /// A node is marked `Offline` once this many seconds elapse without a
-    /// heartbeat. Its desired hops are still computed and served so a returning
-    /// adapter resumes on the same deterministic ports.
+    #[arg(help = "Seconds without a heartbeat before a node is marked offline")]
     #[arg(
         long,
         env = "WEAVE_NODE_TTL_SECS",
@@ -106,9 +96,9 @@ struct Args {
         default_value_t = 15
     )]
     node_ttl_secs: u64,
-    /// An offline node is removed, from memory and from the store, once this
-    /// many seconds elapse without a heartbeat. A node a stored stream names is
-    /// kept.
+    #[arg(
+        help = "Seconds without a heartbeat before an offline node is removed, unless a stream names it"
+    )]
     #[arg(
         long,
         env = "WEAVE_NODE_FORGET_SECS",
@@ -116,12 +106,10 @@ struct Args {
         default_value_t = 300
     )]
     node_forget_secs: u64,
-    /// Postgres connection URL. When unset the controller runs with an
-    /// in-memory store and does not persist state across restarts.
+    #[arg(help = "Postgres URL; unset keeps state in memory only")]
     #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     database_url: Option<String>,
-    /// With `DATABASE_URL`, how long the controller lease lasts without a
-    /// renewal. A standby takes over at most this long after the leader stops.
+    #[arg(help = "Seconds before the Postgres controller lease expires without renewal")]
     #[arg(
         long,
         env = "WEAVE_LEASE_TTL_SECS",
@@ -130,13 +118,13 @@ struct Args {
         value_parser = clap::value_parser!(u64).range(1..)
     )]
     lease_ttl_secs: u64,
-    /// Absolute URL that receives node and stream events. Webhooks are off when unset.
+    #[arg(help = "Absolute URL that receives node and stream events. Webhooks are off when unset")]
     #[arg(long, env = "WEAVE_WEBHOOK_URL", hide_env_values = true)]
     webhook_url: Option<String>,
-    /// Presented to the receiver as `Authorization: Bearer <token>`.
+    #[arg(help = "Presented to the receiver as `Authorization: Bearer <token>`")]
     #[arg(long, env = "WEAVE_WEBHOOK_TOKEN", hide_env_values = true)]
     webhook_token: Option<String>,
-    /// Event types to deliver, comma-separated. Defaults to all of them.
+    #[arg(help = "Event types to deliver, comma-separated. Defaults to all of them")]
     #[arg(
         long,
         env = "WEAVE_WEBHOOK_EVENTS",
@@ -146,14 +134,12 @@ struct Args {
     webhook_events: Vec<String>,
 }
 
-/// Latest reconcile snapshot served by the read-only status/discovery API.
 #[derive(Default)]
 struct ControllerView {
-    /// `None` until the first reconcile tick completes.
     report: Option<ReconcileReport>,
     streams: Vec<StreamStatus>,
     endpoints: BTreeMap<String, StreamEndpoints>,
-    /// Desired hops per stream, as derived on the last tick.
+
     hops: BTreeMap<String, Vec<DesiredHop>>,
 }
 
@@ -163,21 +149,18 @@ struct AppState {
     streams: Arc<RwLock<BTreeMap<String, StoredStream>>>,
     stream_sets: Arc<RwLock<BTreeMap<String, u64>>>,
     nodes: Arc<RwLock<BTreeMap<String, NodeRegistration>>>,
-    /// Written only while holding the `nodes` write lock, so a tick never sees
-    /// a node's new status beside its old heartbeat time.
+
     last_seen: Arc<RwLock<BTreeMap<String, Instant>>>,
     node_ttl: Duration,
     node_forget: Duration,
     desired: Arc<RwLock<BTreeMap<String, desired::DesiredSnapshot>>>,
     view: Arc<RwLock<ControllerView>>,
-    /// `None` when no receiver is configured; every emit site is then a no-op.
+
     webhooks: Option<Arc<webhook::Emitter>>,
     keys: LinkKeys,
     unsaved: Arc<std::sync::Mutex<Unsaved>>,
 }
 
-/// Nodes and stream statuses whose last store write failed. Each tick writes
-/// them again as they stand then.
 #[derive(Default)]
 struct Unsaved {
     nodes: BTreeSet<String>,
@@ -299,7 +282,6 @@ impl AppState {
     }
 }
 
-/// Everything the dashboard renders, in one response. See [`get_view`].
 #[derive(Debug, Serialize)]
 struct SystemView {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -330,8 +312,6 @@ struct StreamView {
     hops: Vec<HopView>,
 }
 
-/// A desired hop joined with the status its node last reported. The observed
-/// fields are `None` until the node's adapter has picked the hop up.
 #[derive(Debug, Serialize)]
 struct HopView {
     id: String,
@@ -361,8 +341,6 @@ struct EgressView {
     stats: Option<weave_core::LinkStats>,
 }
 
-/// One socket as the dashboard reads it: every transport's fields flattened
-/// into one object, with the ones this socket does not carry left out.
 #[derive(Debug, Serialize)]
 struct SocketView {
     transport: &'static str,
@@ -515,7 +493,6 @@ async fn main() -> Result<()> {
     }
 }
 
-/// Everything a controller needs to start leading, whenever it gets to.
 struct Controller {
     node_ttl: Duration,
     node_forget: Duration,
@@ -527,8 +504,6 @@ struct Controller {
 }
 
 impl Controller {
-    /// Load the stored state and run a first tick over it, giving the state the
-    /// tick loop drives and the router that serves it.
     async fn lead(&self, store: Arc<dyn StateStore>) -> Result<(AppState, Router)> {
         let state = AppState::hydrate(
             store,
@@ -558,9 +533,6 @@ async fn shutdown() -> Result<()> {
     Ok(())
 }
 
-/// How often the lease is renewed and how long the leader serves without a
-/// renewal. `hold_for` ends a third of the TTL before the lease can expire, so
-/// a leader cut off from Postgres stops serving before a standby can take over.
 #[derive(Debug, Clone, Copy)]
 struct LeaseTiming {
     ttl: Duration,
@@ -581,13 +553,9 @@ impl LeaseTiming {
     }
 }
 
-/// Which router, if any, a controller on a shared store serves.
 #[derive(Clone, Default)]
 struct Leadership(Arc<std::sync::RwLock<Held>>);
 
-/// The role, and the instant it lapses unless a renewal moves it on. The
-/// router serves nothing past it even when the renewal task has not run, as
-/// after the process was paused.
 #[derive(Default)]
 struct Held {
     role: Role,
@@ -623,7 +591,6 @@ impl Leadership {
         }
     }
 
-    /// Serve `app`, unless the lease was lost since [`Leadership::taking`].
     fn lead(&self, app: Router) -> bool {
         let mut held = self.held();
         if !matches!(held.role, Role::Taking) {
@@ -651,8 +618,6 @@ impl Leadership {
     }
 }
 
-/// Serve the dashboard page and `/health` always, and everything else from the
-/// leader's router, or `503 not_leader` while there is none.
 fn leadership_router(leadership: Leadership) -> Router {
     Router::new()
         .route("/", get(ui))
@@ -683,10 +648,6 @@ fn not_leader() -> Response {
     )
 }
 
-/// Take the lease whenever it is free, lead until it is lost, and stand by
-/// again, until `shutdown` resolves. A lease held at shutdown, or when the
-/// stored state cannot be loaded, is released so a standby can take over at
-/// once.
 async fn run_with_lease(
     pg: Arc<PgStore>,
     controller: &Controller,
@@ -775,8 +736,6 @@ fn holder_id() -> Result<String> {
     Ok(id.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// Try for the lease until it is taken. The instant is from before the try
-/// that took it, so a hold counted from it ends no later than the lease.
 async fn wait_for_lease(pg: &PgStore, holder: &str, timing: LeaseTiming) -> (LeaseTerm, Instant) {
     let mut held_elsewhere = false;
     loop {
@@ -796,9 +755,6 @@ async fn wait_for_lease(pg: &PgStore, holder: &str, timing: LeaseTiming) -> (Lea
     }
 }
 
-/// Renew the lease until a renewal is refused or none succeeds within
-/// `hold_for` of the last one sent. Then stop serving and writing, before the
-/// lease can expire, and say why.
 async fn hold_lease(
     pg: Arc<PgStore>,
     leadership: Leadership,
@@ -838,8 +794,6 @@ async fn bind(addr: &str) -> Result<tokio::net::TcpListener> {
         .with_context(|| format!("binding controller listener on {addr}"))
 }
 
-/// The router, built only once a reconcile tick has filled the desired map.
-/// Serving any earlier answers a restarted controller's nodes from nothing.
 async fn router_after_first_tick(state: &AppState, north: Guard, south: NodeGuard) -> Router {
     reconcile_tick(state).await;
     router(state.clone(), north, south)
@@ -941,10 +895,6 @@ async fn reconcile_tick(state: &AppState) {
     }
 }
 
-/// Every stream whose conditions differ from the previous tick's by type,
-/// status or reason, on the stream or on any destination. A stream no earlier
-/// tick computed has changed; one only accepted since then has a placeholder
-/// status with no `observed_generation`.
 fn changed_streams(current: &[StreamStatus], previous: &[StreamStatus]) -> Vec<StreamStatus> {
     current
         .iter()
@@ -1099,9 +1049,6 @@ fn update_view_generation(view: &mut ControllerView, stored: &StoredStream) {
     }
 }
 
-/// The view helpers below run while the caller holds the `streams` write lock,
-/// so no request or tick sees a stream change before the view shows it. Taking
-/// `streams` before `view` is the order a tick takes them in.
 async fn update_pending_generation(state: &AppState, stored: &StoredStream) {
     let mut view = state.view.write().await;
     update_view_generation(&mut view, stored);
@@ -1130,10 +1077,6 @@ async fn remove_stream_view(state: &AppState, name: &str) {
     view.hops.remove(name);
 }
 
-/// Mark nodes whose last heartbeat is older than `ttl` as [`NodeStatus::Offline`],
-/// returning the ids that changed. Nodes seen within the TTL keep their reported
-/// status. Pure: the caller supplies `now`, so the boundary is testable without a
-/// clock, and the caller — not this — emits for the transitions.
 fn mark_offline(
     nodes: &mut BTreeMap<String, NodeRegistration>,
     last_seen: &BTreeMap<String, Instant>,
@@ -1153,8 +1096,6 @@ fn mark_offline(
     transitioned
 }
 
-/// Offline nodes that have not heartbeated for longer than `after` and that
-/// `named` does not hold.
 fn forgettable(
     nodes: &BTreeMap<String, NodeRegistration>,
     last_seen: &BTreeMap<String, Instant>,
@@ -1175,7 +1116,6 @@ fn forgettable(
         .collect()
 }
 
-/// Every node a stream names as its source, a destination, or a `via` relay.
 fn named_nodes<'a>(streams: impl IntoIterator<Item = &'a StreamDefinition>) -> BTreeSet<&'a str> {
     let mut named = BTreeSet::new();
     for stream in streams {
@@ -1203,23 +1143,6 @@ fn observed_state(nodes: &BTreeMap<String, NodeRegistration>) -> ObservedState {
     }
 }
 
-/// The controller serves the union of both contracts. Northbound and southbound
-/// are stateless proxies onto it.
-///
-/// It backs both surfaces, so it validates both kinds of token and requires the
-/// one matching the surface a route belongs to. Node inventory is a shared read
-/// open to the northbound token and to any node token; mutations and node
-/// desired state remain separated, and a node token acts only for its own node.
-///
-/// `/health` is used by compose healthchecks and load balancers. The dashboard
-/// (`/`, `/ui`, `/view`) ships inside this
-/// binary. `/view` carries no stability guarantee.
-///
-/// The dashboard is unauthenticated, as is the `/status` rollup it shares its
-/// data with: both are browser-reachable, and a bearer token cannot travel with a
-/// page load without a cookie/session mechanism or a reverse proxy.
-/// They expose topology and allocated ports, so **the controller port must not be
-/// publicly exposed** — put it behind a proxy or keep it on a private network.
 fn router(state: AppState, north: Guard, south: NodeGuard) -> Router {
     let shared_reads = Router::new().route(ROUTE_NODES, get(list_nodes)).layer(
         axum::middleware::from_fn_with_state(
@@ -1339,9 +1262,6 @@ async fn get_status(State(state): State<AppState>) -> Json<StatusResponse> {
     })
 }
 
-/// One UI-shaped document describing the whole system: the last reconcile
-/// report, every registered node, and every stream with its desired hops
-/// merged against the hop status the nodes report. This is what `/ui` polls.
 async fn get_view(State(state): State<AppState>) -> Json<SystemView> {
     let nodes = state.nodes.read().await;
     let last_seen = state.last_seen.read().await;
@@ -1429,13 +1349,9 @@ async fn get_view(State(state): State<AppState>) -> Json<SystemView> {
     })
 }
 
-/// The embedded single-file dashboard. It polls [`get_view`] and needs no
-/// build step or external assets.
 async fn ui() -> axum::response::Html<&'static str> {
     axum::response::Html(include_str!("ui.html"))
 }
-
-// --- stream registry (northbound surface) ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamWritePrecondition {
@@ -1799,7 +1715,6 @@ async fn put_stream_set(
     )
 }
 
-/// The first of `others` that can plan a hop id `stream` can, and that id.
 fn first_shared_hop_id<'a>(
     stream: &StreamDefinition,
     others: impl IntoIterator<Item = &'a StreamDefinition>,
@@ -1809,11 +1724,6 @@ fn first_shared_hop_id<'a>(
         .find_map(|other| shared_hop_id(stream, other).map(|hop| (other.name.as_str(), hop)))
 }
 
-/// A stream-set write refused because a stream it changes can plan a hop id
-/// another stream can: one kept from the store, or another stream in the write.
-/// Streams the write replaces or prunes are not kept, and an unchanged stream
-/// is not checked, so reapplying a set is never refused for a collision it
-/// already held.
 fn stream_set_hop_id_conflict(
     owner: &str,
     apply: &StreamSetApply,
@@ -2013,9 +1923,6 @@ async fn plan_stream(
     .into_response()
 }
 
-/// Drop every SRT passphrase from `hops`, leaving `pbkeylen` to show which
-/// sockets are keyed. Keys reach adapters through their desired hops and
-/// nowhere else.
 fn withhold_passphrases(hops: &mut [DesiredHop]) {
     for socket in hops.iter_mut().flat_map(DesiredHop::sockets_mut) {
         if let weave_core::SocketSpec::Srt(socket) = socket {
@@ -2073,9 +1980,6 @@ async fn delete_stream(
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Concrete `srt://` endpoints for a placed stream: `200` when placed, `503` when
-/// the stream is known but not yet placed, `404` when unknown. A `device` end
-/// has nothing to dial and reads `null` in its place.
 async fn get_endpoints(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     if let Err(reason) = validate_resource_id(&name) {
         return invalid_request(
@@ -2107,8 +2011,6 @@ async fn get_endpoints(State(state): State<AppState>, Path(name): Path<String>) 
     }
 }
 
-// --- node registry (southbound surface) ---
-
 async fn list_nodes(State(state): State<AppState>) -> Json<Vec<NodeDescriptor>> {
     Json(
         state
@@ -2137,9 +2039,6 @@ async fn get_state(State(state): State<AppState>) -> Json<ObservedState> {
     Json(observed_state(&*state.nodes.read().await))
 }
 
-/// What every protocol version's registration says about who is speaking. It
-/// reads only those fields, so a registration from another version reaches the
-/// version check.
 #[derive(Deserialize)]
 struct Handshake {
     #[serde(default)]
@@ -2152,9 +2051,6 @@ struct HandshakeNode {
     id: String,
 }
 
-/// Registration is also the version handshake: an adapter declaring a protocol
-/// this controller does not speak is turned away here, before its body is held
-/// to this version's shape.
 async fn register_node(
     State(state): State<AppState>,
     Extension(caller): Extension<NodeCaller>,
@@ -2260,11 +2156,6 @@ async fn register_node(
         .into_response()
 }
 
-/// A heartbeat writes the store only when [`reported`] changes, so a controller
-/// that starts or takes over plans from what each node last reported.
-///
-/// An unknown node gets `404` before its body is decoded, so an adapter from
-/// another protocol version re-registers and hears `409` there.
 async fn node_heartbeat(
     State(state): State<AppState>,
     Extension(caller): Extension<NodeCaller>,
@@ -2373,8 +2264,6 @@ type HopReport<'a> = (
     Vec<(&'a str, weave_core::LinkCondition)>,
 );
 
-/// What planning and stream conditions read from a node's reports: its status
-/// and each hop's state and socket conditions, without rates or addresses.
 fn reported(registration: &NodeRegistration) -> (NodeStatus, Vec<HopReport<'_>>) {
     (
         registration.node.status,
@@ -2397,9 +2286,6 @@ fn reported(registration: &NodeRegistration) -> (NodeStatus, Vec<HopReport<'_>>)
     )
 }
 
-/// Serve the desired hops computed for a node on the last reconcile tick. A
-/// node that tick did not cover gets `404`, never an empty list: an adapter
-/// removes every hop it runs when told it should run none.
 async fn get_desired(
     State(state): State<AppState>,
     Extension(caller): Extension<NodeCaller>,
@@ -2462,8 +2348,6 @@ fn validate_endpoint_node_ids(endpoints: &[EndpointDescriptor]) -> Result<(), Va
     Ok(())
 }
 
-/// The `403` for an endpoint whose `node_id` names a node `caller` may not act
-/// as, `None` when every endpoint is the caller's or names no node.
 fn refuse_other_nodes_endpoints(
     caller: &NodeCaller,
     endpoints: &[EndpointDescriptor],
@@ -2474,15 +2358,12 @@ fn refuse_other_nodes_endpoints(
         .find_map(|node_id| refuse_other_node(caller, node_id))
 }
 
-/// The constraint the placed sender's profile puts on the media entering it.
 struct IngressAccepts<'a> {
     node: &'a str,
     profile: &'a str,
     accepts: weave_core::FormatConstraint,
 }
 
-/// The sender hop's profile constraint, when its profile declares one, on the
-/// tracks the hop carries: a hop built for video alone does not need audio.
 fn ingress_accepts<'a>(
     path: &'a weave_core::Path,
     nodes: &'a [NodeDescriptor],
@@ -2511,13 +2392,6 @@ fn ingress_accepts<'a>(
     })
 }
 
-/// One line naming the sender that cannot take the declared source format and
-/// every destination that cannot accept it, or `None` when nothing declared
-/// conflicts.
-///
-/// Reported, never acted on. The hops are placed and the media flows either way;
-/// what this says is that it will arrive somewhere it cannot be decoded, which is
-/// worth knowing long before anything can convert it.
 fn format_conflict_reason(
     stream: &StreamDefinition,
     ingress: Option<&IngressAccepts>,
@@ -2710,8 +2584,6 @@ fn placement_failed_conditions(
     ]
 }
 
-/// One line naming every destination in `shortfalls` and why it got one path of
-/// the two it asked for, or `None` when there are none.
 fn single_path_detail<'a>(shortfalls: impl IntoIterator<Item = &'a SinglePath>) -> Option<String> {
     let details: Vec<String> = shortfalls
         .into_iter()
@@ -2809,19 +2681,13 @@ fn destination_stream(stream: &StreamDefinition, id: &str) -> StreamDefinition {
     }
 }
 
-/// Compute per-node desired hops, endpoints, and an aggregate report from the
-/// current stream and node state. Pure: no IO, deterministic for a given input.
 fn reconcile(
     mut streams: Vec<StreamDefinition>,
     observed: &ObservedState,
     keys: &LinkKeys,
 ) -> ReconcileOutcome {
-    // Stable order so the per-tick port allocator assigns deterministically for a
-    // given stream set.
     streams.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Seed every registered node with an empty desired list so deleted or disabled
-    // streams' hops are cleared.
     let mut desired_by_node: BTreeMap<String, Vec<DesiredHop>> = observed
         .nodes
         .iter()
@@ -3028,8 +2894,6 @@ fn reconcile(
             .sort_by(|left, right| left.id.cmp(&right.id));
     }
 
-    // Control-plane convergence, not media flow: a fully provisioned path that is
-    // only waiting for its source (AwaitingInput) is converged, not degraded.
     let status = if enabled == 0 {
         ReconcileStatus::Idle
     } else if stream_statuses
@@ -3116,8 +2980,6 @@ mod tests {
         }
     }
 
-    /// A node on the `internet` network that dials out and listens for SRT on
-    /// `host`.
     fn node_registration(id: &str, host: &str) -> NodeRegistration {
         NodeRegistration {
             protocol_version: PROTOCOL_VERSION,
@@ -3154,8 +3016,6 @@ mod tests {
         }
     }
 
-    /// A node behind NAT: it dials out to `internet`, and listens only on its
-    /// own site network for a local producer or consumer.
     fn nat_registration(id: &str, host: &str) -> NodeRegistration {
         let mut registration = node_registration(id, host);
         let attachments = &mut registration.node.topology.attachments;
@@ -3779,8 +3639,6 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// Its receiver for `a-sender` is `weave-x-receiver-a-sender`, which is also
-    /// the sender of `x-receiver-a`.
     fn stream_x_to_a_sender() -> StreamDefinition {
         let mut stream = stream("x");
         stream.destinations[0].id = "a-sender".to_string();
@@ -3952,8 +3810,6 @@ mod tests {
         assert_eq!(accepted.pruned, ["x-receiver-a"]);
     }
 
-    /// Streams stored before the apply check could already collide. Reapplying
-    /// them unchanged is a no-op, and planning keeps the earlier name.
     #[tokio::test]
     async fn streams_that_already_collide_reapply_unchanged_and_plan_in_name_order() {
         let (state, mem) = mem_state();
@@ -4157,7 +4013,6 @@ mod tests {
 
         reconcile_tick(&state).await;
 
-        // Node 1 reports its sender hop; node 2 has not picked its hop up yet.
         state
             .nodes
             .write()
@@ -4445,7 +4300,6 @@ mod tests {
 
     pub(super) const SHARED_READ_ROUTES: [(&str, &str); 1] = [("GET", "/nodes")];
 
-    /// Version-prefixed paths are not aliases for the current contract.
     #[tokio::test]
     async fn versioned_api_paths_are_not_served() {
         let (state, _mem) = mem_state();
@@ -4694,9 +4548,6 @@ mod tests {
         assert_eq!(mem.upsert_stream_calls(), 0);
     }
 
-    /// The heartbeat a relay's adapter sends after it misses a desired fetch
-    /// reports the hops of its last desired set (the Strom adapter's
-    /// `hop_status`). The bridge stays; an empty report would move it.
     #[tokio::test]
     async fn a_relay_that_misses_one_desired_fetch_keeps_its_bridge() {
         let bridge = "weave-feed-bridge-studio-0";
@@ -4841,8 +4692,7 @@ mod tests {
     async fn plan_allocates_ports_alongside_existing_streams() {
         let (state, mem) = mem_state();
         let app = open_router(state);
-        // Node 1 has room for one sender ingress; node 2 for one receiver's
-        // ingress and consumer port. One stream fits and a second does not.
+
         for registration in [
             with_port_range(node_registration("strom-node-1", "172.26.0.10"), 7000, 7000),
             with_port_range(node_registration("strom-node-2", "172.27.0.10"), 7000, 7001),
@@ -5025,8 +4875,6 @@ mod tests {
         );
     }
 
-    /// A stale adapter is turned away at the handshake, and nothing about it is
-    /// recorded.
     #[tokio::test]
     async fn registration_with_an_incompatible_protocol_version_is_rejected() {
         let (state, mem) = mem_state();
@@ -5161,10 +5009,6 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
-    /// A browser node registers with a `browser://<id>` endpoint. The field is
-    /// opaque here: the controller stores it, makes no outbound call to any node
-    /// (it has no HTTP client at all), and serves the node's desired hops for the
-    /// page to pull like any adapter.
     #[tokio::test]
     async fn a_browser_endpoint_is_stored_verbatim_and_never_dialled() {
         let (state, _mem) = mem_state();
@@ -5442,7 +5286,6 @@ mod tests {
     async fn registration_is_accepted_while_the_receiver_refuses_connections() {
         let (mut state, _mem) = mem_state();
         state.webhooks = webhook::Emitter::new(webhook::Config {
-            // Reserved for documentation; nothing listens there.
             url: Some("http://192.0.2.1:1/hook".to_string()),
             timeout: Duration::from_millis(50),
             ..webhook::Config::default()
@@ -5645,9 +5488,6 @@ mod tests {
         }
     }
 
-    /// Two controllers hydrated from one store, one after the other, stand in
-    /// for a restart. The second answers before any tick but the one it runs
-    /// on the way up.
     async fn assert_a_restart_serves_the_stored_hops(store: Arc<dyn StateStore>) {
         seed_restart_case(store.as_ref()).await;
         let before = AppState::hydrate(
@@ -5801,7 +5641,6 @@ mod tests {
         assert!(leadership.router().is_none());
     }
 
-    /// What a node running `hops` with media on every socket reports.
     fn flowing_reports(hops: &[DesiredHop]) -> Vec<HopStatus> {
         let flowing = || weave_core::SocketStatus {
             condition: weave_core::LinkCondition::Flowing,
@@ -5827,7 +5666,6 @@ mod tests {
             .collect()
     }
 
-    /// Heartbeat `node_id` with its desired hops all flowing.
     async fn report_flowing(app: &Router, node_id: &str) {
         let hops: Vec<DesiredHop> =
             serde_json::from_value(get_ok(app, &format!("/nodes/{node_id}/desired")).await)
@@ -5988,8 +5826,6 @@ mod tests {
         );
     }
 
-    /// While a write waits for the view, no other request may read the streams
-    /// it changed: a second write or a tick could otherwise land in between.
     #[tokio::test]
     async fn a_stream_write_holds_the_streams_until_the_view_shows_it() {
         let (state, mem) = mem_state();
@@ -6176,7 +6012,6 @@ mod tests {
         (pg, controller)
     }
 
-    /// Runs [`run_with_lease`] until the returned sender fires or is dropped.
     async fn start_controller(
         url: &str,
         timing: LeaseTiming,
@@ -6219,8 +6054,6 @@ mod tests {
         }
     }
 
-    /// What a takeover must keep: the hops each node is told to run, and every
-    /// generation and ETag.
     async fn served_state(app: &Router) -> Value {
         let (_, stream_headers, stream) =
             send_with_headers(app, "GET", "/streams/restart", None, &[]).await;
@@ -6296,8 +6129,6 @@ mod tests {
         );
     }
 
-    /// A request an earlier term's router is still handling when the same
-    /// process takes the lease again must not write under the new term.
     #[tokio::test]
     #[ignore = "requires a running Postgres via DATABASE_URL"]
     async fn a_write_from_an_earlier_term_is_refused_after_the_lease_is_taken_again() {
@@ -6715,7 +6546,6 @@ mod tests {
     async fn a_tick_does_not_wait_on_an_unreachable_receiver() {
         let (mut state, _mem) = mem_state();
         state.webhooks = webhook::Emitter::new(webhook::Config {
-            // Reserved for documentation; nothing listens there.
             url: Some("http://192.0.2.1:1/hook".to_string()),
             timeout: Duration::from_secs(5),
             ..webhook::Config::default()
@@ -6928,8 +6758,6 @@ mod tests {
         assert_eq!(body.as_array().map(Vec::len), Some(1));
     }
 
-    /// Holds `last_seen` so a request stops at its first wait on it, then plays
-    /// the start of a tick, which takes the nodes lock and then `last_seen`.
     async fn offline_check_during(
         state: &AppState,
         request: impl std::future::Future<Output = (StatusCode, Value)>,
@@ -7434,8 +7262,6 @@ mod node_auth_tests {
         (response.status(), challenge)
     }
 
-    /// The dashboard surface is unauthenticated — it is browser-loaded and cannot
-    /// carry a bearer token. `/health` is open for healthchecks.
     #[tokio::test]
     async fn dashboard_and_health_stay_open() {
         let (app, _) = app().await;
@@ -7466,9 +7292,6 @@ mod node_auth_tests {
         }
     }
 
-    /// The surfaces are separated, not merely authenticated: a node's token
-    /// cannot create or delete streams, and the operator token cannot register
-    /// nodes or read their desired hops.
     #[tokio::test]
     async fn each_surface_rejects_the_other_surfaces_token() {
         let (app, _) = app().await;
@@ -7497,8 +7320,6 @@ mod node_auth_tests {
     async fn each_surface_accepts_its_own_token() {
         let (app, _) = app().await;
 
-        // Past the guard is enough: these are covered behaviourally elsewhere, so
-        // only "not 401" matters here.
         let (status, _) =
             send_auth(&app, "GET", "/streams", Some(&format!("Bearer {NORTH}"))).await;
         assert_eq!(status, StatusCode::OK);
@@ -7564,7 +7385,6 @@ mod key_exposure_tests {
         }
     }
 
-    /// A node on `net-a` and `net-b`, so a destination on it can take two paths.
     fn registration(id: &str, hosts: [&str; 2], merge: bool) -> NodeRegistration {
         let srt = || {
             HopEndpointClass::Transport(TransportClass {

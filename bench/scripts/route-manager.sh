@@ -1,46 +1,9 @@
 #!/usr/bin/env bash
-# Continuously (re)assert the bench's inter-subnet routes inside each service's
-# network namespace.
-#
-# Node subnets are reachable from net_core only through the netem routers, and
-# several service images (Strom, ffmpeg) have no `ip` tool, so services cannot
-# install these routes themselves. The routes live in the service's netns, so
-# they vanish whenever its container is restarted or recreated -- a one-shot
-# sidecar has already exited by then and the service silently loses reachability.
-# Asserting on a loop instead means anything that comes back, or comes up later
-# (the profiled producer/consumer), is repaired within one interval.
-#
-# Runs in a container with the Docker socket, host PID namespace, and
-# NET_ADMIN/SYS_ADMIN/SYS_PTRACE: it resolves each target's PID via the Docker
-# API and enters its netns with nsenter. `ip route replace` is idempotent, so a
-# pass over already-routed containers is a no-op.
-#
-# This file is bind-mounted, and the running shell read it once at startup, so
-# editing it changes nothing until the container is recreated. `docker compose
-# up -d` will not do that on its own — a changed mounted file is not a changed
-# service definition. Force it:
-#   docker compose -f bench/docker-compose.yml up -d --force-recreate route-manager
 set -uo pipefail
 
 interval="${ROUTE_INTERVAL:-3}"
 sock="${DOCKER_SOCK:-/var/run/docker.sock}"
 
-# Routes are grouped by which subnet a container sits on, mirroring the topology:
-# core reaches each node subnet via that node's router; a node subnet reaches
-# everything else via its own router's leg on that subnet.
-#
-# Nodes 3 and 4 are the deliberate exception. Each gets routes *out* to core,
-# node 1 and node 2, and no other group gets a route to 10.97.29.0/24 or
-# 10.97.30.0/24 — not core, not node 1, not node 2, and not the other NAT'd
-# node. Docker's inter-network isolation blocks the bridge-level path, so with
-# no route installed nothing outside a NAT'd subnet can open a connection into
-# it, while its router's MASQUERADE lets the node reach out and get answered.
-# That asymmetry is the NAT the bench tests against: adding a route to either
-# subnet to any group below silently removes the boundary and the NAT manifests
-# start passing for the wrong reason.
-# ow-open-live-strom is not a service here: open-live's own docker-compose.yml
-# joins its Strom to net_core under that name so it can dial node 1's SRT
-# outputs. Renaming it there silently drops its routes.
 core_containers="ow-controller ow-controller-2 ow-southbound ow-tls ow-browser ow-browser-2 ow-open-live-strom ow-producer ow-consumer ow-consumer-2"
 core_routes="10.97.26.0/24=10.97.25.11 10.97.27.0/24=10.97.25.12"
 
@@ -56,15 +19,11 @@ node3_routes="10.97.25.0/24=10.97.29.2 10.97.26.0/24=10.97.29.2 10.97.27.0/24=10
 node4_containers="ow-strom-4 ow-adapter-4 ow-producer-4 ow-consumer-4"
 node4_routes="10.97.25.0/24=10.97.30.2 10.97.26.0/24=10.97.30.2 10.97.27.0/24=10.97.30.2"
 
-# PID of a running container, or empty if it is absent or stopped. Profiled
-# services (producer/consumer) legitimately do not exist most of the time.
 container_pid() {
   curl -s --unix-socket "$sock" "http://localhost/containers/$1/json" 2>/dev/null |
     jq -r 'if .State.Running then .State.Pid else empty end' 2>/dev/null
 }
 
-# Install any route that is missing or points at the wrong gateway. Checking
-# first keeps a converged bench quiet, so log lines mark real repairs.
 assert_routes() {
   local name="$1" pid cidr via
   shift

@@ -10,7 +10,7 @@ weave-adapter-strom --config examples/node.yaml
 ```
 
 The config comes from `--config` or `WEAVE_NODE_CONFIG`.
-[`examples/node.yaml`](../examples/node.yaml) is annotated. A key the config
+See [`examples/node.yaml`](../examples/node.yaml). A key the config
 does not define, at any depth, stops the adapter with an error naming its path.
 The node token comes from `WEAVE_SOUTHBOUND_TOKEN` or `node.southbound_token`,
 and Strom's API key from `WEAVE_STROM_TOKEN` or `strom.token` (see
@@ -41,8 +41,7 @@ it reports the hops it last fetched as `pending`.
 
 ## Drift
 
-Edits made to Strom outside open-weave are drift, as are direct edits to objects
-Kubernetes manages. Desired state is the source of truth. The adapter deletes
+Edits made to managed Strom flows are overwritten by desired state. The adapter deletes
 only flows whose names start with `weave-`.
 
 A flow whose SRT address, latency or key differs from its desired hop, or whose

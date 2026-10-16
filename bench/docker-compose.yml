@@ -7,10 +7,6 @@ x-weave: &weave
     dockerfile: bench/Dockerfile
   restart: unless-stopped
 
-# External verification endpoints share one ffmpeg loop each; only the container
-# name, address and subnet differ. Every consumer reads CONSUMER_SOURCE, so a
-# service that takes its value from a different host variable remaps it in its
-# own `environment` block rather than forking the command.
 x-media: &media
   image: linuxserver/ffmpeg:latest
   restart: "no"
@@ -63,8 +59,6 @@ networks:
     ipam:
       config:
         - subnet: 10.97.27.0/24
-  # Nodes 3 and 4 each sit behind a NAT: their router masquerades outbound
-  # traffic and nothing outside is given a route back in. See router-3.
   net_node3:
     driver: bridge
     ipam:
@@ -77,16 +71,6 @@ networks:
         - subnet: 10.97.30.0/24
 
 services:
-  # --- control plane (net_core) ---
-  # Northbound takes one shared bearer token. Southbound and the controller hold
-  # WEAVE_SOUTHBOUND_KEY and take from each node a token derived from it for that
-  # node's id (`weave node-token <id>`). The controller also derives SRT link keys
-  # from WEAVE_SRT_KEY_SECRET. Every service refuses to start without its secret.
-  # The bench defaults below keep `just up` a single command, and the
-  # node tokens are the ones the default key gives: exporting WEAVE_SOUTHBOUND_KEY
-  # means exporting WEAVE_ADAPTER_{1,2,3,4}_TOKEN and WEAVE_BROWSER_TOKEN too.
-  # They are development values, not secrets — the bench sits on a private
-  # subnet.
   northbound:
     <<: *weave
     container_name: ow-northbound
@@ -121,8 +105,6 @@ services:
       WEAVE_CONTROLLER_URL: http://10.97.25.22:8082,http://10.97.25.24:8082
       WEAVE_SOUTHBOUND_KEY: ${WEAVE_SOUTHBOUND_KEY:-bench-southbound-key-for-local-use-only}
       WEAVE_SOUTHBOUND_MIN_EPOCHS: ${WEAVE_SOUTHBOUND_MIN_EPOCHS:-}
-      # The browser node is a web page on another origin. `*` is a development
-      # value like the tokens above; a deployment names the page's origin.
       WEAVE_SOUTHBOUND_CORS_ORIGIN: ${WEAVE_SOUTHBOUND_CORS_ORIGIN:-*}
     ports:
       - "29081:8081"
@@ -141,8 +123,6 @@ services:
       retries: 10
       start_period: 5s
 
-  # Two controllers share one Postgres. The one holding the lease serves; the
-  # other answers `503 not_leader` until it can take the lease over.
   controller: &controller
     <<: *weave
     container_name: ow-controller
@@ -155,8 +135,6 @@ services:
       WEAVE_SOUTHBOUND_KEY: ${WEAVE_SOUTHBOUND_KEY:-bench-southbound-key-for-local-use-only}
       WEAVE_SOUTHBOUND_MIN_EPOCHS: ${WEAVE_SOUTHBOUND_MIN_EPOCHS:-}
       WEAVE_SRT_KEY_SECRET: ${WEAVE_SRT_KEY_SECRET:-bench-srt-key-secret-for-local-use-only}
-      # Webhooks, delivered to `just bench hook-sink` on this
-      # host. Unset WEAVE_WEBHOOK_URL to switch them off.
       WEAVE_WEBHOOK_URL: ${WEAVE_WEBHOOK_URL-http://host.docker.internal:29099}
       WEAVE_WEBHOOK_TOKEN: ${WEAVE_WEBHOOK_TOKEN:-bench-webhook-token}
     extra_hosts:
@@ -205,11 +183,6 @@ services:
       retries: 10
       start_period: 5s
 
-  # --- TLS (net_core) ---
-  # nginx terminates TLS for northbound and southbound; the services behind it
-  # serve plain HTTP, and their plaintext ports stay published. The adapters and
-  # the browser page dial southbound through it and trust the bench CA that
-  # tls-certs generates into ./tls.
   tls-certs:
     image: nicolaka/netshoot:latest
     container_name: ow-tls-certs
@@ -241,11 +214,6 @@ services:
       southbound:
         condition: service_healthy
 
-  # Routes into the node subnets live in each service's netns and are lost when
-  # its container restarts or is recreated, so they are asserted continuously
-  # from outside rather than by one-shot per-service sidecars. Covers every
-  # service that needs them, including the profiled producer/consumer whenever
-  # they happen to be up. See scripts/route-manager.sh.
   route-manager:
     image: nicolaka/netshoot:latest
     container_name: ow-route-manager
@@ -267,7 +235,6 @@ services:
       router-4:
         condition: service_started
 
-  # --- routers (L3 hop per node; netem is applied on these) ---
   router-1:
     image: nicolaka/netshoot:latest
     container_name: ow-router-1
@@ -300,23 +267,6 @@ services:
       - -c
       - "ip route replace 10.97.26.0/24 via 10.97.25.11 || true; for d in $$(ls /sys/class/net | grep -v lo); do tc qdisc del dev $$d root 2>/dev/null; done; exec sleep infinity"
 
-  # Node 3's router is a NAT gateway, not a plain L3 hop like routers 1 and 2,
-  # and router-4 is the same for node 4. Two things make one, and both matter:
-  #
-  #   * MASQUERADE rewrites node-3's source address to this router's core-side
-  #     IP, so replies come back here and conntrack returns them. Without it,
-  #     node-3's outbound traffic would be answered to an address nobody routes.
-  #   * Nothing outside net_node3 is ever given a route to 10.97.29.0/24 — not
-  #     the core containers, not routers 1, 2 and 4, not node 4
-  #     (see scripts/route-manager.sh). Docker's inter-network isolation blocks
-  #     the bridge-level path, so with no route installed there is genuinely no
-  #     way to dial in.
-  #
-  # That is the whole NAT: node-3 can open connections outward and nothing can
-  # open one toward it. The routes out are one-way on purpose; do not "fix" the
-  # asymmetry by adding a return route, which would quietly delete the boundary
-  # every NAT test here depends on. The same holds for node 4 and 10.97.30.0/24,
-  # so neither NAT'd site can reach the other directly.
   router-3:
     image: nicolaka/netshoot:latest
     container_name: ow-router-3
@@ -349,7 +299,6 @@ services:
       - -c
       - "ip route replace 10.97.26.0/24 via 10.97.25.11 || true; ip route replace 10.97.27.0/24 via 10.97.25.12 || true; iptables -t nat -C POSTROUTING -s 10.97.30.0/24 ! -d 10.97.30.0/24 -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 10.97.30.0/24 ! -d 10.97.30.0/24 -j MASQUERADE; for d in $$(ls /sys/class/net | grep -v lo); do tc qdisc del dev $$d root 2>/dev/null; done; exec sleep infinity"
 
-  # --- node 1 (net_node1) ---
   strom-1:
     image: eyevinntechnology/strom:0.6.10
     container_name: ow-strom-1
@@ -395,7 +344,6 @@ services:
       retries: 10
       start_period: 5s
 
-  # --- node 2 (net_node2) ---
   strom-2:
     image: eyevinntechnology/strom:0.6.10
     container_name: ow-strom-2
@@ -441,7 +389,6 @@ services:
       retries: 10
       start_period: 5s
 
-  # --- node 3 (net_node3, behind NAT) ---
   strom-3:
     image: eyevinntechnology/strom:0.6.10
     container_name: ow-strom-3
@@ -451,9 +398,6 @@ services:
       STROM_API_KEY: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
     volumes:
       - strom3-data:/data
-    # Published for debugging from the host. This is a host→container path
-    # through docker-proxy and gives no container a route into net_node3, so the
-    # NAT boundary the media crosses is unaffected.
     ports:
       - "28082:8080"
     networks:
@@ -490,7 +434,6 @@ services:
       retries: 10
       start_period: 5s
 
-  # --- node 4 (net_node4, behind its own NAT) ---
   strom-4:
     image: eyevinntechnology/strom:0.6.10
     container_name: ow-strom-4
@@ -500,7 +443,6 @@ services:
       STROM_API_KEY: ${WEAVE_STROM_TOKEN:-bench-strom-key-for-local-use-only}
     volumes:
       - strom4-data:/data
-    # Published for debugging from the host, like strom-3's.
     ports:
       - "28083:8080"
     networks:
@@ -537,9 +479,6 @@ services:
       retries: 10
       start_period: 5s
 
-  # --- browser node (net_core, profile) ---
-  # On net_core so its WebRTC media reaches Strom's ICE candidates on the node
-  # subnets; a browser on a macOS host has no route there. See bench/README.md.
   browser:
     build:
       context: ..
@@ -552,16 +491,11 @@ services:
     environment:
       WEAVE_SOUTHBOUND_URL: https://10.97.25.25:8443
       WEAVE_SOUTHBOUND_TOKEN: ${WEAVE_BROWSER_TOKEN:-browser-bench.0.ed7971623b06be894b581ccca99662bdb3983d232e8737a2c3e5a46455b00540}
-      # check.mjs polls southbound from Node, which reads this.
       NODE_EXTRA_CA_CERTS: /tls/ca.pem
-      # `video` sends the camera without the microphone (`just bench browser-up video`).
       WEAVE_BROWSER_MEDIA: ${WEAVE_BROWSER_MEDIA:-}
     volumes:
       - ../nodes/browser:/work:ro
       - ./tls/public:/tls:ro
-      # check.mjs compares the page's PROTOCOL_VERSION with the Rust constant and
-      # looks for it two levels above the page, so /work needs this beside it or
-      # the comparison is skipped.
       - ../crates/core/src/lib.rs:/crates/core/src/lib.rs:ro
     networks:
       net_core:
@@ -569,10 +503,6 @@ services:
     depends_on:
       tls-certs:
         condition: service_completed_successfully
-    # Chromium trusts the bench CA through the NSS database it reads on Linux,
-    # which certutil fills before the page is opened. The page takes its node id
-    # from its token, so the browser manifests keep naming the same node across
-    # restarts; the `browser-id` recipe reads the id off the same default token.
     command:
       - sh
       - -c
@@ -584,8 +514,6 @@ services:
         certutil -d "$$db" -A -t C,, -n open-weave-bench-ca -i /tls/ca.pem
         exec node /work/check.mjs --serve 8000 --stay
 
-  # A second page, node `browser-bench-2`, for a stream from one page's camera to
-  # another page's screen (`just bench browser-b2b`). Started by `browser-2-up`.
   browser-2:
     image: open-weave-bench-browser:local
     container_name: ow-browser-2
@@ -617,15 +545,6 @@ services:
         certutil -d "$$db" -A -t C,, -n open-weave-bench-ca -i /tls/ca.pem
         exec node /work/check.mjs --serve 8000 --stay
 
-  # --- external verification endpoints (NOT part of the system) ---
-  # Off by default (profiles). Started explicitly via the bench producer/consumer
-  # recipes so status transitions can be demonstrated.
-  #
-  # The net_core pair act as real external peers, routing to node subnets through
-  # the netem routers. The net_node3 and net_node4 pairs exist because nodes 3
-  # and 4 are behind NAT: their sockets listen, but nothing outside can dial
-  # them, so a peer that drives them has to sit inside the site. That is not a bench workaround — it is the same
-  # constraint that makes a NAT'd site run its own encoder and decoder.
   producer:
     <<: *media
     container_name: ow-producer
@@ -650,8 +569,6 @@ services:
         ipv4_address: 10.97.25.31
     command: *consumer-command
 
-  # Second consumer for fan-out: attach one consumer per receiver output so all
-  # receiver hops can flow simultaneously (rollup needs every hop flowing).
   consumer-2:
     <<: *media
     container_name: ow-consumer-2

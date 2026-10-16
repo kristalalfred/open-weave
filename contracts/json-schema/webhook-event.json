@@ -1,11 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Event",
-  "description": "One event. The whole JSON body of a delivery.",
   "type": "object",
   "properties": {
     "event_id": {
-      "description": "Stable across retries of one delivery, so a receiver can deduplicate.",
       "type": "string"
     },
     "event_type": {
@@ -26,7 +24,6 @@
       ]
     },
     "occurred_at": {
-      "description": "RFC 3339, UTC.",
       "type": "string"
     }
   },
@@ -40,7 +37,6 @@
       "type": "object",
       "properties": {
         "node": {
-          "description": "The node an event is about.\n\n A [`crate::NodeRegistration`] also carries `endpoints` and `hop_status`.\n Those describe hops rather than the node, and are not part of this contract.",
           "type": "object",
           "properties": {
             "id": {
@@ -120,56 +116,18 @@
                             "type": "object",
                             "properties": {
                               "transport": {
-                                "description": "A transport that carries media between two nodes.",
-                                "oneOf": [
+                                "anyOf": [
                                   {
-                                    "anyOf": [
-                                      {
-                                        "type": "string",
-                                        "enum": [
-                                          "srt"
-                                        ]
-                                      },
-                                      {
-                                        "type": "string"
-                                      }
+                                    "type": "string",
+                                    "enum": [
+                                      "srt",
+                                      "whip",
+                                      "whep",
+                                      "rist"
                                     ]
                                   },
                                   {
-                                    "anyOf": [
-                                      {
-                                        "description": "WebRTC ingest. The `Connect` end pushes media to the `Listen` end's\n signalling URL.",
-                                        "type": "string",
-                                        "const": "whip"
-                                      },
-                                      {
-                                        "type": "string"
-                                      }
-                                    ]
-                                  },
-                                  {
-                                    "anyOf": [
-                                      {
-                                        "description": "WebRTC playback. The `Connect` end pulls media from the `Listen` end's\n signalling URL.",
-                                        "type": "string",
-                                        "const": "whep"
-                                      },
-                                      {
-                                        "type": "string"
-                                      }
-                                    ]
-                                  },
-                                  {
-                                    "anyOf": [
-                                      {
-                                        "description": "RIST simple profile. The `Connect` end pushes to the `Listen` end.",
-                                        "type": "string",
-                                        "const": "rist"
-                                      },
-                                      {
-                                        "type": "string"
-                                      }
-                                    ]
+                                    "type": "string"
                                   }
                                 ]
                               },
@@ -178,7 +136,6 @@
                                 "items": {
                                   "anyOf": [
                                     {
-                                      "description": "Which end of a link a socket is: `Listen` hosts and `Connect` dials.",
                                       "type": "string",
                                       "enum": [
                                         "listen",
@@ -204,7 +161,6 @@
                               "device": {
                                 "anyOf": [
                                   {
-                                    "description": "The node's own capture or display device, where media starts or ends.",
                                     "type": "string",
                                     "enum": [
                                       "capture",
@@ -217,7 +173,6 @@
                                 ]
                               },
                               "tracks": {
-                                "description": "The tracks a capture device sends. Absent means unknown.",
                                 "type": [
                                   "array",
                                   "null"
@@ -225,7 +180,6 @@
                                 "items": {
                                   "anyOf": [
                                     {
-                                      "description": "A kind of media track a capture device sends.",
                                       "type": "string",
                                       "enum": [
                                         "audio",
@@ -254,56 +208,18 @@
                             "type": "object",
                             "properties": {
                               "transport": {
-                                "description": "A transport that carries media between two nodes.",
-                                "oneOf": [
+                                "anyOf": [
                                   {
-                                    "anyOf": [
-                                      {
-                                        "type": "string",
-                                        "enum": [
-                                          "srt"
-                                        ]
-                                      },
-                                      {
-                                        "type": "string"
-                                      }
+                                    "type": "string",
+                                    "enum": [
+                                      "srt",
+                                      "whip",
+                                      "whep",
+                                      "rist"
                                     ]
                                   },
                                   {
-                                    "anyOf": [
-                                      {
-                                        "description": "WebRTC ingest. The `Connect` end pushes media to the `Listen` end's\n signalling URL.",
-                                        "type": "string",
-                                        "const": "whip"
-                                      },
-                                      {
-                                        "type": "string"
-                                      }
-                                    ]
-                                  },
-                                  {
-                                    "anyOf": [
-                                      {
-                                        "description": "WebRTC playback. The `Connect` end pulls media from the `Listen` end's\n signalling URL.",
-                                        "type": "string",
-                                        "const": "whep"
-                                      },
-                                      {
-                                        "type": "string"
-                                      }
-                                    ]
-                                  },
-                                  {
-                                    "anyOf": [
-                                      {
-                                        "description": "RIST simple profile. The `Connect` end pushes to the `Listen` end.",
-                                        "type": "string",
-                                        "const": "rist"
-                                      },
-                                      {
-                                        "type": "string"
-                                      }
-                                    ]
+                                    "type": "string"
                                   }
                                 ]
                               },
@@ -312,7 +228,6 @@
                                 "items": {
                                   "anyOf": [
                                     {
-                                      "description": "Which end of a link a socket is: `Listen` hosts and `Connect` dials.",
                                       "type": "string",
                                       "enum": [
                                         "listen",
@@ -338,7 +253,6 @@
                               "device": {
                                 "anyOf": [
                                   {
-                                    "description": "The node's own capture or display device, where media starts or ends.",
                                     "type": "string",
                                     "enum": [
                                       "capture",
@@ -351,7 +265,6 @@
                                 ]
                               },
                               "tracks": {
-                                "description": "The tracks a capture device sends. Absent means unknown.",
                                 "type": [
                                   "array",
                                   "null"
@@ -359,7 +272,6 @@
                                 "items": {
                                   "anyOf": [
                                     {
-                                      "description": "A kind of media track a capture device sends.",
                                       "type": "string",
                                       "enum": [
                                         "audio",
@@ -391,11 +303,9 @@
                         "minimum": 1
                       },
                       "merge": {
-                        "description": "The hop can take a second ingress of the `ingress` class carrying another\n copy of the same media, and merge the two.",
                         "type": "boolean"
                       },
                       "accepts": {
-                        "description": "The media this profile's ingress takes. Absent takes anything. A\n source `format` it does not accept is reported as a format mismatch.",
                         "type": [
                           "object",
                           "null"
@@ -482,7 +392,6 @@
                                   "null"
                                 ],
                                 "items": {
-                                  "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                   "type": "object",
                                   "properties": {
                                     "numerator": {
@@ -642,7 +551,6 @@
                                 "type": "string"
                               },
                               "port_range": {
-                                "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                 "type": "object",
                                 "properties": {
                                   "start": {
@@ -698,7 +606,6 @@
                             ]
                           },
                           "rist": {
-                            "description": "Each RIST link takes an even port from `port_range` and the one after it.",
                             "type": [
                               "object",
                               "null"
@@ -708,7 +615,6 @@
                                 "type": "string"
                               },
                               "port_range": {
-                                "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                 "type": "object",
                                 "properties": {
                                   "start": {
@@ -771,7 +677,6 @@
       "type": "object",
       "properties": {
         "stream": {
-          "description": "The stream an event is about: its generations, status and conditions.\n\n A [`StreamStatus`] also carries the stream's nodes, ingress and destination\n endpoints. Those are addresses, and are not part of this contract.",
           "type": "object",
           "properties": {
             "name": {
@@ -793,38 +698,14 @@
             "status": {
               "anyOf": [
                 {
-                  "description": "End-to-end status of a path, derived from its hops' conditions.",
-                  "oneOf": [
-                    {
-                      "description": "The path is disabled.",
-                      "type": "string",
-                      "const": "idle"
-                    },
-                    {
-                      "description": "At least one hop failed to provision.",
-                      "type": "string",
-                      "const": "failed"
-                    },
-                    {
-                      "description": "A hop is still provisioning or has not reported yet.",
-                      "type": "string",
-                      "const": "pending"
-                    },
-                    {
-                      "description": "Provisioned end to end, but no media is entering at the source.",
-                      "type": "string",
-                      "const": "awaiting_input"
-                    },
-                    {
-                      "description": "Media is entering at the source but not flowing all the way through.",
-                      "type": "string",
-                      "const": "degraded"
-                    },
-                    {
-                      "description": "Media is flowing across every hop.",
-                      "type": "string",
-                      "const": "flowing"
-                    }
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "failed",
+                    "pending",
+                    "awaiting_input",
+                    "degraded",
+                    "flowing"
                   ]
                 },
                 {
@@ -929,38 +810,14 @@
                   "status": {
                     "anyOf": [
                       {
-                        "description": "End-to-end status of a path, derived from its hops' conditions.",
-                        "oneOf": [
-                          {
-                            "description": "The path is disabled.",
-                            "type": "string",
-                            "const": "idle"
-                          },
-                          {
-                            "description": "At least one hop failed to provision.",
-                            "type": "string",
-                            "const": "failed"
-                          },
-                          {
-                            "description": "A hop is still provisioning or has not reported yet.",
-                            "type": "string",
-                            "const": "pending"
-                          },
-                          {
-                            "description": "Provisioned end to end, but no media is entering at the source.",
-                            "type": "string",
-                            "const": "awaiting_input"
-                          },
-                          {
-                            "description": "Media is entering at the source but not flowing all the way through.",
-                            "type": "string",
-                            "const": "degraded"
-                          },
-                          {
-                            "description": "Media is flowing across every hop.",
-                            "type": "string",
-                            "const": "flowing"
-                          }
+                        "type": "string",
+                        "enum": [
+                          "idle",
+                          "failed",
+                          "pending",
+                          "awaiting_input",
+                          "degraded",
+                          "flowing"
                         ]
                       },
                       {

@@ -424,8 +424,6 @@ fn validate_via(
     }
 }
 
-/// Checks a passphrase against libsrt's limits. The messages never quote the
-/// value.
 fn validate_passphrase(passphrase: &Passphrase, field: &str, issues: &mut Vec<ValidationIssue>) {
     let value = passphrase.expose();
     if !(Passphrase::MIN_LEN..=Passphrase::MAX_LEN).contains(&value.len()) {

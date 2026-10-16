@@ -1,5 +1,3 @@
-# SRT latency variant: non-default source (120ms) and destination (2000ms).
-# Both are carried through to the provisioned hops.
 name: srt-latency
 enabled: true
 source:

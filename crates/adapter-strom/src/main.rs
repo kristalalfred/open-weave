@@ -1,5 +1,3 @@
-//! `weave-adapter-strom` — southbound adapter for Strom instances.
-
 mod config;
 mod provision;
 
@@ -39,7 +37,7 @@ use provision::{
     about = "open-weave southbound adapter for Strom"
 )]
 struct Args {
-    /// Path to the adapter config file (YAML).
+    #[arg(help = "Path to the adapter config file (YAML)")]
     #[arg(long, env = "WEAVE_NODE_CONFIG", hide_env_values = true)]
     config: PathBuf,
 }
@@ -118,14 +116,10 @@ async fn main() -> Result<()> {
     }
 }
 
-/// The southbound API as this adapter sees it: a base URL plus the bearer token
-/// presented on every request. Bundling them keeps the token from having to be
-/// threaded through the sync loop alongside the client.
-///
 struct Southbound {
     http: Client,
     url: String,
-    /// `None` only when authentication is explicitly disabled.
+
     token: Option<Token>,
 }
 
@@ -258,8 +252,6 @@ async fn sync_once(
         .find_map(|attachment| attachment.listeners.srt.as_ref())
         .map(|listener| listener.host.as_str());
 
-    // The first registration is the version handshake, so nothing is created
-    // or deleted before southbound has accepted it.
     if !registered {
         desired_before_registering(southbound, node_id, last_desired).await?;
         let hop_status = match flows.as_deref() {
@@ -314,8 +306,6 @@ async fn sync_once(
     Ok(true)
 }
 
-/// Minimal Strom flow operations the reconciler needs, behind a trait so
-/// provisioning order stays testable with a recording fake.
 #[async_trait::async_trait]
 #[allow(
     clippy::double_must_use,
@@ -356,12 +346,6 @@ impl FlowApi for StromClient {
     }
 }
 
-/// This poll's hop status, never an empty list standing in for hops the node
-/// may still run, since the controller reads an empty list as running nothing
-/// and places those hops elsewhere. `flows` is `None` when Strom could not be
-/// listed; then the hops of `last_desired` are reported `pending`. When the
-/// desired fetch fails, nothing is provisioned and `last_desired` is reported
-/// as Strom shows it now.
 async fn hop_status(
     southbound: &Southbound,
     strom: &dyn FlowApi,
@@ -427,11 +411,6 @@ fn pending_statuses(desired: &[DesiredHop], listener_host: Option<&str>) -> Vec<
         .collect()
 }
 
-/// Learns what the controller has this node run before it registers, so a
-/// restarted adapter reports the flows its Strom still runs instead of none.
-/// A `5xx` or no answer fails the poll and registration waits for the next one.
-/// A `404`, or hops that do not decode, leave `last_desired` as it is and let
-/// the registration handshake answer.
 async fn desired_before_registering(
     southbound: &Southbound,
     node_id: &str,
@@ -458,9 +437,6 @@ async fn desired_before_registering(
     Ok(())
 }
 
-/// Pull desired hops for this node, reconcile them into Strom flows, and report
-/// each hop's realised status. Touches no flow unless southbound answers `2xx`.
-/// The fetched hops replace `last_desired`.
 async fn provision(
     southbound: &Southbound,
     strom: &dyn FlowApi,
@@ -476,10 +452,6 @@ async fn provision(
     Ok(hop_status)
 }
 
-/// Reconcile desired hops against observed flows in one poll cycle.
-///
-/// Deletes run before creates so a flow being torn down frees its SRT listener
-/// port before a re-applied stream on the same port is created and started.
 async fn reconcile(
     flow_api: &dyn FlowApi,
     desired: &[DesiredHop],
@@ -527,15 +499,6 @@ async fn reconcile(
     statuses
 }
 
-/// Restart each running flow whose SRT caller ingress has gone without a
-/// finished handshake, backing off per hop.
-///
-/// An `srtsrc` caller that its listener refused once, for a wrong passphrase,
-/// never dials again while Strom goes on reporting the flow running
-/// (`backlog/OW-22`). Stopping and starting the flow makes it dial. Strom's
-/// `connected` only says data has flowed, so a caller whose peer has nothing to
-/// send yet reads unconnected; the negotiated latency tells it apart
-/// (`backlog/OW-63`).
 async fn redial_unconnected_callers(
     flow_api: &dyn FlowApi,
     desired: &[DesiredHop],
@@ -678,15 +641,12 @@ fn carries_webrtc(hop: &DesiredHop) -> bool {
         .any(|spec| matches!(spec, SocketSpec::Whip(_) | SocketSpec::Whep(_)))
 }
 
-/// One socket of a hop as this poll's stats show it.
 #[derive(Debug, Default)]
 struct SocketReading {
-    /// Cumulative bytes through the socket, `None` when its stats are unavailable.
     bytes: Option<i64>,
-    /// A WHIP or WHEP socket's bytes per session, in place of `bytes`.
+
     sessions: Option<Vec<(String, i64)>>,
-    /// An SRT socket has a connection; a WHIP or WHEP socket has a session
-    /// carrying RTP.
+
     connected: bool,
     rate_mbps: f64,
     stats: Option<LinkStats>,
@@ -730,7 +690,6 @@ impl SocketReading {
         }
     }
 
-    /// A RIST egress, read from the SRT ingress feeding it.
     fn srt_ingress(srt: Option<&FlowStats>) -> Self {
         let element = srt.and_then(FlowStats::ingress);
         Self {
@@ -740,7 +699,6 @@ impl SocketReading {
         }
     }
 
-    /// A RIST ingress, read from every SRT egress it feeds.
     fn srt_egresses(srt: Option<&FlowStats>) -> Self {
         let sinks: Vec<&ElementStats> = srt.map(|s| s.egresses().collect()).unwrap_or_default();
         Self {
@@ -750,8 +708,6 @@ impl SocketReading {
         }
     }
 
-    /// A block missing from Strom's reply has no sessions, which is known, not
-    /// unknown.
     fn sessions(block: Option<&SessionStats>, bytes: fn(&SessionBytes) -> i64) -> Self {
         Self {
             sessions: Some(block.map_or_else(Vec::new, |block| {
@@ -893,7 +849,6 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
     ]
 }
 
-/// What Strom's `whip_input` negotiates: H264 video and Opus audio.
 fn whip_input_accepts() -> FormatConstraint {
     FormatConstraint {
         container: None,
@@ -915,10 +870,6 @@ struct UnsupportedStrom {
     min: String,
 }
 
-/// Fails with [`UnsupportedStrom`] when Strom reports a version below
-/// [`weave_strom::MIN_VERSION`]. A version string that cannot be read is
-/// logged and let through; a Strom that cannot be asked fails with the request
-/// error so the check runs again on the next poll.
 async fn check_strom_version(strom: &StromClient) -> Result<()> {
     let found = strom.version().await.context("reading Strom version")?;
     let (major, minor, patch) = weave_strom::MIN_VERSION;
@@ -938,10 +889,6 @@ async fn check_strom_version(strom: &StromClient) -> Result<()> {
     Ok(())
 }
 
-/// Registration the control plane will never accept, however long this adapter
-/// keeps dialling: a protocol-version mismatch (`409`), or a token that belongs
-/// to another node (`403`). Distinct from a transient failure: the sync loop
-/// stops on it instead of retrying.
 #[derive(Debug, thiserror::Error)]
 #[error("southbound rejected registration permanently: {status}: {body}")]
 struct RegistrationRejected {
@@ -1190,7 +1137,6 @@ mod tests {
             .expect("flow fixture")
     }
 
-    /// A southbound whose desired-hops route answers `status` with `body`.
     async fn southbound_answering(status: StatusCode, body: Value) -> Southbound {
         let app = Router::new().route(
             "/nodes/{node_id}/desired",
@@ -1562,9 +1508,6 @@ mod tests {
 
     #[tokio::test]
     async fn reconcile_deletes_before_creating_on_same_ports() {
-        // Old flows on ports 7001/7002; a differently-named stream re-applied on
-        // the same ports. Every delete must precede every create so the listener
-        // ports are freed before the new flows are created and started.
         let desired = vec![
             hop("weave-srt-latency-sender", 7001),
             hop("weave-srt-latency-receiver-studio", 7002),
@@ -1664,7 +1607,6 @@ mod tests {
         }
     }
 
-    /// One poll of `hop` against `flow`, with `srt` and `webrtc` as Strom's stats.
     async fn poll(
         hop: &DesiredHop,
         flow: StromFlow,
@@ -1687,8 +1629,6 @@ mod tests {
         statuses.remove(0)
     }
 
-    /// Strom 0.6.6 holds a WHIP flow at `Paused` until both decoders preroll, so
-    /// a video-only sender leaves it there while media flows.
     #[tokio::test]
     async fn a_whip_ingress_reads_its_sessions_not_the_flow_state() {
         let hop = whip_to_srt_hop();
@@ -1717,8 +1657,6 @@ mod tests {
         );
     }
 
-    /// The recordings come from this shape: a page sending WHIP into `whip_in`
-    /// and a page playing `whep_out_0`.
     #[tokio::test]
     async fn a_whip_to_whep_hop_reads_each_side_from_its_own_block() {
         let mut hop = whip_to_srt_hop();
@@ -1768,8 +1706,6 @@ mod tests {
         json!({ "flow_id": "id-a", "stats": { "connections": connections } })
     }
 
-    /// A player that reconnects leaves its old session beside the new one until
-    /// Strom drops the old entry.
     #[tokio::test]
     async fn a_whep_egress_keeps_flowing_when_an_old_session_ends() {
         let hop = srt_to_whep_hop();
@@ -1807,9 +1743,6 @@ mod tests {
         );
     }
 
-    /// A source that carried media and left reads the same over WHIP as over
-    /// SRT: stalled once its bytes have not moved for three polls, so the
-    /// stream is `degraded` rather than `awaiting_input`.
     #[tokio::test]
     async fn a_source_that_leaves_stalls_over_whip_and_over_srt() {
         let whip = whip_to_srt_hop();
@@ -1864,7 +1797,6 @@ mod tests {
         );
     }
 
-    /// Strom 0.6.9 and later report an unfed WHIP flow as `Playing`.
     #[tokio::test]
     async fn a_playing_whip_flow_without_a_session_is_idle() {
         let hop = whip_to_srt_hop();
@@ -2069,13 +2001,10 @@ mod tests {
         );
     }
 
-    /// The events this crate logs while installed, each as its fields rendered
-    /// the way a log line shows them.
     #[derive(Clone, Default)]
     struct LogCapture(std::sync::Arc<Mutex<Vec<std::collections::BTreeMap<String, String>>>>);
 
     impl LogCapture {
-        /// The `error` field of the first event logged with `message`.
         fn error_of(&self, message: &str) -> Option<String> {
             self.0
                 .lock()
@@ -2085,8 +2014,6 @@ mod tests {
                 .and_then(|fields| fields.get("error").cloned())
         }
 
-        /// Drive `run` until it logs `message` or returns, and return that
-        /// event's `error` field.
         async fn error_logged_by(&self, run: impl Future, message: &str) -> String {
             let logged = async {
                 while self.error_of(message).is_none() {

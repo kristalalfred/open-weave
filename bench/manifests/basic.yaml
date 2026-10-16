@@ -1,5 +1,3 @@
-# Canonical contribution: source on node-1 relayed to node-2.
-# Drives the producer/consumer verification endpoints.
 name: basic
 enabled: true
 source:

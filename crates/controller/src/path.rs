@@ -1,5 +1,3 @@
-//! Pure derivation of a per-stream [`Path`] from operator intent and observed state.
-
 use std::borrow::{Borrow, Cow};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -18,11 +16,9 @@ use crate::keys::LinkKeys;
 const DEFAULT_SRC_LATENCY: u32 = 200;
 const DEFAULT_SINK_LATENCY: u32 = 1000;
 const RECV_CONSUMER_LATENCY: u32 = 200;
-/// AES key length, in bytes, set on every keyed SRT socket.
+
 const SRT_PBKEYLEN: u8 = 32;
 
-/// Link transports in the order the planner prefers them. RIST comes last, so a
-/// link any other transport can carry keeps it.
 const TRANSPORT_PREFERENCE: [Transport; 4] = [
     Transport::Srt,
     Transport::Whip,
@@ -106,9 +102,6 @@ pub enum PlacementError {
     CleartextLink { node: String },
 }
 
-/// Names `socket` for [`PlacementError::NotAnSrtListener`]. A device's `Display`
-/// already names which one it is; a link transport's does not say which end, so
-/// its role is prefixed on.
 fn socket_end_description(socket: &SocketSpec) -> String {
     match socket {
         SocketSpec::Device(_) => socket.to_string(),
@@ -126,9 +119,6 @@ pub fn receiver_hop_id(stream: &str, destination: &str) -> String {
     format!("{HOP_ID_PREFIX}{stream}-receiver-{destination}")
 }
 
-/// Id of the bridge at `position` along the chain carrying destination `dest`.
-/// Position is counted after relay insertion, so an auto-inserted relay and a
-/// pinned one are named the same way.
 #[must_use]
 pub fn bridge_hop_id(stream: &str, destination: &str, position: usize) -> String {
     format!("{}{position}", bridge_hop_id_prefix(stream, destination))
@@ -138,25 +128,20 @@ fn bridge_hop_id_prefix(stream: &str, destination: &str) -> String {
     format!("{HOP_ID_PREFIX}{stream}-bridge-{destination}-")
 }
 
-/// Where a stream endpoint is placed: on a registered node, or dialed out to an
-/// external SRT listener.
 enum Placement<'a> {
     Node(&'a str),
     Remote(&'a RemoteAddr),
 }
 
-/// How the media enters or leaves the stream at a manifest endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Terminal {
-    /// An SRT socket a producer or consumer dials.
     Srt,
-    /// The node's own capture or display device; nothing external attaches.
+
     Device,
-    /// A WHIP ingest or WHEP playback listener an outside peer calls.
+
     Signalling(SignallingTransport),
 }
 
-/// A manifest endpoint as the planner reads it, whichever variant wrote it.
 struct Endpoint<'a> {
     placement: Placement<'a>,
     network: Option<&'a str>,
@@ -204,7 +189,6 @@ fn signalled(endpoint: &SignallingEndpoint, transport: SignallingTransport) -> E
     }
 }
 
-/// Where a listening socket sits in the hop that owns it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum Slot {
     Ingress,
@@ -212,7 +196,6 @@ enum Slot {
     Egress(String),
 }
 
-/// A listening socket: the hop that owns it and where it sits in that hop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct SocketAt {
     hop: String,
@@ -242,13 +225,6 @@ impl SocketAt {
     }
 }
 
-/// What nodes report their hops running, read once per tick: the nodes running
-/// each hop, and the ports its listening sockets hold.
-///
-/// A report counts unless its state is `failed`. A socket counts when its
-/// resolved host is `0.0.0.0` or one of the node's own listener hosts, which is
-/// how an adapter reports a listener; a caller resolves to the address it
-/// dials. A RIST listener also holds the port after it, for RTCP.
 #[derive(Debug, Default)]
 pub struct HopReports {
     running: HashMap<String, Vec<String>>,
@@ -343,9 +319,6 @@ impl HopReports {
         self.held.get(node)
     }
 
-    /// The ports held by the second paths of `stream`'s destinations that ask
-    /// for two, per node: their sender egresses, their bridges, and their
-    /// receivers' merge ingresses.
     fn second_path_held(&self, stream: &StreamDefinition) -> HashMap<String, HashSet<u16>> {
         let mut ports: HashMap<String, HashSet<u16>> = HashMap::new();
         for destination in stream
@@ -377,19 +350,11 @@ impl HopReports {
     }
 }
 
-/// Per-tick, per-node port occupancy. Assigns every port a path needs from the
-/// node's declared range. A listening socket keeps the port its node reports it
-/// running on, see [`HopReports`]; no other socket is given a held port. Any
-/// other socket prefers a deterministic FNV offset then probes forward
-/// (wrapping within the range) to the first free port, so a given stream set
-/// always resolves to the same collision-free assignment. An SRT port passes
-/// over half of a free RIST pair while the range has another free port.
 #[derive(Debug, Clone, Default)]
 pub struct PortAllocator {
     used: HashMap<String, HashSet<u16>>,
     held: Arc<HopReports>,
-    /// Held ports a claim may still take once no other port is free: while a
-    /// stream plans its first paths, those its own running second paths hold.
+
     yielding: Arc<HashMap<String, HashSet<u16>>>,
 }
 
@@ -400,7 +365,6 @@ impl PortAllocator {
         Self::default()
     }
 
-    /// An allocator that keeps the ports in `held` for the sockets holding them.
     #[must_use]
     pub fn holding(held: HopReports) -> Self {
         Self {
@@ -491,9 +455,6 @@ impl PortAllocator {
         self.claimable(node, listeners, &[], yielding).is_some()
     }
 
-    /// The ports `node` would give each of `listeners`, taken in turn, with
-    /// `taken` in use as well, counting [`Self::yielding`] ports only when
-    /// `yielding` is set. `None` when one of them finds no free port.
     fn claimable(
         &self,
         node: &NodeDescriptor,
@@ -537,8 +498,6 @@ impl PortAllocator {
         self.claim_rist_at(node, listener, key, None)
     }
 
-    /// Claim an even port from `listener` for a RIST receiver, and the port
-    /// after it for RTCP.
     fn claim_rist_at(
         &mut self,
         node: &NodeDescriptor,
@@ -593,8 +552,6 @@ impl PortAllocator {
     }
 }
 
-/// A scratch copy of a [`PortAllocator`] for relay picks: the ports reserved
-/// on each node on top of the allocator, which it does not copy.
 struct ScratchPorts<'p> {
     base: &'p PortAllocator,
     reserved: HashMap<String, Vec<u16>>,
@@ -626,7 +583,6 @@ impl<'p> ScratchPorts<'p> {
     }
 }
 
-/// Whether taking `port` would leave one fewer free RIST pair in `rist`.
 fn splits_rist_pair(port: u16, rist: &[PortRange], occupied: &HashSet<u16>) -> bool {
     let pair = port - port % 2;
     rist.iter()
@@ -635,18 +591,12 @@ fn splits_rist_pair(port: u16, rist: &[PortRange], occupied: &HashSet<u16>) -> b
         && !occupied.contains(&(pair + 1))
 }
 
-/// The hop ids placed streams hold in one tick, each with the stream holding it.
-///
-/// Hop ids join names with `-`, so two streams can spell the same one, and an
-/// id names a flow on its node and the key of the link feeding it.
 #[derive(Debug, Default)]
 pub struct HopIds {
     held: HashMap<String, String>,
 }
 
 impl HopIds {
-    /// Hold every hop id of `path` for its stream, or fail naming the first one
-    /// another stream holds. Holds nothing on failure.
     pub fn claim(&mut self, path: &Path) -> Result<(), PlacementError> {
         if let Some((hop, stream)) = path
             .hops
@@ -667,8 +617,6 @@ impl HopIds {
     }
 }
 
-/// A hop id a stream can plan on any nodes: one exact id, or a bridge id with
-/// any position after the prefix.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum HopIdForm {
     Exact(String),
@@ -690,7 +638,6 @@ impl HopIdForm {
     }
 }
 
-/// Whether `text` is a position as [`bridge_hop_id`] writes one.
 fn is_bridge_position(text: &str) -> bool {
     text.parse::<usize>()
         .is_ok_and(|position| position.to_string() == text)
@@ -719,7 +666,6 @@ fn hop_id_forms(stream: &StreamDefinition) -> Vec<HopIdForm> {
     forms
 }
 
-/// A hop id both streams can plan, whatever nodes each lands on.
 #[must_use]
 pub fn shared_hop_id(left: &StreamDefinition, right: &StreamDefinition) -> Option<String> {
     let right_forms = hop_id_forms(right);
@@ -728,49 +674,6 @@ pub fn shared_hop_id(left: &StreamDefinition, right: &StreamDefinition) -> Optio
         .find_map(|form| right_forms.iter().find_map(|other| form.shared_id(other)))
 }
 
-/// Derive the ordered (source→destination) hop chain realising one stream.
-///
-/// Placement is by `node`: the sender runs on `source.node`, each node-referenced
-/// receiver on its destination's `node`, and a bridge on every node the
-/// destination relays through. Attachments resolve at planning time from shared
-/// networks, and every port is claimed from `ports`, the
-/// per-tick collision-aware allocator. A hop's reported ingress address is
-/// observability only and never rewrites a planned socket.
-///
-/// Each link's transport and direction come from both ends' declared
-/// capabilities, see [`link_transport`]: SRT when both ends offer it, with the
-/// downstream listening whenever it can be dialled and the direction reversing
-/// otherwise; WHIP when a node that can only push media meets one hosting an
-/// ingest; WHEP when a node hosting playback meets one that pulls it. When no
-/// transport connects the two ends directly, [`chain_hops`] inserts a relay node
-/// compatible with both halves — the NAT-to-NAT case and the browser-to-browser
-/// case resolve into two links under the same rule rather than a special path.
-///
-/// A `remote` destination places no receiver hop and claims no port for its
-/// terminal link: whichever hop precedes it gains one caller egress to the
-/// external listener. A `device` endpoint claims no port either: the media
-/// starts at the node's camera or ends at its screen, so its terminal socket is
-/// a [`SocketSpec::Device`] with no address. The source must be a node; a remote
-/// source is rejected.
-///
-/// Every SRT link between two hops carries the key `keys` derives for the hop
-/// it feeds, on both of its sockets. A terminal SRT socket carries the
-/// passphrase its manifest endpoint declares, or none.
-///
-/// Fan-out is one sender hop teeing to one egress per destination, each with its
-/// own chain. Placement is all-or-nothing: if any destination is unplaceable the
-/// whole derivation fails and the stream stays pending.
-///
-/// A destination asking for two paths gets its second once every first path is
-/// placed, see [`place_second_path`]. A second path that cannot be placed leaves
-/// the stream placed with one and is reported in [`PlannedStream::single_path`].
-///
-/// Unless the stream sets `allow_cleartext_links`, the stream is planned as if
-/// no node offered RIST. When it cannot be placed that way but could with RIST,
-/// the error is [`PlacementError::CleartextLink`].
-///
-/// What nodes report running reaches planning through `committed_ports`, built
-/// once per tick with [`PortAllocator::holding`].
 pub fn derive_stream(
     stream: &StreamDefinition,
     nodes: &[NodeDescriptor],
@@ -810,8 +713,6 @@ fn offers_rist(node: &NodeDescriptor) -> bool {
             .any(|profile| is_rist(&profile.ingress) || is_rist(&profile.egress))
 }
 
-/// `node` with its RIST listeners and every hop profile that takes or sends RIST
-/// removed.
 fn without_rist(node: &NodeDescriptor) -> NodeDescriptor {
     let mut node = node.clone();
     for attachment in &mut node.topology.attachments {
@@ -823,7 +724,6 @@ fn without_rist(node: &NodeDescriptor) -> NodeDescriptor {
     node
 }
 
-/// The node of the first hop in `path` that listens for RIST.
 fn rist_listener_node(path: &Path) -> Option<String> {
     path.hops
         .iter()
@@ -887,8 +787,6 @@ fn derive_on(
             &second_path_relays,
         )?;
 
-        // Each link attaches its upstream socket to the hop before it, which is
-        // the sender for the first link and the previous chain hop after that.
         let mut hops: Vec<DesiredHop> = Vec::with_capacity(chain.bridges.len() + 1);
         let mut upstream = LinkEnd {
             station: &source_station,
@@ -911,8 +809,6 @@ fn derive_on(
         }
 
         match &chain.terminal {
-            // An external listener terminates the chain: the last hop dials it
-            // and no hop is placed for it.
             ChainTerminal::Remote(remote) => {
                 if !can_dial_network(&upstream.station.node_id, &remote.network, nodes)? {
                     let id = bridge_hop_id(&stream.name, &destination.id, chain.bridges.len());
@@ -947,8 +843,7 @@ fn derive_on(
                     });
                 }
             }
-            // The chain ends on a receiver hop, whose remaining egress is the
-            // socket the consumer dials or the device the media ends on.
+
             ChainTerminal::Receiver(receiver) => {
                 let (up_socket, mut hop, attachments) =
                     plan_hop(&upstream, receiver, latency, nodes, &mut ports, keys)?;
@@ -1063,7 +958,6 @@ fn derive_on(
     })
 }
 
-/// [`derive_stream`]'s path alone.
 #[cfg(test)]
 pub fn derive_path(
     stream: &StreamDefinition,
@@ -1075,7 +969,6 @@ pub fn derive_path(
     derive_stream(stream, nodes, observed, committed_ports, keys).map(|planned| planned.path)
 }
 
-/// A placed stream, and the destinations that asked for two paths and got one.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PlannedStream {
     pub path: Path,
@@ -1088,25 +981,18 @@ pub struct SinglePath {
     pub reason: PlacementError,
 }
 
-/// Appended to a destination id to name its second path. `.` is outside the
-/// resource id alphabet, so no destination id can end with it.
 const SECOND_PATH_SUFFIX: &str = ".2";
 
-/// The branch id a destination's second path carries on the sender and on its
-/// bridges.
 fn second_path_branch_id(destination: &str) -> String {
     format!("{destination}{SECOND_PATH_SUFFIX}")
 }
 
-/// Whether an egress with `branch_id` carries media to `destination`, over its
-/// first path or its second.
 fn carries_destination(branch_id: &str, destination: &str) -> bool {
     branch_id
         .strip_prefix(destination)
         .is_some_and(|rest| rest.is_empty() || rest == SECOND_PATH_SUFFIX)
 }
 
-/// What a destination's first path used, so its second can avoid it.
 struct FirstPath {
     destination: String,
     latency: u32,
@@ -1116,14 +1002,6 @@ struct FirstPath {
     relays: Vec<String>,
 }
 
-/// Plan a destination's second path and add it to `hops`: one more sender
-/// egress, the bridges of its own chain, and the receiver's merge ingress.
-///
-/// The second path uses no relay the first one does, and at the sender and the
-/// receiver no attachment the first one may carry its link on. It is planned
-/// against a copy of `ports` and changes neither `hops` nor `ports` unless every
-/// hop it touches still has a matching profile. The first path's hops, ids and
-/// ports are left as they are.
 #[allow(clippy::too_many_arguments)]
 fn place_second_path<'n>(
     stream: &str,
@@ -1312,8 +1190,6 @@ fn pick_remote_relay<'n>(
     }
 }
 
-/// The tracks the source sends: those an outside WHIP sender's declared format
-/// carries, or those the sender's capture profile declares.
 fn source_tracks(
     source: &StreamTransport,
     sender: &DesiredHop,
@@ -1377,8 +1253,6 @@ fn select_profile(hop: &DesiredHop, nodes: &[NodeDescriptor]) -> Result<String, 
     })
 }
 
-/// Plan the link that feeds `hop` and place it: the socket the upstream end of
-/// that link owns, and the hop itself, its ingress the downstream socket.
 fn plan_hop(
     upstream: &LinkEnd,
     hop: &ChainHop,
@@ -1409,8 +1283,6 @@ fn plan_hop(
     ))
 }
 
-/// Attach a link's upstream socket to the hop it leaves from: the sender when the
-/// chain is still empty, otherwise the chain's last hop.
 fn push_egress(
     sender_egresses: &mut Vec<DesiredEgress>,
     chain: &mut [DesiredHop],
@@ -1427,8 +1299,6 @@ fn push_egress(
     }
 }
 
-/// One node a stream passes through, optionally constrained to one network and
-/// kept off some of its attachments.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Station {
     node_id: String,
@@ -1446,37 +1316,30 @@ impl Station {
     }
 }
 
-/// One hop to place along a destination's chain.
 struct ChainHop {
     station: Station,
     id: String,
     role: HopRole,
 }
 
-/// The hops between the sender and one destination, and how the chain ends.
 struct Chain<'a> {
     bridges: Vec<ChainHop>,
     terminal: ChainTerminal<'a>,
 }
 
-/// Where a destination's chain ends.
 enum ChainTerminal<'a> {
-    /// A hop placed on the destination node.
     Receiver(ChainHop),
-    /// An external listener the hop before it dials; no hop is placed for it.
+
     Remote(&'a RemoteAddr),
 }
 
-/// One end of a link: where it sits and which hop owns the socket.
 struct LinkEnd<'a> {
     station: &'a Station,
     hop_id: &'a str,
-    /// The socket this end listens on when the link's listener sits at it.
+
     listen_at: SocketAt,
 }
 
-/// Build one destination's chain: a bridge per relayed node, a relay wherever no
-/// transport carries a link directly, and the terminal the last link runs into.
 #[allow(clippy::too_many_arguments)]
 fn chain_hops<'a, 'n>(
     stream: &str,
@@ -1543,10 +1406,6 @@ fn chain_hops<'a, 'n>(
     Ok(Chain { bridges, terminal })
 }
 
-/// The online nodes an upstream station can link to as a relay, and how, found
-/// once per upstream for one stream's planning. Without it every relayed
-/// destination rescans every node. Also the tick's [`HopReports`], shared with
-/// the port allocator rather than rebuilt per stream.
 struct RelayCache<'n> {
     reachable: HashMap<Station, Vec<(&'n NodeDescriptor, LinkChoice)>>,
     reports: Arc<HopReports>,
@@ -1564,7 +1423,6 @@ impl<'n> RelayCache<'n> {
         self.reports.running(hop_id)
     }
 
-    /// The nodes that report running the bridges of `destination`'s second path.
     fn second_path_relays(&self, stream: &str, destination: &str) -> Vec<String> {
         let branch = second_path_branch_id(destination);
         (0..)
@@ -1594,18 +1452,6 @@ impl<'n> RelayCache<'n> {
     }
 }
 
-/// Extend `chain` with a relay when no transport carries the link into `next`
-/// from the station before it — the source's own station when the chain is
-/// still empty. The relay is none of `avoid_relays`, and is the node that
-/// reports running the bridge `(stream, branch)` would place there when that
-/// node still qualifies. It is one of `shun` only when no other relay has room.
-/// The relay's listener ports are claimed in `ports`, a scratch copy for the
-/// chain, so a later relay in the same chain sees them taken.
-///
-/// A spliced relay is compatible with both halves by construction, so each
-/// resolves under the ordinary rule — the upstream reaches the relay, and the
-/// relay reaches the downstream. One pass is enough; no inserted link can itself
-/// need a relay.
 #[allow(clippy::too_many_arguments)]
 fn relay_before<'n>(
     chain: &mut Vec<Station>,
@@ -1636,16 +1482,6 @@ fn relay_before<'n>(
     Ok(())
 }
 
-/// The online relay node that can carry both halves of a link no transport
-/// connects directly and has free ports for every SRT or RIST listener it would
-/// host: the node that reports running `bridge` when it qualifies, otherwise the
-/// lowest-id one. Sorting keeps the choice stable across ticks, and the running
-/// node keeps its bridge when an earlier relay comes back.
-///
-/// When none qualifies the error names why the direct link failed: two ends that
-/// do share a transport but cannot dial each other read as a routing problem,
-/// two that share none as a capability problem. When relays qualify but none has
-/// the ports, it names the lowest-id one as out of ports.
 #[allow(clippy::too_many_arguments)]
 fn pick_relay<'n>(
     nodes: &'n [NodeDescriptor],
@@ -1698,8 +1534,6 @@ fn pick_relay<'n>(
     }
 }
 
-/// The listener a relay claims ports on for `link`, when the relay is the link's
-/// `end` and SRT or RIST carries it. A WHIP or WHEP listener claims no port.
 fn port_listener_at(link: &LinkChoice, end: Listener, at: SocketAt) -> Option<PortListener> {
     if link.listener != end {
         return None;
@@ -1716,17 +1550,11 @@ fn port_listener_at(link: &LinkChoice, end: Listener, at: SocketAt) -> Option<Po
     }
 }
 
-/// A listener a relay would claim ports on.
 enum PortListener {
     Srt(NetworkAttachment, SocketAt),
     Rist(RistListener, SocketAt),
 }
 
-/// The candidate with free ports for each SRT or RIST listener it would host,
-/// and those ports: one of `keep`, else the lowest-id one not in `shun`, else the lowest-id one,
-/// and only then one whose room is ports this stream's running second paths
-/// hold (see [`PortAllocator::yielding`]). `PortRangeExhausted` for the
-/// lowest-id one when none has room, or `None` when there are no candidates.
 fn relay_with_ports<'a>(
     candidates: impl Iterator<Item = (&'a NodeDescriptor, Vec<PortListener>)>,
     ports: &ScratchPorts,
@@ -1769,27 +1597,22 @@ fn role_for_end(listener: Listener, end: Listener) -> SocketRole {
     }
 }
 
-/// Which end of a link hosts the socket the other dials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Listener {
     Upstream,
     Downstream,
 }
 
-/// Why no transport connects two ends directly.
 #[derive(Debug, PartialEq, Eq)]
 enum LinkFailure {
-    /// They share a transport in complementary roles, but the end that would
-    /// have to listen cannot be dialled.
     Undialable,
-    /// They offer no transport in complementary roles at all.
+
     NoCommonTransport,
-    /// A node or network constraint in the link does not resolve.
+
     Placement(PlacementError),
 }
 
 impl LinkFailure {
-    /// The placement error a failed link reports, named for the two ends.
     fn into_error(self, upstream: &str, downstream: &str) -> PlacementError {
         match self {
             Self::Undialable => PlacementError::NoRelayAvailable {
@@ -1844,10 +1667,6 @@ impl ResolvedEnd<'_> {
         attachments
     }
 
-    /// Ids of the attachments this end dials `network` from, or `None` when it
-    /// cannot. A connect socket names no local address, so any dialing
-    /// attachment on the network may carry the link, and an end that must avoid
-    /// one of them cannot dial it at all.
     fn dialing_attachments(&self, network: &str) -> Option<Vec<String>> {
         let dialing: Vec<_> = self
             .node
@@ -1886,29 +1705,17 @@ struct LinkChoice {
     dialer_attachments: Vec<String>,
 }
 
-/// The ids of the attachments each end of a link may carry it on.
 struct LinkAttachments {
     upstream: Vec<String>,
     downstream: Vec<String>,
 }
 
-/// One planned link: the socket each end owns, and the attachments carrying it.
 struct PlannedLink {
     upstream: SocketSpec,
     downstream: SocketSpec,
     attachments: LinkAttachments,
 }
 
-/// The transport and direction of a link between two resolved ends, or why none
-/// fits.
-///
-/// Candidates are taken in [`TRANSPORT_PREFERENCE`] order. SRT works in either
-/// direction, so the downstream listens when it can be dialled and the upstream
-/// otherwise. WHIP carries media from the connecting end to the listening one,
-/// so only the downstream may host it; WHEP carries media from the listening end
-/// to the connecting one, so only the upstream may. In every case the end that
-/// listens must offer that role and be dialable, and the other end must offer
-/// the complementary role.
 fn link_transport(
     upstream: &ResolvedEnd<'_>,
     downstream: &ResolvedEnd<'_>,
@@ -1961,7 +1768,6 @@ fn link_transport(
     })
 }
 
-/// [`link_transport`] between two stations, resolving both first.
 fn station_link(
     upstream: &Station,
     downstream: &Station,
@@ -1981,17 +1787,6 @@ fn has_listener(attachment: &NetworkAttachment, transport: Transport) -> bool {
     }
 }
 
-/// Plan one link's socket pair: the upstream egress and the downstream ingress.
-///
-/// The transport and which end listens come from [`link_transport`]. An SRT
-/// listener claims its port on the listening node, always keyed by the
-/// downstream hop id so an assignment stays stable when a link's direction is
-/// the same across ticks. Both SRT sockets carry the key derived from that same
-/// id and the two end nodes, so the key survives a replan and a change of
-/// direction, and changes when either end moves to another node. A WebRTC
-/// listener claims no port: its socket is signalled at the base its node
-/// declares, addressed by the downstream hop id so every link is a distinct
-/// endpoint.
 fn plan_link(
     upstream: &LinkEnd,
     downstream: &LinkEnd,
@@ -2084,8 +1879,6 @@ fn plan_link(
     })
 }
 
-/// A RIST link's `(listen, connect)` sockets: the receiver binds a port pair on
-/// `attachment`, and the sender pushes to its listener host.
 fn rist_sockets(
     node: &NodeDescriptor,
     attachment: &NetworkAttachment,
@@ -2116,7 +1909,6 @@ fn srt_params(latency: u32, passphrase: Option<Passphrase>) -> SrtParams {
     }
 }
 
-/// Resolve a station's node and optional network constraint.
 fn resolve_station<'a>(
     station: &'a Station,
     nodes: &'a [NodeDescriptor],
@@ -2140,7 +1932,6 @@ fn resolve_station<'a>(
     Ok(ResolvedEnd { node, station })
 }
 
-/// Each hop's first report, by hop id and node.
 #[must_use]
 pub fn reports_by_hop<'a>(
     reports: impl IntoIterator<Item = &'a HopStatus>,
@@ -2154,7 +1945,6 @@ pub fn reports_by_hop<'a>(
     by_hop
 }
 
-/// The reports in `by_hop` for `path`'s hops.
 #[must_use]
 pub fn path_reports<'a>(
     path: &Path,
@@ -2167,7 +1957,6 @@ pub fn path_reports<'a>(
         .collect()
 }
 
-/// Roll the path's hops up into one end-to-end status via observed hop conditions.
 #[must_use]
 pub fn path_status(path: &Path, observed: &[impl Borrow<HopStatus>]) -> PathStatus {
     let conditions: Vec<Option<HopConditions>> = path
@@ -2246,9 +2035,6 @@ fn source_node<'a>(source: &Endpoint<'a>) -> Result<&'a str, PlacementError> {
     }
 }
 
-/// The sender's ingress: an SRT listener a producer dials, the node's own
-/// camera when the source is a `device`, or the WHIP ingest an outside sender
-/// calls.
 fn source_socket(
     source: &Endpoint,
     node_id: &str,
@@ -2287,9 +2073,6 @@ fn source_socket(
     }
 }
 
-/// A `transport` listener on `node_id` for an outside peer, addressed by
-/// `endpoint_id` at the signalling base of the first attachment, in network
-/// then id order, that declares one on `network`.
 fn signalling_listener(
     node_id: &str,
     network: Option<&str>,
@@ -2341,7 +2124,6 @@ fn signalling_listener(
     ))
 }
 
-/// A socket on the node's own `kind` device, which the node must advertise.
 fn device_socket(
     node_id: &str,
     kind: DeviceKind,
@@ -2378,8 +2160,6 @@ fn claim_port(
     ports.claim_at(node, attachment, key, Some(listen_at))
 }
 
-/// The allocator key for a receiver's consumer socket — distinct from the
-/// receiver's ingress key so both claim independent ports.
 fn consumer_key(receiver_id: &str) -> String {
     format!("{receiver_id}-consumer")
 }
@@ -2409,9 +2189,6 @@ fn srt_listener_attachment<'a>(
     })
 }
 
-/// Deterministic FNV-1a offset of `key` within `range` (`0..=span`). It is only
-/// the starting point for linear probing, so re-derivation stays stable across
-/// ticks while the allocator still avoids collisions.
 fn preferred_offset(range: PortRange, key: &str) -> u32 {
     let span = u64::from(range.span()) + 1;
     #[allow(clippy::cast_possible_truncation)]
@@ -2433,18 +2210,6 @@ fn find_node<'a>(nodes: &'a [NodeDescriptor], id: &str) -> Option<&'a NodeDescri
     nodes.iter().find(|node| node.id == id)
 }
 
-/// Resolve the concrete `srt://` addresses of a placed stream: the source node's
-/// ingress socket a producer dials, and each destination's consumer socket.
-///
-/// Hosts follow the manifest network constraint per endpoint; the ingress port
-/// is the sender hop's listen port and each node output is its receiver's assigned
-/// consumer port. A remote destination reports the external listener URL the
-/// sender dials out to. A `device` end reports `None`.
-///
-/// # Errors
-/// Returns [`PlacementError`] if a referenced node is unregistered, declares no
-/// attachment for the requested network, the source is remote, or the path does
-/// not carry the hops and SRT listeners the stream's shape calls for.
 pub fn stream_endpoints(
     stream: &StreamDefinition,
     path: &Path,
@@ -2497,7 +2262,6 @@ pub fn stream_endpoints(
     })
 }
 
-/// The receiver hop carrying `destination`, and the socket its consumer uses.
 fn consumer_socket<'a>(
     path: &'a Path,
     destination: &str,
@@ -2520,7 +2284,6 @@ fn consumer_socket<'a>(
     Ok((receiver, &consumer.socket))
 }
 
-/// The URL an outside WHIP sender or WHEP player calls to reach `socket`.
 fn signalling_addr(
     node_id: &str,
     socket: &SocketSpec,
@@ -2578,8 +2341,6 @@ fn remote_endpoint_addr(remote: &RemoteAddr) -> EndpointAddr {
     }
 }
 
-/// The port an SRT listener publishes, for the addresses producers and consumers
-/// dial.
 fn listener_port(spec: &SocketSpec, hop_id: &str) -> Result<u16, PlacementError> {
     match spec {
         SocketSpec::Srt(SrtSocket::Listen { port, .. }) => Ok(*port),
@@ -3311,7 +3072,6 @@ mod tests {
 
     const SHARED: &str = "internet";
 
-    /// The SRT socket a spec carries, for tests asserting on an address.
     fn srt(spec: &SocketSpec) -> &SrtSocket {
         match spec {
             SocketSpec::Srt(socket) => socket,
@@ -3326,7 +3086,6 @@ mod tests {
         }
     }
 
-    /// The address behind an end that has one; a device end reads `None`.
     fn addr(end: &Option<EndpointAddr>) -> &EndpointAddr {
         end.as_ref().expect("a dialable endpoint")
     }
@@ -3406,7 +3165,6 @@ mod tests {
         }
     }
 
-    /// A node every peer on the shared network can dial.
     fn node(id: &str, host: &str) -> NodeDescriptor {
         node_with(
             id,
@@ -3419,9 +3177,6 @@ mod tests {
         )
     }
 
-    /// A node behind NAT: it dials the shared network but no peer can dial it.
-    /// Its SRT listener sits on its own site network, where local producers and
-    /// consumers reach it.
     fn nat_node(id: &str, host: &str) -> NodeDescriptor {
         node_with(
             id,
@@ -3518,7 +3273,6 @@ mod tests {
         ]
     }
 
-    /// `nodes`, with node-2 also listening on a second network node-1 can dial.
     fn nodes_with_a_public_network() -> Vec<NodeDescriptor> {
         let mut nodes = nodes();
         nodes[0].topology.attachments.push(attachment(
@@ -3674,7 +3428,6 @@ mod tests {
         assert_eq!(a, b, "same key alone maps to the same port");
         assert!((7000..=7999).contains(&a));
 
-        // Distinct keys on one allocator never collide.
         let mut ports = PortAllocator::new();
         let x = ports
             .claim(&node, wan, "weave-contribution-receiver-0")
@@ -3684,7 +3437,6 @@ mod tests {
             .unwrap();
         assert_ne!(x, y, "distinct keys claim distinct ports");
 
-        // Whole-path derivation is stable across ticks.
         let stream = contribution();
         let first = derive(&stream, &nodes()).expect("derive");
         let second = derive(&stream, &nodes()).expect("derive");
@@ -3700,7 +3452,7 @@ mod tests {
             start: 7000,
             end: 7001,
         };
-        // Two ports means at most two preferred offsets, so colliding keys exist.
+
         let mut seen: HashMap<u32, String> = HashMap::new();
         let mut collision = None;
         for i in 0..1000 {
@@ -3743,8 +3495,7 @@ mod tests {
             node("strom-node-1", "172.26.0.10"),
             node_with_range("strom-node-2", 7000, 7000),
         ];
-        // The receiver needs an ingress port and a consumer port, but only one
-        // port exists on its node.
+
         assert_eq!(
             derive(&contribution(), &nodes),
             Err(PlacementError::PortRangeExhausted {
@@ -3798,8 +3549,6 @@ mod tests {
         srt_dest(&mut stream, 0).network = Some("public".to_string());
         let nodes = nodes_with_a_public_network();
 
-        // A reported ingress address on the shared-network host must not
-        // rewrite the planned delivery on the named network.
         let observed = vec![HopStatus {
             id: receiver_hop_id("contribution", "studio"),
             node_id: "strom-node-2".to_string(),
@@ -4077,8 +3826,6 @@ mod tests {
 
     #[test]
     fn reversed_link_claims_its_port_on_the_listening_node() {
-        // Disjoint ranges make the owning node legible from the port alone: an
-        // egress in 7xxx was claimed on node-1, in 8xxx on node-2.
         let mut nat = nat_node("strom-node-2", "172.27.0.10");
         nat.topology.attachments[1].listeners = srt_listener("172.27.0.10", 8000, 8999);
         let nodes = vec![node("strom-node-1", "172.26.0.10"), nat];
@@ -4156,7 +3903,6 @@ mod tests {
         let nodes = vec![
             nat_node("strom-node-1", "172.26.0.10"),
             nat_node("strom-node-2", "172.27.0.10"),
-            // Dialable, but offers no hop profile to carry the transit.
             bystander,
         ];
 
@@ -4240,9 +3986,6 @@ mod tests {
         assert_eq!(first, second, "re-derivation is stable");
     }
 
-    /// A NAT'd source fanned out to three NAT'd receivers, and a public relay
-    /// per id in `relays` whose SRT range holds four ports: two relayed
-    /// destinations, since the relay listens on both halves of each.
     fn relayed_fan_out(relays: &[&str]) -> (StreamDefinition, Vec<NodeDescriptor>) {
         let mut nodes = vec![nat_node("strom-node-1", "172.26.0.10")];
         let mut stream = contribution();
@@ -4475,8 +4218,6 @@ mod tests {
 
     #[test]
     fn a_pinned_via_still_gets_a_relay_when_its_own_link_is_undialable() {
-        // node-1 and the pinned transit node are both outbound-only, so the link
-        // between them needs a relay of its own on top of the pin.
         let mut stream = contribution();
         srt_dest(&mut stream, 0).via = vec!["transit".to_string()];
 
@@ -4760,8 +4501,6 @@ mod tests {
         );
     }
 
-    /// Node 2 listens on two networks whose order by network differs from their
-    /// order by attachment id; node 1 dials both.
     fn nodes_with_two_srt_listeners() -> Vec<NodeDescriptor> {
         let mut nodes = nodes();
         nodes[0].topology.attachments = vec![
@@ -4775,7 +4514,6 @@ mod tests {
         nodes
     }
 
-    /// Whether `node` has one SRT listener at `host` whose range holds `port`.
     fn listens_at(node: &NodeDescriptor, host: &str, port: u16) -> bool {
         node.topology.attachments.iter().any(|attachment| {
             attachment.listeners.srt.as_ref().is_some_and(|srt| {
@@ -4850,8 +4588,6 @@ mod tests {
         );
     }
 
-    /// A web page: pushes WHIP from its camera, pulls WHEP to its screen, and
-    /// dials out with no listener of its own.
     fn browser_node(id: &str) -> NodeDescriptor {
         NodeDescriptor {
             id: id.to_string(),
@@ -4885,9 +4621,6 @@ mod tests {
         }
     }
 
-    /// A Strom node that also hosts WHIP ingest and WHEP playback. The bases it
-    /// declares are its own to choose, so they are nothing the planner could
-    /// have guessed.
     fn webrtc_node(id: &str, host: &str) -> NodeDescriptor {
         let mut node = node(id, host);
         node.capabilities.hop_profiles.extend([
@@ -5342,7 +5075,7 @@ mod tests {
     fn a_relay_that_cannot_carry_both_halves_is_passed_over() {
         let mut stream = alice_cam();
         stream.destinations = vec![device_dest("guest", "browser-c3d4")];
-        // SRT-only relay: dialable, but a browser speaks no SRT.
+
         let nodes = vec![
             browser_node("browser-a1b2"),
             browser_node("browser-c3d4"),
@@ -5382,8 +5115,6 @@ mod tests {
 
     #[test]
     fn a_strom_node_that_only_speaks_srt_is_never_handed_a_webrtc_socket() {
-        // node-2 offers only srt-forward; the browser cannot reach it, and there
-        // is no relay, so the stream stays unplaced rather than misplanned.
         let nodes = vec![
             browser_node("browser-a1b2"),
             node("strom-node-2", "172.27.0.10"),

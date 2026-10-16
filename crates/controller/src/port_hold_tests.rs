@@ -135,9 +135,6 @@ fn run(streams: &[StreamDefinition], nodes: &[NodeDescriptor], hops: Vec<HopStat
     .hops_by_stream
 }
 
-/// What each node reports for the hops it was given, the way the Strom adapter
-/// resolves them: a listener at the node's SRT listener host, a caller at the
-/// address it dials. Hops named in `failed` report `failed`.
 fn reported(planned: &Hops, nodes: &[NodeDescriptor], failed: &[&str]) -> Vec<HopStatus> {
     let status = |socket: &SocketSpec, own_host: &str| SocketStatus {
         condition: LinkCondition::Flowing,
@@ -191,7 +188,6 @@ fn reported(planned: &Hops, nodes: &[NodeDescriptor], failed: &[&str]) -> Vec<Ho
         .collect()
 }
 
-/// The hops of `planned` that carry only `destination` of stream `feed`.
 fn branch(planned: &Hops, destination: &str) -> Vec<DesiredHop> {
     planned["feed"]
         .iter()
@@ -205,9 +201,6 @@ fn branch(planned: &Hops, destination: &str) -> Vec<DesiredHop> {
         .collect()
 }
 
-/// Adds a new destination `a{n}` next to a running `b`, lets it run, then
-/// fails its receiver. Returns the candidates for which anything already
-/// running moved.
 fn moved_when_a_destination_joins(nodes: &[NodeDescriptor]) -> Vec<String> {
     let steady = run(&[stream("feed", &["b"])], nodes, Vec::new());
     let mut moved = Vec::new();
@@ -273,8 +266,6 @@ fn streams(count: usize) -> Vec<StreamDefinition> {
         .collect()
 }
 
-/// Nodes with room for `streams` direct streams: a sender ingress each on
-/// `source`, and a receiver ingress and consumer each on `studio`.
 fn roomy_pair(streams: u16) -> Vec<NodeDescriptor> {
     let mut nodes = public_pair();
     for node in &mut nodes {
@@ -291,7 +282,6 @@ fn roomy_pair(streams: u16) -> Vec<NodeDescriptor> {
     nodes
 }
 
-/// Times a reconcile of `count` running streams against their own reports.
 fn time_a_reconcile_with_reports(count: usize) -> std::time::Duration {
     let nodes = roomy_pair(u16::try_from(count).unwrap());
     let definitions = streams(count);

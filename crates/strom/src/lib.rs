@@ -1,5 +1,3 @@
-//! Strom HTTP client, flow-spec mapping, and stats parsing for open-weave.
-
 mod client;
 mod flow;
 mod spec;

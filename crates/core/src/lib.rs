@@ -1,5 +1,3 @@
-//! Shared domain types for open-weave.
-
 pub mod api;
 pub mod auth;
 pub mod contracts;
@@ -47,18 +45,8 @@ pub const ROUTE_STREAM_SET: &str = "/stream-sets/{owner}";
 pub const ROUTE_STREAM_SETS: &str = "/stream-sets";
 pub const ROUTE_STREAMS: &str = "/streams";
 
-/// Wire-protocol version an adapter declares when it registers.
-///
-/// A stale adapter is rejected at registration instead of being served desired
-/// state it cannot realise. This changes when southbound behavior or payload
-/// semantics become incompatible.
 pub const PROTOCOL_VERSION: u32 = 5;
 
-/// Whether the controller can serve an adapter declaring protocol `version`.
-///
-/// Exactly one version is supported at a time, so equality is the whole rule.
-/// `0` is what an adapter predating the handshake deserializes to (the field
-/// defaults) and is never compatible.
 #[must_use]
 pub fn protocol_compatible(version: u32) -> bool {
     version == PROTOCOL_VERSION
@@ -312,7 +300,6 @@ mod contract_tests {
     }
 }
 
-/// Operator intent: one source streamed to one or more destinations over a transport.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamDefinition {
@@ -323,10 +310,7 @@ pub struct StreamDefinition {
     pub name: String,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    /// Lets the planner put a link between two nodes on a transport that
-    /// carries no encryption, which today is RIST. Without it no such link is
-    /// planned, and a stream only such a link can carry stays unplaced. SRT links
-    /// are keyed either way.
+
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub allow_cleartext_links: bool,
     pub source: StreamTransport,
@@ -351,7 +335,6 @@ impl PartialEq for StreamDefinition {
     }
 }
 
-/// One stable, named output branch of a stream.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamDestination {
@@ -360,8 +343,7 @@ pub struct StreamDestination {
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     )]
     pub id: String,
-    /// How many disjoint paths the planner places to this destination. A second
-    /// path needs a receiver whose hop profile merges.
+
     #[serde(default = "one_path", skip_serializing_if = "is_one_path")]
     #[schemars(range(min = 1, max = 2))]
     pub paths: u8,
@@ -389,29 +371,22 @@ fn default_enabled() -> bool {
     true
 }
 
-/// Wire tag for a device end: the node's own capture or display device.
 pub const DEVICE_TRANSPORT: &str = "device";
 
-/// Transport carrying a stream endpoint. Externally tagged by transport name.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[allow(clippy::large_enum_variant)]
 pub enum StreamTransport {
     Srt(SrtEndpoint),
-    /// The media starts or ends at a node's own capture or display device: a
-    /// camera when this is the source, a screen when it is a destination. The
-    /// controller chooses the transport that carries it to or from the node.
+
     Device(NodeEndpoint),
-    /// A WHIP sender open-weave does not manage pushes the media to an ingest
-    /// on `node`. Sources only.
+
     Whip(SignallingEndpoint),
-    /// A WHEP player open-weave does not manage pulls the media from `node`.
-    /// Destinations only.
+
     Whep(SignallingEndpoint),
 }
 
 impl StreamTransport {
-    /// The registered node this endpoint is placed on, when it names one.
     #[must_use]
     pub fn node(&self) -> Option<&str> {
         match self {
@@ -421,7 +396,6 @@ impl StreamTransport {
         }
     }
 
-    /// The shared network this endpoint uses, when pinned.
     #[must_use]
     pub fn network(&self) -> Option<&str> {
         match self {
@@ -431,7 +405,6 @@ impl StreamTransport {
         }
     }
 
-    /// The manifest tag of this variant.
     #[must_use]
     pub fn kind(&self) -> &'static str {
         match self {
@@ -442,7 +415,6 @@ impl StreamTransport {
         }
     }
 
-    /// The format this endpoint declares it sends, when it declares one.
     #[must_use]
     pub fn format(&self) -> Option<&MediaFormat> {
         match self {
@@ -452,7 +424,6 @@ impl StreamTransport {
         }
     }
 
-    /// What this endpoint declares it accepts, when it declares a constraint.
     #[must_use]
     pub fn accepts(&self) -> Option<&FormatConstraint> {
         match self {
@@ -463,9 +434,6 @@ impl StreamTransport {
     }
 }
 
-/// A WHIP or WHEP peer open-weave does not manage, reaching the signalling
-/// listener `node` declares. Like an SRT producer or consumer, the peer dials
-/// the node; the manifest names the node, never an address.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SignallingEndpoint {
@@ -474,20 +442,17 @@ pub struct SignallingEndpoint {
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     )]
     pub node: String,
-    /// Shared network the peer reaches the node on. Absent lets the planner
-    /// choose an attachment.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<String>,
-    /// What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<MediaFormat>,
-    /// What the WHEP player accepts. Destinations only.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accepts: Option<FormatConstraint>,
 }
 
-/// An endpoint that is nothing but a node: the node itself produces or consumes
-/// the media, so there is no address, latency, or format to declare.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NodeEndpoint {
@@ -496,7 +461,7 @@ pub struct NodeEndpoint {
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     )]
     pub node: String,
-    /// Shared network constraint. Absent lets the planner choose an attachment.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<String>,
 }
@@ -504,59 +469,42 @@ pub struct NodeEndpoint {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SrtEndpoint {
-    /// Registered node id hosting this endpoint. Mutually exclusive with
-    /// [`SrtEndpoint::remote`]; exactly one must be set (enforced at validation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     )]
     pub node: Option<String>,
-    /// External SRT listener this endpoint dials out to. Destinations only;
-    /// mutually exclusive with [`SrtEndpoint::node`].
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteAddr>,
-    /// Registered node ids to relay through, upstream-first, before reaching this
-    /// destination. Destinations only. Pins transit the planner would otherwise
-    /// choose itself; it still inserts a relay of its own when a link needs one
-    /// and none is pinned.
+
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(inner(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     ))]
     pub via: Vec<String>,
-    /// Shared network constraint for a node endpoint. Absent lets the planner
-    /// choose an attachment.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency: Option<u32>,
-    /// Encrypts this endpoint's own socket: the ingress a producer dials, the
-    /// output a consumer dials, or the remote listener the stream dials. Absent
-    /// leaves that socket in the clear. Links between nodes are keyed by the
-    /// controller whether or not this is set.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         length(min = Passphrase::MIN_LEN, max = Passphrase::MAX_LEN),
         regex(pattern = Passphrase::PATTERN)
     )]
     pub passphrase: Option<Passphrase>,
-    /// What the producer feeding this endpoint sends. Sources only.
-    ///
-    /// Declared, not discovered: an SRT flow that only moves bytes never parses
-    /// its payload, so nothing downstream knows what is inside it. Absent means
-    /// the format is unknown and nothing is checked against it.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<MediaFormat>,
-    /// What this endpoint will accept. Destinations only. Absent accepts
-    /// anything.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accepts: Option<FormatConstraint>,
 }
 
-/// An external SRT listener a stream dials out to. Placed by no node: the sender
-/// simply gains a caller egress to this address.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RemoteAddr {
@@ -569,15 +517,6 @@ pub struct RemoteAddr {
     pub network: String,
 }
 
-/// Destinations whose declared `accepts` the stream's source format does not
-/// satisfy, in manifest order.
-///
-/// Empty whenever the source declares no format or no destination declares a
-/// constraint — an undeclared format is unknown, not wrong, so nothing is
-/// inferred from its absence.
-///
-/// This only reports. Nothing here places a conversion: a mismatch is a fact
-/// about the manifest, and saying so is useful well before anything can fix it.
 #[must_use]
 pub fn stream_format_conflicts(stream: &StreamDefinition) -> Vec<media::FormatConflict> {
     let Some(format) = stream.source.format() else {
@@ -597,17 +536,13 @@ pub fn stream_format_conflicts(stream: &StreamDefinition) -> Vec<media::FormatCo
         .collect()
 }
 
-/// Prefix marking a hop id (and thus its provisioned flow) as owned by open-weave.
-/// Adapters only delete flows whose name carries this prefix.
 pub const HOP_ID_PREFIX: &str = "weave-";
 
-/// Whether a flow/hop name is owned by open-weave and safe to reconcile or delete.
 #[must_use]
 pub fn is_managed_hop_id(name: &str) -> bool {
     name.starts_with(HOP_ID_PREFIX)
 }
 
-/// An ordered chain of hops (upstream→downstream) realising one stream.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Path {
@@ -618,8 +553,6 @@ pub struct Path {
     pub hops: Vec<DesiredHop>,
 }
 
-/// One provisioning unit placed on a single node: one ingress socket fanned out
-/// to one or more egress sockets (a sender tees to every destination).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DesiredHop {
@@ -628,23 +561,17 @@ pub struct DesiredHop {
     pub profile_id: String,
     pub role: HopRole,
     pub ingress: SocketSpec,
-    /// A second ingress carrying another copy of the same media over a disjoint
-    /// path, for the hop to merge with `ingress`. Only a receiver whose profile
-    /// merges has one.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merge_ingress: Option<SocketSpec>,
     pub egresses: Vec<DesiredEgress>,
-    /// The tracks the stream's source sends, copied onto every hop of its path:
-    /// a capture device's declared tracks, or those an outside WHIP sender's
-    /// declared `format` carries. Absent when the source declares neither.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracks: Option<Vec<Track>>,
 }
 
 impl DesiredHop {
-    /// Every socket on the hop: the ingress, the merge ingress, then each egress.
     pub fn sockets(&self) -> impl Iterator<Item = &SocketSpec> {
-        // Destructured so a new field fails to compile here until it is placed.
         let Self {
             id: _,
             node_id: _,
@@ -660,7 +587,6 @@ impl DesiredHop {
             .chain(egresses.iter().map(|egress| &egress.socket))
     }
 
-    /// [`DesiredHop::sockets`], mutably.
     pub fn sockets_mut(&mut self) -> impl Iterator<Item = &mut SocketSpec> {
         let Self {
             id: _,
@@ -678,7 +604,6 @@ impl DesiredHop {
     }
 }
 
-/// One identified output branch of a desired hop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DesiredEgress {
@@ -703,19 +628,16 @@ pub enum HopRole {
     Receiver,
 }
 
-/// One socket on a hop: where media enters or leaves it, in the terms of the
-/// transport carrying it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SocketSpec {
     Srt(SrtSocket),
-    /// WebRTC ingest: the `Connect` end pushes media to the `Listen` end's URL.
+
     Whip(SignallingSocket),
-    /// WebRTC playback: the `Connect` end pulls media from the `Listen` end's URL.
+
     Whep(SignallingSocket),
-    /// RIST simple profile: the `Connect` end pushes RTP to the `Listen` end's
-    /// port.
+
     Rist(RistSocket),
-    /// The node's own device, where the media starts or ends.
+
     Device(DeviceKind),
 }
 
@@ -734,7 +656,6 @@ impl JsonSchema for SocketSpec {
 }
 
 impl SocketSpec {
-    /// An SRT listener bound to `port`.
     #[must_use]
     pub fn srt_listen(port: u16, latency: u32) -> Self {
         Self::Srt(SrtSocket::Listen {
@@ -746,7 +667,6 @@ impl SocketSpec {
         })
     }
 
-    /// An SRT caller dialling `host:port`.
     #[must_use]
     pub fn srt_connect(host: impl Into<String>, port: u16, latency: u32) -> Self {
         Self::Srt(SrtSocket::Connect {
@@ -759,8 +679,6 @@ impl SocketSpec {
         })
     }
 
-    /// One end of a `transport`-signalled WebRTC link, addressed at
-    /// `{base}/{endpoint_id}` — see [`SignallingSocket::new`].
     #[must_use]
     pub fn signalling(
         transport: SignallingTransport,
@@ -775,8 +693,6 @@ impl SocketSpec {
         }
     }
 
-    /// The wire name of this socket's end: its [`SocketRole`] for a link
-    /// transport, its [`DeviceKind`] for a device.
     #[must_use]
     pub fn end_name(&self) -> &'static str {
         match self {
@@ -800,7 +716,6 @@ impl std::fmt::Display for SocketSpec {
     }
 }
 
-/// One end of an SRT link: a listener binds a port, a caller dials one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SrtSocket {
     Listen {
@@ -844,8 +759,6 @@ impl SrtSocket {
     }
 }
 
-/// One end of a RIST link. The receiver binds an even port for RTP and the port
-/// after it for RTCP; the sender pushes to them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RistSocket {
     Listen { port: u16 },
@@ -869,21 +782,15 @@ impl RistSocket {
     }
 }
 
-/// One end of a WebRTC link, addressed by the signalling URL the `Connect` end
-/// calls.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignallingSocket {
     pub role: SocketRole,
     pub url: String,
-    /// Id the URL was built from — carried alongside `url` rather than
-    /// re-derived by callers.
+
     pub endpoint_id: String,
 }
 
 impl SignallingSocket {
-    /// Builds the signalling URL from `base` (trailing `/` trimmed) and
-    /// `endpoint_id`, joined `{base}/{endpoint_id}` — the one place that joins
-    /// a signalling URL from its parts.
     #[must_use]
     pub fn new(role: SocketRole, base: &str, endpoint_id: impl Into<String>) -> Self {
         let endpoint_id = endpoint_id.into();
@@ -896,8 +803,6 @@ impl SignallingSocket {
     }
 }
 
-/// Flat wire form of a [`SocketSpec`]: a `transport` and `role` naming the
-/// variant, plus the fields that variant carries.
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SocketRepr {
@@ -979,8 +884,6 @@ impl From<DeviceKind> for SocketEnd {
     }
 }
 
-/// Reject a socket that carries a field its transport has no use for, naming
-/// the first such field.
 fn reject_extra_fields<const N: usize>(
     socket: &str,
     fields: [(&str, bool); N],
@@ -1160,7 +1063,6 @@ impl<'de> Deserialize<'de> for SocketSpec {
     }
 }
 
-/// Which end of a link a socket is: `Listen` hosts and `Connect` dials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SocketRole {
@@ -1169,7 +1071,6 @@ pub enum SocketRole {
 }
 
 impl SocketRole {
-    /// The wire name, as serialized.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
@@ -1179,23 +1080,19 @@ impl SocketRole {
     }
 }
 
-/// A transport that carries media between two nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Transport {
     Srt,
-    /// WebRTC ingest. The `Connect` end pushes media to the `Listen` end's
-    /// signalling URL.
+
     Whip,
-    /// WebRTC playback. The `Connect` end pulls media from the `Listen` end's
-    /// signalling URL.
+
     Whep,
-    /// RIST simple profile. The `Connect` end pushes to the `Listen` end.
+
     Rist,
 }
 
 impl Transport {
-    /// The wire name, as serialized.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
@@ -1206,7 +1103,6 @@ impl Transport {
         }
     }
 
-    /// This transport's signalling counterpart, when it is signalled at all.
     #[must_use]
     pub fn signalling(self) -> Option<SignallingTransport> {
         match self {
@@ -1223,8 +1119,6 @@ impl std::fmt::Display for Transport {
     }
 }
 
-/// A [`Transport`] that is signalled: [`Signalling`] carries a base URL per
-/// variant, and [`SocketSpec::signalling`] builds a socket for one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SignallingTransport {
     Whip,
@@ -1232,7 +1126,6 @@ pub enum SignallingTransport {
 }
 
 impl SignallingTransport {
-    /// The [`Transport`] this signalling applies to.
     #[must_use]
     pub fn transport(self) -> Transport {
         match self {
@@ -1242,7 +1135,6 @@ impl SignallingTransport {
     }
 }
 
-/// The node's own capture or display device, where media starts or ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceKind {
@@ -1251,7 +1143,6 @@ pub enum DeviceKind {
 }
 
 impl DeviceKind {
-    /// The wire name, as serialized.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
@@ -1272,32 +1163,28 @@ impl std::fmt::Display for DeviceKind {
 pub struct SrtParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency: Option<u32>,
-    /// Encrypts the socket. Both ends of a link carry the same passphrase.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         length(min = Passphrase::MIN_LEN, max = Passphrase::MAX_LEN),
         regex(pattern = Passphrase::PATTERN)
     )]
     pub passphrase: Option<Passphrase>,
-    /// AES key length in bytes, 16, 24 or 32, used with `passphrase`.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("enum" = [16, 24, 32]))]
     pub pbkeylen: Option<u8>,
 }
 
-/// An SRT passphrase. [`std::fmt::Debug`] redacts it, no [`std::fmt::Display`]
-/// is implemented, and [`Passphrase::expose`] is the only accessor.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct Passphrase(String);
 
 impl Passphrase {
-    /// Fewest bytes libsrt accepts in a passphrase.
     pub const MIN_LEN: usize = 10;
-    /// Most bytes libsrt accepts in a passphrase.
+
     pub const MAX_LEN: usize = 80;
-    /// Printable ASCII, space to `~`, where a character is one byte, so the
-    /// schema's character lengths are libsrt's byte lengths.
+
     pub const PATTERN: &str = "^[ -~]*$";
 
     #[must_use]
@@ -1317,7 +1204,6 @@ impl std::fmt::Debug for Passphrase {
     }
 }
 
-/// Node-reported realisation status for one desired hop.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HopStatus {
@@ -1331,7 +1217,6 @@ pub struct HopStatus {
     pub egresses: Vec<EgressStatus>,
 }
 
-/// Observed condition, address, and statistics for one socket.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SocketStatus {
@@ -1343,7 +1228,6 @@ pub struct SocketStatus {
     pub stats: Option<LinkStats>,
 }
 
-/// Observed status for one identified egress branch.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EgressStatus {
@@ -1353,11 +1237,6 @@ pub struct EgressStatus {
 }
 
 impl HopStatus {
-    /// The lifecycle and socket conditions consumed by [`roll_up_path`].
-    ///
-    /// A status describes `desired` only when it reports each desired branch
-    /// exactly once and no others, and a merge ingress exactly when one is
-    /// desired.
     #[must_use]
     pub fn conditions(&self, desired: &DesiredHop) -> Option<HopConditions> {
         let merge_ingress = match (&desired.merge_ingress, &self.merge_ingress) {
@@ -1393,8 +1272,6 @@ impl HopStatus {
     }
 }
 
-/// Control-plane lifecycle of a hop's provisioning. Runtime link health is
-/// reported separately per socket via [`LinkCondition`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HopState {
@@ -1403,25 +1280,21 @@ pub enum HopState {
     Failed,
 }
 
-/// Observed condition of one socket on a hop, independent of control-plane lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LinkCondition {
-    /// No connection; the socket is a listener patiently waiting. Healthy.
     #[default]
     Idle,
-    /// No connection; the socket is a caller still retrying. Ambiguous, not degraded.
+
     Connecting,
-    /// Connection up but rate ~0 — fine on our end, nothing coming through yet.
+
     Connected,
-    /// Connection up and media flowing.
+
     Flowing,
-    /// Ingress once carried media but byte progress has frozen while the flow still
-    /// claims to run — detected across polls, not from any instantaneous field.
+
     Stalled,
 }
 
-/// Lifecycle plus every socket condition of one hop — the unit rolled up per path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HopConditions {
     pub state: HopState,
@@ -1436,31 +1309,22 @@ impl HopConditions {
     }
 }
 
-/// End-to-end status of a path, derived from its hops' conditions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PathStatus {
-    /// The path is disabled.
     Idle,
-    /// At least one hop failed to provision.
+
     Failed,
-    /// A hop is still provisioning or has not reported yet.
+
     Pending,
-    /// Provisioned end to end, but no media is entering at the source.
+
     AwaitingInput,
-    /// Media is entering at the source but not flowing all the way through.
+
     Degraded,
-    /// Media is flowing across every hop.
+
     Flowing,
 }
 
-/// Roll a path's ordered (source→destination) hop conditions into one status.
-///
-/// `None` entries mark desired hops that have not reported yet. Precedence, first
-/// match wins: disabled → `Idle`; any hop failed → `Failed`; any hop pending or
-/// missing → `Pending`; any hop stalled → `Degraded`; source not yet receiving
-/// media → `AwaitingInput`; media entering but not flowing end to end → `Degraded`;
-/// all flowing → `Flowing`.
 #[must_use]
 pub fn roll_up_path(enabled: bool, hops: &[Option<HopConditions>]) -> PathStatus {
     if !enabled {
@@ -1513,7 +1377,6 @@ pub struct ResolvedAddr {
     pub port: u16,
 }
 
-/// Socket-level SRT stats mirrored from Strom's `srt-stats` payload.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct LinkStats {
@@ -1598,12 +1461,10 @@ pub struct HopProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]
     pub max_egresses: Option<usize>,
-    /// The hop can take a second ingress of the `ingress` class carrying another
-    /// copy of the same media, and merge the two.
+
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub merge: bool,
-    /// The media this profile's ingress takes. Absent takes anything. A
-    /// source `format` it does not accept is reported as a format mismatch.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accepts: Option<FormatConstraint>,
 }
@@ -1653,12 +1514,11 @@ pub struct TransportClass {
 #[serde(deny_unknown_fields)]
 pub struct DeviceClass {
     pub device: DeviceKind,
-    /// The tracks a capture device sends. Absent means unknown.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracks: Option<Vec<Track>>,
 }
 
-/// A kind of media track a capture device sends.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -1703,7 +1563,7 @@ pub struct NetworkListeners {
     pub whip: Option<SignallingListener>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub whep: Option<SignallingListener>,
-    /// Each RIST link takes an even port from `port_range` and the one after it.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rist: Option<RistListener>,
 }
@@ -1743,8 +1603,6 @@ pub struct SignallingListener {
     pub base_url: String,
 }
 
-/// Inclusive `[start, end]` range of ports a node offers for controller-side
-/// assignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PortRange {
@@ -1753,22 +1611,17 @@ pub struct PortRange {
 }
 
 impl PortRange {
-    /// Number of ports beyond `start` the range spans (saturating).
     #[must_use]
     pub fn span(self) -> u16 {
         self.end.saturating_sub(self.start)
     }
 
-    /// The even ports in the range whose next port is in it too: where a RIST
-    /// receiver can bind RTP, with RTCP one above.
     pub fn rist_pairs(self) -> impl Iterator<Item = u16> {
         let first = self.start.saturating_add(self.start % 2);
         (first..self.end).step_by(2)
     }
 }
 
-/// Static configuration a node loads at startup and self-registers from.
-/// Shared across adapters; adapter-specific sections wrap this type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NodeConfig {
@@ -1778,24 +1631,17 @@ pub struct NodeConfig {
     )]
     pub id: String,
     pub southbound_url: String,
-    /// This node's own southbound token (see [`auth`]). Falls back to
-    /// [`auth::SOUTHBOUND_TOKEN_VAR`] when unset here, so a deployment can keep
-    /// the secret out of the config file — see
-    /// [`NodeConfig::resolve_southbound_token`].
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub southbound_token: Option<String>,
     pub listen: String,
-    /// The endpoint the node registers, which `GET /nodes` and the dashboard
-    /// show. Nothing dials it. Defaults to `http://{listen}` via
-    /// [`NodeConfig::public_endpoint`].
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_endpoint: Option<String>,
     pub topology: NodeTopology,
 }
 
 impl NodeConfig {
-    /// The control endpoint peers use to reach this node, defaulting to
-    /// `http://{listen}` when unset.
     #[must_use]
     pub fn public_endpoint(&self) -> String {
         self.public_endpoint
@@ -1803,13 +1649,6 @@ impl NodeConfig {
             .unwrap_or_else(|| format!("http://{}", self.listen))
     }
 
-    /// Resolve the bearer token this node presents to southbound: the config
-    /// value when set, otherwise [`auth::SOUTHBOUND_TOKEN_VAR`] from the
-    /// environment. `None` means authentication is switched off.
-    ///
-    /// # Errors
-    /// Returns [`auth::AuthError::MissingToken`] when neither source carries a
-    /// token and [`auth::AUTH_DISABLED_VAR`] is not engaged.
     pub fn resolve_southbound_token(&self) -> Result<Option<auth::Token>, auth::AuthError> {
         if auth::auth_disabled() {
             return Ok(None);
@@ -1824,8 +1663,6 @@ impl NodeConfig {
             })
     }
 
-    /// # Errors
-    /// Returns [`ConfigError`] describing the first violated invariant.
     pub fn validate(&self) -> Result<(), ConfigError> {
         validate_resource_id(&self.id).map_err(ConfigError::InvalidId)?;
         let mut ids = std::collections::HashSet::new();
@@ -1918,7 +1755,6 @@ pub enum AdapterKind {
     Custom,
 }
 
-/// A non-empty set of the socket roles a node can take over one transport.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoleSet {
     listen: bool,
@@ -2018,8 +1854,7 @@ pub struct EndpointDescriptor {
     )]
     pub node_id: Option<String>,
     pub kind: EndpointKind,
-    /// Transport labels an adapter recognised on this endpoint, such as
-    /// `webrtc` or `ndi`. Guesses read off the underlying system, not offers.
+
     #[serde(default)]
     pub transports: Vec<String>,
     #[serde(default)]
@@ -2040,9 +1875,6 @@ pub enum EndpointKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NodeRegistration {
-    /// Southbound protocol version the registering adapter speaks. Absent means
-    /// an adapter predating the handshake, which reads as `0` and is rejected —
-    /// see [`protocol_compatible`].
     #[serde(default)]
     pub protocol_version: u32,
     pub node: NodeDescriptor,
@@ -2107,13 +1939,12 @@ pub struct DestinationEndpoint {
 #[serde(deny_unknown_fields)]
 pub struct EndpointAddr {
     pub node: String,
-    /// The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`
-    /// carries it.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
-    /// What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.
+
     pub url: String,
 }
 
@@ -2561,8 +2392,6 @@ mod tests {
 
     #[test]
     fn srt_endpoint_serde_allows_node_or_remote_and_denies_unknown_fields() {
-        // node is now optional; the node-XOR-remote rule is enforced at
-        // validation, not by serde, so a bare endpoint still parses.
         let bare: SrtEndpoint =
             serde_json::from_value(serde_json::json!({ "network": "wan" })).expect("parse bare");
         assert_eq!(bare.node, None);
@@ -2758,7 +2587,6 @@ mod tests {
 
     #[test]
     fn an_undeclared_format_or_constraint_conflicts_with_nothing() {
-        // Absence means unknown, not wrong: nothing is inferred either way.
         assert!(stream_format_conflicts(&stream_with_formats(None, Some(wants_44k()))).is_empty());
         assert!(stream_format_conflicts(&stream_with_formats(Some(aac_48k()), None)).is_empty());
         assert!(stream_format_conflicts(&stream_with_formats(None, None)).is_empty());
@@ -2991,7 +2819,6 @@ mod tests {
         }
     }
 
-    /// A socket stored before `params` was optional on the wire.
     #[test]
     fn an_srt_socket_parses_with_empty_params() {
         let stored: SocketSpec = serde_json::from_value(serde_json::json!({

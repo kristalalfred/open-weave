@@ -1,30 +1,22 @@
-//! Defensive parsing of Strom's `srt-stats` (shape inferred) and `webrtc-stats`
-//! payloads. All fields are optional.
-
 use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-/// Field names Strom may use for a caller's receive/send rate, in preference order.
 const RECV_RATE_KEYS: &[&str] = &["recv_rate_mbps", "mbps_recv_rate", "mbpsRecvRate"];
 const SEND_RATE_KEYS: &[&str] = &["send_rate_mbps", "mbps_send_rate", "mbpsSendRate"];
 
-/// Per-element connection status parsed from one `connections.{element}` entry.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ElementStats {
     pub id: String,
-    /// Strom's `connected`: some peer has carried data, not only shaken hands.
+
     pub connected: bool,
-    /// Some peer reports a negotiated latency, which libsrt fills in once the SRT
-    /// handshake completes, whether or not data has flowed since.
+
     pub handshaken: bool,
     pub connections: usize,
     pub rate_mbps: f64,
-    /// Cumulative bytes received across this element's callers. Byte progress over
-    /// time is the only reliable signal that a connected socket is truly flowing.
+
     pub bytes_received: i64,
-    /// Cumulative bytes sent across this element's callers; the sink-side
-    /// counterpart of `bytes_received`.
+
     pub bytes_sent: i64,
     pub packets_sent_lost: i64,
     pub packets_retransmitted: i64,
@@ -38,20 +30,16 @@ pub struct FlowStats {
 }
 
 impl FlowStats {
-    /// The first `srtsrc` element: `srtsrc_0` in an element flow, `<block>:srtsrc`
-    /// inside a block. A hop's SRT ingress socket.
     #[must_use]
     pub fn ingress(&self) -> Option<&ElementStats> {
         self.element_named("srtsrc")
     }
 
-    /// The first `srtsink` element, likewise. A hop's SRT egress socket.
     #[must_use]
     pub fn egress(&self) -> Option<&ElementStats> {
         self.egress_at(0)
     }
 
-    /// The SRT element carrying desired egress `index`.
     #[must_use]
     pub fn egress_at(&self, index: usize) -> Option<&ElementStats> {
         let element_id = format!("srtsink_{index}");
@@ -63,7 +51,6 @@ impl FlowStats {
         })
     }
 
-    /// Every `srtsink` element: a hop's SRT egress sockets.
     pub fn egresses(&self) -> impl Iterator<Item = &ElementStats> {
         self.elements
             .iter()
@@ -77,8 +64,6 @@ impl FlowStats {
     }
 }
 
-/// Whether a `connections` key names `element` (`srtsrc`/`srtsink`), either as a
-/// bare element id such as `srtsrc_0` or inside a block as `<block>:srtsrc`.
 fn is_srt_element(id: &str, element: &str) -> bool {
     id.starts_with(element) || id.rsplit(':').next() == Some(element)
 }
@@ -96,8 +81,6 @@ impl From<&ElementStats> for weave_core::LinkStats {
     }
 }
 
-/// Parse per-element connection status and aggregate loss counters from a
-/// `srt-stats` payload. Every field is optional; missing shapes yield defaults.
 #[must_use]
 pub fn parse_flow_stats(value: &Value) -> FlowStats {
     let Some(connections) = value
@@ -166,24 +149,19 @@ pub fn parse_flow_stats(value: &Value) -> FlowStats {
     stats
 }
 
-/// Media through one WebRTC block, summed over the sessions Strom reports for it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SessionStats {
-    /// The block id, such as `whip_in` or `whep_out_0`.
     pub block: String,
-    /// Sessions carrying at least one RTP stream. Strom keeps a session's entry
-    /// for a while after it ends, with no RTP streams, and those are not counted.
+
     pub sessions: usize,
     pub bytes_received: i64,
     pub bytes_sent: i64,
-    /// The same bytes per entry, so progress can be followed per session.
+
     pub by_session: Vec<SessionBytes>,
 }
 
-/// One `webrtc-stats` entry's cumulative RTP bytes.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SessionBytes {
-    /// The entry's key, which names the session's webrtcbin.
     pub key: String,
     pub received: i64,
     pub sent: i64,
@@ -195,13 +173,11 @@ pub struct WebRtcStats {
 }
 
 impl WebRtcStats {
-    /// The `whip_in` block: a hop's WHIP ingress.
     #[must_use]
     pub fn ingress(&self) -> Option<&SessionStats> {
         self.block("whip_in")
     }
 
-    /// The `whep_out_{index}` block carrying desired egress `index`.
     #[must_use]
     pub fn egress_at(&self, index: usize) -> Option<&SessionStats> {
         self.block(&format!("whep_out_{index}"))
@@ -213,10 +189,6 @@ impl WebRtcStats {
     }
 }
 
-/// Parse per-block session counts and byte totals from a `webrtc-stats`
-/// payload. Its `connections` are keyed `<block>:session_<consumer>:<webrtcbin>`,
-/// one per session; a key with no block prefix is skipped. Every field is
-/// optional; missing shapes yield defaults.
 #[must_use]
 pub fn parse_webrtc_stats(value: &Value) -> WebRtcStats {
     let Some(connections) = value
@@ -320,8 +292,6 @@ mod tests {
         assert_eq!(stats.egress().map(|e| e.bytes_received), Some(0));
     }
 
-    /// A block's SRT element is keyed `<block>:srtsink`, as the bench Strom
-    /// (0.6.6) reports it for a `mpegtssrt_output` block.
     #[test]
     fn finds_srt_elements_inside_blocks() {
         let value = serde_json::json!({
@@ -432,8 +402,6 @@ mod tests {
         serde_json::from_str(text).expect("recorded webrtc-stats")
     }
 
-    /// Recorded from Strom 0.6.6: a WebKit page sending H264 and Opus over WHIP
-    /// into `whip_in`, and a Chromium page playing `whep_out_0` over WHEP.
     #[test]
     fn sums_each_blocks_session_bytes_by_direction() {
         let stats = parse_webrtc_stats(&recorded("poll-1"));
@@ -462,8 +430,6 @@ mod tests {
         assert!(sent(&second) > sent(&first));
     }
 
-    /// Recorded ~18 s after both pages closed their peer connections: the WHIP
-    /// session is gone and the WHEP session's entry remains with no RTP streams.
     #[test]
     fn an_ended_session_is_not_counted() {
         let stats = parse_webrtc_stats(&recorded("ended"));

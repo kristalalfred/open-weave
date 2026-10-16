@@ -1,9 +1,7 @@
 # Webhooks
 
 The controller POSTs a JSON event to one receiver when a node registers, goes
-offline or comes back, and when a stream's conditions change. A service hosting
-guest pages can use them to declare a stream when a page registers and to hear
-when it flows, without polling `/nodes` and `/status`.
+offline or comes back, and when a stream's conditions change.
 
 | Variable | Meaning |
 |---|---|
@@ -25,109 +23,27 @@ when it flows, without polling `/nodes` and `/status`.
 delivers node events only. The full payload schema is
 [`contracts/json-schema/webhook-event.json`](../contracts/json-schema/webhook-event.json).
 
-A release can add fields to an event, event types, values to the enumerations an
-event carries, such as a condition `reason`, and subjects beside `node` and
-`stream`. A receiver must ignore a field it does not know and must accept an
-event type, a value or a subject it does not know. The schema accepts all of
-these. A Rust receiver decodes `weave_core::read::Event`, which ignores unknown
-fields, keeps unknown values, and leaves `node` and `stream` empty for another
-subject.
+Receivers must accept unknown fields and event types; see
+[API compatibility](api.md#compatibility).
 
-### Node events
+Node events carry the node descriptor without endpoints or hop status. Stream
+events carry generations, status and conditions for the stream and its
+destinations. The schema above defines both payloads.
 
-`node` is the node's descriptor, without `endpoints` or `hop_status`. This one
-is abbreviated:
-
-```json
-{
-  "event_id": "guest-1-1788520800000003",
-  "event_type": "node.registered",
-  "occurred_at": "2026-09-04T11:22:33.123456789Z",
-  "node": {
-    "id": "guest-1",
-    "status": "ready",
-    "endpoint": "browser://guest-1",
-    "capabilities": {
-      "adapters": [],
-      "hop_profiles": [{
-        "id": "camera-to-whip",
-        "ingress": { "device": "capture" },
-        "egress": { "transport": "whip", "roles": ["connect"] },
-        "max_egresses": 1
-      }]
-    },
-    "topology": {
-      "attachments": [{ "id": "client", "network": "internet", "dial": true }]
-    }
-  }
-}
-```
-
-### Stream events
-
-`stream` has the stream's `name`, `generation`, `observed_generation` and
-`status`, and every condition on the stream and on each destination. It leaves
-out the stream's nodes and addresses, which `/status` and
-`/streams/{name}/endpoints` carry. This one is abbreviated; a stream and each
-destination carry all five conditions:
-
-```json
-{
-  "event_id": "basic-1790330400000007",
-  "event_type": "stream.changed",
-  "occurred_at": "2026-09-25T10:15:02.412345678Z",
-  "stream": {
-    "name": "basic",
-    "generation": 2,
-    "observed_generation": 2,
-    "status": "degraded",
-    "conditions": [{
-      "type": "nodes_available",
-      "status": "false",
-      "reason": "node_offline",
-      "detail": "node strom-node-2 is offline",
-      "last_transition_time": "2026-09-25T10:15:02.410123456Z"
-    }],
-    "destinations": [{
-      "id": "studio",
-      "status": "degraded",
-      "conditions": [{
-        "type": "media_flowing",
-        "status": "false",
-        "reason": "media_degraded",
-        "detail": "media is not flowing across every branch",
-        "last_transition_time": "2026-09-25T10:15:02.410123456Z"
-      }]
-    }]
-  }
-}
-```
-
-A tick sends at most one event per stream. A change of `detail` alone sends
-nothing, and deleting a stream sends nothing. An event follows the change it
-reports by up to one reconcile interval plus an adapter poll.
-
-The controller stores a stream's conditions whenever a tick changes them, and
-the first tick after a start or takeover compares against the stored ones. With
-the in-memory store a restart starts empty, so its first tick sends an event for
-every stream.
+A tick sends at most one event per stream. Changes to `detail` alone and stream
+deletion send no event. With Postgres, the first tick after startup or takeover
+compares conditions against the stored ones. An in-memory restart loses streams
+and conditions.
 
 ## Delivery
 
-Emitting never blocks a registration or a reconcile tick. One background worker
-delivers queued events in order. It retries a connect error or `5xx` with
-backoff and gives up after four attempts. A `4xx` is not retried. A full queue
-drops events, and the queue is in memory, so events do not survive a restart.
-A controller that loses the lease keeps delivering what it queued, so around a
-takeover a receiver can get both controllers' events interleaved.
+Events use a bounded in-memory queue. One worker delivers them in order, with
+up to four attempts. HTTP 4xx responses are not retried. Queue overflow,
+restart and exhausted retries can lose events; retries can deliver duplicates.
+Retries preserve `event_id`, but IDs are timestamp-based and are not guaranteed
+unique across controller runs. A former leader continues delivering queued
+events, so deliveries from different controllers can interleave.
 
-`event_id` is the node id or stream name followed by a number. It is the same
-across retries of one delivery, so a receiver can deduplicate, and no controller
-reuses one, across restarts and takeovers.
-
-Delivery is at least once and can miss events. A receiver should read
-`GET /nodes` and `/status` when it starts and treat events as hints.
-
-The bearer token authenticates the controller to the receiver. It does not
-prove an event genuine to a receiver that cannot trust everyone holding the
-token. Body signatures are not implemented.
+Read `GET /nodes` and `/status` to reconcile state. Delivery has no maximum delay.
+The optional bearer token authenticates the sender. Body signatures are not
+implemented.

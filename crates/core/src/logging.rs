@@ -1,12 +1,8 @@
-//! Log output shared by every binary.
-
 use std::error::Error;
 use std::fmt;
 
 use tracing_subscriber::EnvFilter;
 
-/// Environment variable selecting the log format: `json` for one JSON object
-/// per line, anything else (or unset) for the default text format.
 pub const LOG_FORMAT_VAR: &str = "WEAVE_LOG_FORMAT";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,8 +29,6 @@ impl LogFormat {
     }
 }
 
-/// Install the global subscriber. The level comes from `RUST_LOG` and defaults
-/// to `info`; the format from [`LOG_FORMAT_VAR`].
 pub fn init() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
@@ -44,10 +38,6 @@ pub fn init() {
     }
 }
 
-/// An error followed by each of its sources, joined by `: ` on one line, as
-/// anyhow's `{:#}` renders a chain. Every logged error goes through it, as
-/// `error = %ErrorChain(&error)`, so a log line names the cause and not only
-/// the outermost context.
 pub struct ErrorChain<'a>(pub &'a (dyn Error + 'static));
 
 impl fmt::Display for ErrorChain<'_> {
@@ -62,12 +52,8 @@ impl fmt::Display for ErrorChain<'_> {
     }
 }
 
-/// How much of a response body an error quotes.
 const EXCERPT_BYTES: usize = 1024;
 
-/// `text` on one line, each run of whitespace collapsed to one space, and cut
-/// to [`EXCERPT_BYTES`] followed by `…` when longer: how an error quotes the
-/// body of a response it failed on.
 #[must_use]
 pub fn excerpt(text: &str) -> String {
     let mut line = String::new();

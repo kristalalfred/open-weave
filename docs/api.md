@@ -17,7 +17,7 @@ request without a valid token gets `401` instead.
 Outside the contracts:
 
 - `/health` on every service and the Strom adapter, for healthchecks and load
-  balancers. It answers `{"status":"ok","version":"0.1.0"}` with the release's
+  balancers. Its JSON body has `status: "ok"` and `version` set to the running binary's
   version.
 - `/`, `/ui` and `/view` on the controller: the dashboard and its data. `/view`
   has no stability guarantee and can change in any release. Script against
@@ -208,29 +208,9 @@ plan -f FILE` calls it.
 
 `GET /status` is the scriptable rollup: one entry per stream with its status
 and conditions, and one entry per destination with its own status, nodes,
-conditions and endpoint.
-
-```json
-{
-  "name": "cam1-to-studio",
-  "status": "degraded",
-  "conditions": [],
-  "destinations": [
-    {
-      "id": "studio",
-      "status": "flowing",
-      "nodes": ["strom-node-1", "strom-node-2"],
-      "conditions": [],
-      "endpoint": {
-        "node": "strom-node-2",
-        "host": "172.27.0.10",
-        "port": 20001,
-        "url": "srt://172.27.0.10:20001"
-      }
-    }
-  ]
-}
-```
+conditions and endpoint. Its overall `status` is `idle` with no enabled streams,
+`degraded` if any stream is failed or degraded, `converging` if any is pending,
+and `converged` otherwise, including streams awaiting input.
 
 | Status | When |
 |---|---|
@@ -292,16 +272,6 @@ before its body is checked, and both shipped nodes then register again.
 `PROTOCOL_VERSION` changes when adapter behavior or payload meaning becomes
 incompatible. The controller and the Strom adapter refuse a southbound field or
 value they do not define, so any change to a southbound payload is incompatible.
-Version 5 adds, over 4:
-
-- SRT socket `params` with `passphrase` and `pbkeylen` (see
-  [SRT encryption](security.md#srt-encryption)). An adapter at 4 would build its
-  end of every keyed link in the clear, and the other end would refuse it.
-- A hop profile's `merge`, a desired hop's `merge_ingress`, and the hop status
-  that reports it.
-- A hop profile's `accepts`, and the `vp8` video codec.
-- The `rist` transport and socket.
-- A capture device's `tracks`, and a desired hop's `tracks`.
 
 ### Desired hops
 
@@ -348,35 +318,6 @@ matched by `branch_id` in any order. A missing, duplicate or unknown branch id
 makes the report incomplete, and the hop stays `pending`, so one healthy branch
 cannot hide another. A hop with a `merge_ingress` reports it in a
 `merge_ingress` field shaped like `ingress`, and is incomplete without it.
-
-```json
-{
-  "id": "weave-cam1-to-studio-sender",
-  "node_id": "strom-node-1",
-  "state": "provisioned",
-  "ingress": {
-    "condition": "flowing",
-    "resolved": { "host": "172.26.0.10", "port": 20000 },
-    "stats": { "connections": 1, "rate_mbps": 8.1 }
-  },
-  "egresses": [
-    {
-      "branch_id": "studio",
-      "condition": "flowing",
-      "resolved": { "host": "172.27.0.10", "port": 20000 },
-      "stats": { "connections": 1, "rate_mbps": 8.0 }
-    },
-    {
-      "branch_id": "preview",
-      "condition": "connecting",
-      "resolved": { "host": "203.0.113.7", "port": 20001 },
-      "stats": { "connections": 0, "rate_mbps": 0.0 }
-    }
-  ]
-}
-```
-
-Here `preview` is still connecting, so the stream reads `degraded`.
 
 ### Inventory
 

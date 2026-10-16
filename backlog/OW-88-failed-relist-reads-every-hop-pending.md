@@ -9,19 +9,11 @@ assignee:
 
 ## Evidence
 
-After a poll that creates, starts or deletes flows, `reconcile`
-(`crates/adapter-strom/src/main.rs`) lists Strom's flows again with
-`flow_api.list_flows().await.unwrap_or_default()`. If that request fails, the
-list reads empty, so every desired hop is reported `pending` to southbound for
-that poll, and no log line says why. Found by reading the code while working
-OW-87; not reproduced.
+After provisioning changes, `reconcile` replaces a failed flow-list request
+with an empty list. Desired hops then report `pending`, without a warning
+(`crates/adapter-strom/src/main.rs`).
 
 ## Done when
 
-- [ ] A failed re-list is logged with its cause.
-- [ ] The hops reported after a failed re-list come from what the adapter last
-      knew of Strom's flows, not from an empty list; a test covers it.
-
-## Log
-
-- 2026-10-15: filed by claude-rc from OW-87's findings.
+- [ ] Log the refresh failure with its cause and preserve the last known flow
+  inventory. Test a failed refresh.

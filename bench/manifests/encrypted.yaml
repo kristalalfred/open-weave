@@ -1,5 +1,3 @@
-# Keyed contribution: basic with a passphrase on the producer's ingress and the
-# consumer's output. The controller keys the link between the nodes itself.
 name: encrypted
 enabled: true
 source:

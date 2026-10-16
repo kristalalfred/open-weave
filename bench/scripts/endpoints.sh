@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# Resolve a placed stream's concrete SRT data-plane address via northbound's
-# discovery API, which the leading controller answers. Polls until the stream is
-# placed, then prints host:port for the producer ingress or a consumer output.
-# Used by the bench producer/consumer recipes so no addresses are hardcoded.
 set -euo pipefail
 
 northbound="${WEAVE_NORTHBOUND_URL:-http://localhost:29080}"
 interval=2
 attempts=30
 
-# The discovery route is part of the northbound API surface, so it needs that
-# surface's bearer token. Unset is only valid against a stack running with
-# WEAVE_AUTH_DISABLED=1.
 auth=()
 if [ -n "${WEAVE_NORTHBOUND_TOKEN:-}" ]; then
   auth=(-H "Authorization: Bearer ${WEAVE_NORTHBOUND_TOKEN}")
@@ -32,8 +25,6 @@ stream="${1:-}"; [ -n "$stream" ] || usage
 role="${2:-}"; [ -n "$role" ] || usage
 destination="${3:-}"
 
-# `destinations` reports how many consumers a stream needs; the others resolve one
-# concrete address. Both wait for placement, so they share the polling loop.
 case "$role" in
   ingress) filter='.ingress | "\(.host):\(.port)"' ;;
   destination) [ -n "$destination" ] || usage
@@ -49,7 +40,6 @@ for _ in $(seq 1 "$attempts"); do
   body="$(curl -s -o - -w '\n%{http_code}' "${auth[@]}" "$url" 2>/dev/null || true)"
   code="${body##*$'\n'}"
   json="${body%$'\n'*}"
-  # Retrying a rejected token never converges, so fail fast and say why.
   if [ "$code" = "401" ]; then
     echo "northbound rejected the bearer token (401) for $url" >&2
     if [ -n "${WEAVE_NORTHBOUND_TOKEN:-}" ]; then

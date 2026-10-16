@@ -1,5 +1,3 @@
-//! Deserialization structs for Strom's flow-list responses.
-
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
@@ -17,8 +15,7 @@ pub struct StromFlow {
     pub name: String,
     #[serde(default)]
     pub running: bool,
-    /// GStreamer pipeline state (e.g. `Playing`, `Paused`). `Paused` marks a
-    /// listener idling before any caller, which the adapter excludes from stalls.
+
     #[serde(default)]
     pub gst_state: Option<String>,
     #[serde(default)]

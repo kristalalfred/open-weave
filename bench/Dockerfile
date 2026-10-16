@@ -1,14 +1,9 @@
 # syntax=docker/dockerfile:1
-# Builds all open-weave binaries for the network-impairment bench.
 FROM rust:1.88-slim-bookworm AS builder
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY examples ./examples
-# The target cache is shared by every build of this Dockerfile on the host,
-# from any checkout, and cargo judges a workspace crate fresh by source mtimes.
-# Touching the sources rebuilds the workspace crates from this checkout's code;
-# dependencies stay cached.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
     find crates examples -type f -exec touch {} + && \

@@ -1,7 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "StreamDefinition",
-  "description": "Operator intent: one source streamed to one or more destinations over a transport.",
   "type": "object",
   "properties": {
     "name": {
@@ -15,11 +14,9 @@
       "default": true
     },
     "allow_cleartext_links": {
-      "description": "Lets the planner put a link between two nodes on a transport that\n carries no encryption, which today is RIST. Without it no such link is\n planned, and a stream only such a link can carry stays unplaced. SRT links\n are keyed either way.",
       "type": "boolean"
     },
     "source": {
-      "description": "Transport carrying a stream endpoint. Externally tagged by transport name.",
       "oneOf": [
         {
           "type": "object",
@@ -28,7 +25,6 @@
               "type": "object",
               "properties": {
                 "format": {
-                  "description": "What the producer feeding this endpoint sends. Sources only.\n\n Declared, not discovered: an SRT flow that only moves bytes never parses\n its payload, so nothing downstream knows what is inside it. Absent means\n the format is unknown and nothing is checked against it.",
                   "type": [
                     "object",
                     "null"
@@ -68,7 +64,6 @@
                           "minimum": 0
                         },
                         "framerate": {
-                          "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                           "type": "object",
                           "properties": {
                             "numerator": {
@@ -123,7 +118,6 @@
                           ]
                         },
                         "sample_rate": {
-                          "description": "Samples per second. The field a sample-rate conversion changes.",
                           "type": "integer",
                           "format": "uint32",
                           "minimum": 0
@@ -149,7 +143,6 @@
                   ]
                 },
                 "node": {
-                  "description": "Registered node id hosting this endpoint. Mutually exclusive with\n [`SrtEndpoint::remote`]; exactly one must be set (enforced at validation).",
                   "type": [
                     "string",
                     "null"
@@ -159,7 +152,6 @@
                   "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                 },
                 "remote": {
-                  "description": "External SRT listener this endpoint dials out to. Destinations only;\n mutually exclusive with [`SrtEndpoint::node`].",
                   "type": [
                     "object",
                     "null"
@@ -189,7 +181,6 @@
                   ]
                 },
                 "via": {
-                  "description": "Registered node ids to relay through, upstream-first, before reaching this\n destination. Destinations only. Pins transit the planner would otherwise\n choose itself; it still inserts a relay of its own when a link needs one\n and none is pinned.",
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -199,7 +190,6 @@
                   }
                 },
                 "network": {
-                  "description": "Shared network constraint for a node endpoint. Absent lets the planner\n choose an attachment.",
                   "type": [
                     "string",
                     "null"
@@ -214,7 +204,6 @@
                   "minimum": 0
                 },
                 "passphrase": {
-                  "description": "Encrypts this endpoint's own socket: the ingress a producer dials, the\n output a consumer dials, or the remote listener the stream dials. Absent\n leaves that socket in the clear. Links between nodes are keyed by the\n controller whether or not this is set.",
                   "type": [
                     "string",
                     "null"
@@ -224,7 +213,6 @@
                   "pattern": "^[ -~]*$"
                 },
                 "accepts": {
-                  "description": "What this endpoint will accept. Destinations only. Absent accepts\n anything.",
                   "type": [
                     "object",
                     "null"
@@ -297,7 +285,6 @@
                             "null"
                           ],
                           "items": {
-                            "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                             "type": "object",
                             "properties": {
                               "numerator": {
@@ -401,11 +388,9 @@
           "additionalProperties": false
         },
         {
-          "description": "The media starts or ends at a node's own capture or display device: a\n camera when this is the source, a screen when it is a destination. The\n controller chooses the transport that carries it to or from the node.",
           "type": "object",
           "properties": {
             "device": {
-              "description": "An endpoint that is nothing but a node: the node itself produces or consumes\n the media, so there is no address, latency, or format to declare.",
               "type": "object",
               "properties": {
                 "node": {
@@ -415,7 +400,6 @@
                   "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                 },
                 "network": {
-                  "description": "Shared network constraint. Absent lets the planner choose an attachment.",
                   "type": [
                     "string",
                     "null"
@@ -434,15 +418,12 @@
           "additionalProperties": false
         },
         {
-          "description": "A WHIP sender open-weave does not manage pushes the media to an ingest\n on `node`. Sources only.",
           "type": "object",
           "properties": {
             "whip": {
-              "description": "A WHIP or WHEP peer open-weave does not manage, reaching the signalling\n listener `node` declares. Like an SRT producer or consumer, the peer dials\n the node; the manifest names the node, never an address.",
               "type": "object",
               "properties": {
                 "format": {
-                  "description": "What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].",
                   "type": [
                     "object",
                     "null"
@@ -482,7 +463,6 @@
                           "minimum": 0
                         },
                         "framerate": {
-                          "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                           "type": "object",
                           "properties": {
                             "numerator": {
@@ -537,7 +517,6 @@
                           ]
                         },
                         "sample_rate": {
-                          "description": "Samples per second. The field a sample-rate conversion changes.",
                           "type": "integer",
                           "format": "uint32",
                           "minimum": 0
@@ -569,14 +548,12 @@
                   "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                 },
                 "network": {
-                  "description": "Shared network the peer reaches the node on. Absent lets the planner\n choose an attachment.",
                   "type": [
                     "string",
                     "null"
                   ]
                 },
                 "accepts": {
-                  "description": "What the WHEP player accepts. Destinations only.",
                   "type": [
                     "object",
                     "null"
@@ -649,7 +626,6 @@
                             "null"
                           ],
                           "items": {
-                            "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                             "type": "object",
                             "properties": {
                               "numerator": {
@@ -756,15 +732,12 @@
           "additionalProperties": false
         },
         {
-          "description": "A WHEP player open-weave does not manage pulls the media from `node`.\n Destinations only.",
           "type": "object",
           "properties": {
             "whep": {
-              "description": "A WHIP or WHEP peer open-weave does not manage, reaching the signalling\n listener `node` declares. Like an SRT producer or consumer, the peer dials\n the node; the manifest names the node, never an address.",
               "type": "object",
               "properties": {
                 "format": {
-                  "description": "What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].",
                   "type": [
                     "object",
                     "null"
@@ -804,7 +777,6 @@
                           "minimum": 0
                         },
                         "framerate": {
-                          "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                           "type": "object",
                           "properties": {
                             "numerator": {
@@ -859,7 +831,6 @@
                           ]
                         },
                         "sample_rate": {
-                          "description": "Samples per second. The field a sample-rate conversion changes.",
                           "type": "integer",
                           "format": "uint32",
                           "minimum": 0
@@ -891,14 +862,12 @@
                   "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                 },
                 "network": {
-                  "description": "Shared network the peer reaches the node on. Absent lets the planner\n choose an attachment.",
                   "type": [
                     "string",
                     "null"
                   ]
                 },
                 "accepts": {
-                  "description": "What the WHEP player accepts. Destinations only.",
                   "type": [
                     "object",
                     "null"
@@ -971,7 +940,6 @@
                             "null"
                           ],
                           "items": {
-                            "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                             "type": "object",
                             "properties": {
                               "numerator": {
@@ -1082,7 +1050,6 @@
     "destinations": {
       "type": "array",
       "items": {
-        "description": "One stable, named output branch of a stream.",
         "type": "object",
         "properties": {
           "id": {
@@ -1092,7 +1059,6 @@
             "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
           },
           "paths": {
-            "description": "How many disjoint paths the planner places to this destination. A second\n path needs a receiver whose hop profile merges.",
             "type": "integer",
             "format": "uint8",
             "minimum": 1,
@@ -1111,7 +1077,6 @@
                 "type": "object",
                 "properties": {
                   "format": {
-                    "description": "What the producer feeding this endpoint sends. Sources only.\n\n Declared, not discovered: an SRT flow that only moves bytes never parses\n its payload, so nothing downstream knows what is inside it. Absent means\n the format is unknown and nothing is checked against it.",
                     "type": [
                       "object",
                       "null"
@@ -1151,7 +1116,6 @@
                             "minimum": 0
                           },
                           "framerate": {
-                            "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                             "type": "object",
                             "properties": {
                               "numerator": {
@@ -1206,7 +1170,6 @@
                             ]
                           },
                           "sample_rate": {
-                            "description": "Samples per second. The field a sample-rate conversion changes.",
                             "type": "integer",
                             "format": "uint32",
                             "minimum": 0
@@ -1232,7 +1195,6 @@
                     ]
                   },
                   "node": {
-                    "description": "Registered node id hosting this endpoint. Mutually exclusive with\n [`SrtEndpoint::remote`]; exactly one must be set (enforced at validation).",
                     "type": [
                       "string",
                       "null"
@@ -1242,7 +1204,6 @@
                     "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                   },
                   "remote": {
-                    "description": "External SRT listener this endpoint dials out to. Destinations only;\n mutually exclusive with [`SrtEndpoint::node`].",
                     "type": [
                       "object",
                       "null"
@@ -1272,7 +1233,6 @@
                     ]
                   },
                   "via": {
-                    "description": "Registered node ids to relay through, upstream-first, before reaching this\n destination. Destinations only. Pins transit the planner would otherwise\n choose itself; it still inserts a relay of its own when a link needs one\n and none is pinned.",
                     "type": "array",
                     "items": {
                       "type": "string",
@@ -1282,7 +1242,6 @@
                     }
                   },
                   "network": {
-                    "description": "Shared network constraint for a node endpoint. Absent lets the planner\n choose an attachment.",
                     "type": [
                       "string",
                       "null"
@@ -1297,7 +1256,6 @@
                     "minimum": 0
                   },
                   "passphrase": {
-                    "description": "Encrypts this endpoint's own socket: the ingress a producer dials, the\n output a consumer dials, or the remote listener the stream dials. Absent\n leaves that socket in the clear. Links between nodes are keyed by the\n controller whether or not this is set.",
                     "type": [
                       "string",
                       "null"
@@ -1307,7 +1265,6 @@
                     "pattern": "^[ -~]*$"
                   },
                   "accepts": {
-                    "description": "What this endpoint will accept. Destinations only. Absent accepts\n anything.",
                     "type": [
                       "object",
                       "null"
@@ -1380,7 +1337,6 @@
                               "null"
                             ],
                             "items": {
-                              "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                               "type": "object",
                               "properties": {
                                 "numerator": {
@@ -1483,11 +1439,9 @@
             ]
           },
           {
-            "description": "The media starts or ends at a node's own capture or display device: a\n camera when this is the source, a screen when it is a destination. The\n controller chooses the transport that carries it to or from the node.",
             "type": "object",
             "properties": {
               "device": {
-                "description": "An endpoint that is nothing but a node: the node itself produces or consumes\n the media, so there is no address, latency, or format to declare.",
                 "type": "object",
                 "properties": {
                   "node": {
@@ -1497,7 +1451,6 @@
                     "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                   },
                   "network": {
-                    "description": "Shared network constraint. Absent lets the planner choose an attachment.",
                     "type": [
                       "string",
                       "null"
@@ -1515,15 +1468,12 @@
             ]
           },
           {
-            "description": "A WHIP sender open-weave does not manage pushes the media to an ingest\n on `node`. Sources only.",
             "type": "object",
             "properties": {
               "whip": {
-                "description": "A WHIP or WHEP peer open-weave does not manage, reaching the signalling\n listener `node` declares. Like an SRT producer or consumer, the peer dials\n the node; the manifest names the node, never an address.",
                 "type": "object",
                 "properties": {
                   "format": {
-                    "description": "What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].",
                     "type": [
                       "object",
                       "null"
@@ -1563,7 +1513,6 @@
                             "minimum": 0
                           },
                           "framerate": {
-                            "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                             "type": "object",
                             "properties": {
                               "numerator": {
@@ -1618,7 +1567,6 @@
                             ]
                           },
                           "sample_rate": {
-                            "description": "Samples per second. The field a sample-rate conversion changes.",
                             "type": "integer",
                             "format": "uint32",
                             "minimum": 0
@@ -1650,14 +1598,12 @@
                     "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                   },
                   "network": {
-                    "description": "Shared network the peer reaches the node on. Absent lets the planner\n choose an attachment.",
                     "type": [
                       "string",
                       "null"
                     ]
                   },
                   "accepts": {
-                    "description": "What the WHEP player accepts. Destinations only.",
                     "type": [
                       "object",
                       "null"
@@ -1730,7 +1676,6 @@
                               "null"
                             ],
                             "items": {
-                              "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                               "type": "object",
                               "properties": {
                                 "numerator": {
@@ -1836,15 +1781,12 @@
             ]
           },
           {
-            "description": "A WHEP player open-weave does not manage pulls the media from `node`.\n Destinations only.",
             "type": "object",
             "properties": {
               "whep": {
-                "description": "A WHIP or WHEP peer open-weave does not manage, reaching the signalling\n listener `node` declares. Like an SRT producer or consumer, the peer dials\n the node; the manifest names the node, never an address.",
                 "type": "object",
                 "properties": {
                   "format": {
-                    "description": "What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].",
                     "type": [
                       "object",
                       "null"
@@ -1884,7 +1826,6 @@
                             "minimum": 0
                           },
                           "framerate": {
-                            "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                             "type": "object",
                             "properties": {
                               "numerator": {
@@ -1939,7 +1880,6 @@
                             ]
                           },
                           "sample_rate": {
-                            "description": "Samples per second. The field a sample-rate conversion changes.",
                             "type": "integer",
                             "format": "uint32",
                             "minimum": 0
@@ -1971,14 +1911,12 @@
                     "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                   },
                   "network": {
-                    "description": "Shared network the peer reaches the node on. Absent lets the planner\n choose an attachment.",
                     "type": [
                       "string",
                       "null"
                     ]
                   },
                   "accepts": {
-                    "description": "What the WHEP player accepts. Destinations only.",
                     "type": [
                       "object",
                       "null"
@@ -2051,7 +1989,6 @@
                               "null"
                             ],
                             "items": {
-                              "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                               "type": "object",
                               "properties": {
                                 "numerator": {

@@ -1,5 +1,3 @@
-//! Async HTTP client for Strom's flow API.
-
 use std::time::Duration;
 
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
@@ -12,7 +10,7 @@ use crate::flow::{FlowListResponse, StromFlow};
 use crate::spec::{FlowSpec, MappingError};
 
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
-/// How long a request may take in all, answer included.
+
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
@@ -23,15 +21,13 @@ pub enum StromError {
     Status {
         status: StatusCode,
         url: String,
-        /// An [`excerpt`] of what Strom answered.
+
         body: String,
     },
     #[error(transparent)]
     Mapping(#[from] MappingError),
 }
 
-/// Send `request`, failing with [`StromError::Status`] unless Strom
-/// answers `2xx`.
 async fn send(request: RequestBuilder) -> Result<Response, StromError> {
     let response = request.send().await?;
     let status = response.status();
@@ -67,8 +63,6 @@ impl StromClient {
         Self::with_timeout(base_url, REQUEST_TIMEOUT)
     }
 
-    /// A client whose requests fail after `timeout` and whose connections fail
-    /// after [`CONNECT_TIMEOUT`].
     #[must_use]
     pub fn with_timeout(base_url: impl Into<String>, timeout: Duration) -> Self {
         let http = reqwest::Client::builder()
@@ -88,8 +82,6 @@ impl StromClient {
         }
     }
 
-    /// Present `token` as a bearer credential on every request. `None` is the
-    /// default and sends no `Authorization` header.
     #[must_use]
     pub fn with_token(mut self, token: Option<Token>) -> Self {
         self.token = token;
@@ -136,7 +128,6 @@ impl StromClient {
         Ok(())
     }
 
-    /// The `version` Strom reports at `GET /api/version`.
     pub async fn version(&self) -> Result<String, StromError> {
         let response = send(self.request(Method::GET, "/api/version")).await?;
         Ok(response.json::<VersionResponse>().await?.version)
@@ -176,8 +167,6 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    /// A stub Strom listening on a real socket, recording the `Authorization`
-    /// header of the last request and answering with an empty flow list.
     async fn stub_strom() -> (String, Arc<Mutex<Option<String>>>) {
         use axum::extract::{Request, State};
         use axum::response::{IntoResponse, Response};
@@ -262,7 +251,6 @@ mod tests {
         assert_eq!(captured.lock().unwrap().as_deref(), None);
     }
 
-    /// A Strom answering every request with `status` and `body`.
     async fn strom_answering(status: u16, body: String) -> StromClient {
         let status = axum::http::StatusCode::from_u16(status).unwrap();
         let app = axum::Router::new().fallback(move || async move { (status, body) });

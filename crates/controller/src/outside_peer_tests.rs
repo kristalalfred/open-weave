@@ -60,8 +60,6 @@ fn listeners(host: &str, signalling: &str) -> NetworkListeners {
     }
 }
 
-/// A node advertising Strom's three profiles, reachable on `internet` and, for
-/// peers on a venue LAN, on `venue-lan` at `192.168.1.10:{lan_port}`.
 fn strom(id: &str, host: &str, lan_port: u16) -> NodeDescriptor {
     NodeDescriptor {
         id: id.to_string(),

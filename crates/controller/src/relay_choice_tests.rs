@@ -57,7 +57,6 @@ fn node(id: &str, attachments: Vec<NetworkAttachment>) -> NodeDescriptor {
     }
 }
 
-/// Dials the internet and listens only on a site network of its own.
 fn nat_node(id: &str) -> NodeDescriptor {
     node(
         id,
@@ -72,7 +71,6 @@ fn nat_node(id: &str) -> NodeDescriptor {
     )
 }
 
-/// A public relay with `ports` SRT ports.
 fn relay(id: &str, host: &str, ports: u16) -> NodeDescriptor {
     node(
         id,
@@ -84,8 +82,6 @@ fn relay(id: &str, host: &str, ports: u16) -> NodeDescriptor {
     )
 }
 
-/// `nodes`, with room on each relay for the two listeners of one NAT-to-NAT
-/// bridge.
 fn two_port_relays() -> Vec<NodeDescriptor> {
     let mut nodes = nodes();
     for (index, id) in ["relay-a", "relay-b"].into_iter().enumerate() {
@@ -155,9 +151,6 @@ fn plan(stream: &StreamDefinition, nodes: &[NodeDescriptor], observed: &[HopStat
     .expect("derive")
 }
 
-/// What each node reports for the hops `path` gave it, resolving sockets the
-/// way the Strom adapter does: a listener at the node's SRT listener host, a
-/// caller at the address it dials.
 fn reported(path: &Path, nodes: &[NodeDescriptor], state: HopState) -> Vec<HopStatus> {
     let socket = |spec: &SocketSpec, own_host: &str| SocketStatus {
         condition: LinkCondition::Flowing,
@@ -416,8 +409,6 @@ fn hop_in<'a>(hops: &'a [DesiredHop], id: &str) -> &'a DesiredHop {
         .unwrap_or_else(|| panic!("no hop {id}"))
 }
 
-/// `source`, the pinned `transit` and `studio-node` are all NAT'd, so both
-/// links around the pin need a relay. `relay-a` has room for one bridge.
 #[test]
 fn a_chain_does_not_count_one_relays_room_twice() {
     let nodes = vec![

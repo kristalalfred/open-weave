@@ -1,4 +1,3 @@
-# Fan-out: one source relayed to two destinations.
 name: fanout
 enabled: true
 source:

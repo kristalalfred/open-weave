@@ -1,23 +1,8 @@
-//! What is on the wire, and what an endpoint will accept.
-//!
-//! Two shapes, deliberately distinct. A [`MediaFormat`] is fixated: every field
-//! has one value, and it describes media that exists. A [`FormatConstraint`] is
-//! partially specified: each field carries the set of values an endpoint accepts,
-//! and an absent field constrains nothing.
-//!
-//! That split is borrowed from GStreamer caps, and only the algebra transfers.
-//! GStreamer negotiates at runtime, in one process, downstream-first over a
-//! shared bus; none of that exists across a control plane. What does transfer is
-//! caps as constraint sets that a concrete format is checked against — which is
-//! all planning needs to answer "does this endpoint need a conversion, and if so
-//! which one".
-
 use std::fmt;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// A fully specified description of the media on a link.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MediaFormat {
@@ -67,7 +52,7 @@ pub enum ChromaSubsampling {
 #[serde(deny_unknown_fields)]
 pub struct AudioFormat {
     pub codec: AudioCodec,
-    /// Samples per second. The field a sample-rate conversion changes.
+
     pub sample_rate: u32,
     pub channels: u8,
 }
@@ -82,8 +67,6 @@ pub enum AudioCodec {
     PcmS24,
 }
 
-/// Frames per second as a rational, because broadcast rates are not integers:
-/// 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Framerate {
@@ -107,8 +90,6 @@ impl fmt::Display for Framerate {
     }
 }
 
-/// The media an endpoint accepts. Every field is optional; an absent one accepts
-/// anything, so an empty constraint is satisfied by any format.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct FormatConstraint {
@@ -155,18 +136,12 @@ pub struct AudioConstraint {
     pub channels: Option<Vec<u8>>,
 }
 
-/// One field of a format that an endpoint will not accept.
-///
-/// Carrying the field and both sides rather than a rendered sentence keeps the
-/// reason usable by more than a log line: it is what a conversion planner will
-/// read to decide which transform to look for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Mismatch {
-    /// Dotted path of the offending field, e.g. `audio.sample_rate`.
     pub field: String,
     pub actual: String,
-    /// Values the endpoint accepts, or the track it required and did not get.
+
     pub accepted: String,
 }
 
@@ -180,7 +155,6 @@ impl fmt::Display for Mismatch {
     }
 }
 
-/// A destination whose declared constraint the source format does not satisfy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FormatConflict {
@@ -201,18 +175,11 @@ impl fmt::Display for FormatConflict {
 }
 
 impl FormatConstraint {
-    /// Whether any field of `format` falls outside what this constraint accepts.
     #[must_use]
     pub fn satisfied_by(&self, format: &MediaFormat) -> bool {
         self.mismatches(format).is_empty()
     }
 
-    /// Every field of `format` this constraint rejects, in a stable order.
-    ///
-    /// Constraining a track the format does not carry is itself a mismatch: an
-    /// endpoint asking for 48 kHz audio is not served by a video-only stream, and
-    /// silently passing that would defeat the point of declaring it. A track the
-    /// constraint says nothing about is never a mismatch, however present.
     #[must_use]
     pub fn mismatches(&self, format: &MediaFormat) -> Vec<Mismatch> {
         let mut out = Vec::new();
@@ -292,8 +259,6 @@ impl FormatConstraint {
     }
 }
 
-/// Record a mismatch when `actual` is outside `accepted`. An absent `accepted`
-/// constrains nothing and never records one.
 fn check<T>(field: &str, actual: &T, accepted: Option<&[T]>, out: &mut Vec<Mismatch>)
 where
     T: PartialEq + fmt::Debug,
@@ -317,15 +282,12 @@ fn missing_track(track: &str) -> Mismatch {
     }
 }
 
-/// Render a value the way a manifest spells it: enum variants are snake_case on
-/// the wire, so `{:?}` alone would print `MpegTs` where the operator wrote
-/// `mpeg_ts`.
 fn render<T: fmt::Debug>(value: &T) -> String {
     let debug = format!("{value:?}");
     if debug.starts_with(|c: char| c.is_ascii_digit()) {
         return debug;
     }
-    // Framerate and other structs Debug as `Name { .. }`; leave those alone.
+
     if debug.contains(['{', '(']) {
         return debug;
     }

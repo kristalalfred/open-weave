@@ -1,5 +1,3 @@
-//! `weave` — operator CLI for the open-weave control plane.
-
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -15,7 +13,7 @@ use weave_core::{
 #[derive(Parser)]
 #[command(name = "weave", version, about = "open-weave control plane CLI")]
 struct Cli {
-    /// Northbound API base URL.
+    #[arg(help = "Northbound API base URL")]
     #[arg(
         long,
         env = "WEAVE_NORTHBOUND_URL",
@@ -24,8 +22,9 @@ struct Cli {
         global = true
     )]
     url: String,
-    /// Bearer token presented to the northbound API. Required unless the server
-    /// runs with WEAVE_AUTH_DISABLED=1.
+    #[arg(
+        help = "Bearer token presented to the northbound API. Required unless the server runs with WEAVE_AUTH_DISABLED=1"
+    )]
     #[arg(
         long,
         env = auth::NORTHBOUND_TOKEN_VAR,
@@ -33,7 +32,7 @@ struct Cli {
         global = true
     )]
     token: Option<String>,
-    /// Output format.
+    #[arg(help = "Output format")]
     #[arg(short, long, value_enum, default_value_t = OutputFormat::Human, global = true)]
     output: OutputFormat,
     #[command(subcommand)]
@@ -49,43 +48,45 @@ enum OutputFormat {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Apply a stream definition (YAML) as desired state.
+    #[command(about = "Apply a stream definition (YAML) as desired state")]
     Apply {
-        /// Path to the stream YAML file.
+        #[arg(help = "Path to the stream YAML file")]
         #[arg(short = 'f', long = "file")]
         file: PathBuf,
     },
-    /// Atomically apply a stream ownership set (YAML) as desired state.
+    #[command(about = "Atomically apply a stream ownership set (YAML) as desired state")]
     ApplySet {
-        /// Owner of the stream set.
+        #[arg(help = "Owner of the stream set")]
         owner: String,
-        /// Path to the stream-set YAML file.
+        #[arg(help = "Path to the stream-set YAML file")]
         #[arg(short = 'f', long = "file")]
         file: PathBuf,
     },
-    /// Preview validation and placement without changing desired state.
+    #[command(about = "Preview validation and placement without changing desired state")]
     Plan {
-        /// Path to the stream YAML file.
+        #[arg(help = "Path to the stream YAML file")]
         #[arg(short = 'f', long = "file")]
         file: PathBuf,
     },
-    /// Get resources from the northbound API.
+    #[command(about = "Get resources from the northbound API")]
     Get {
         #[command(subcommand)]
         resource: GetResource,
     },
-    /// Delete resources through the northbound API.
+    #[command(about = "Delete resources through the northbound API")]
     Delete {
         #[command(subcommand)]
         resource: DeleteResource,
     },
-    /// Print a node's southbound token, derived from the southbound key in
-    /// `WEAVE_SOUTHBOUND_KEY`. Calls no service.
+    #[command(
+        about = "Print a node's southbound token, derived from the southbound key in `WEAVE_SOUTHBOUND_KEY`. Calls no service"
+    )]
     NodeToken {
-        /// Node id the token authenticates as.
+        #[arg(help = "Node id the token authenticates as")]
         id: String,
-        /// Token epoch. Raising the node's minimum in
-        /// `WEAVE_SOUTHBOUND_MIN_EPOCHS` past an epoch revokes its tokens.
+        #[arg(
+            help = "Token epoch. Raising the node's minimum in `WEAVE_SOUTHBOUND_MIN_EPOCHS` past an epoch revokes its tokens"
+        )]
         #[arg(long, default_value_t = 0)]
         epoch: u64,
     },
@@ -93,36 +94,36 @@ enum Command {
 
 #[derive(Subcommand)]
 enum GetResource {
-    /// List desired streams.
+    #[command(about = "List desired streams")]
     Streams,
-    /// Get one desired stream.
+    #[command(about = "Get one desired stream")]
     Stream {
-        /// Name of the stream to get.
+        #[arg(help = "Name of the stream to get")]
         name: String,
     },
-    /// Get the current control-plane status.
+    #[command(about = "Get the current control-plane status")]
     Status,
-    /// List registered nodes.
+    #[command(about = "List registered nodes")]
     Nodes,
-    /// Get the resolved endpoints for one stream.
+    #[command(about = "Get the resolved endpoints for one stream")]
     Endpoints {
-        /// Name of the stream whose endpoints to get.
+        #[arg(help = "Name of the stream whose endpoints to get")]
         name: String,
     },
-    /// List stream ownership sets.
+    #[command(about = "List stream ownership sets")]
     StreamSets,
-    /// Get one stream ownership set.
+    #[command(about = "Get one stream ownership set")]
     StreamSet {
-        /// Owner of the stream set to get.
+        #[arg(help = "Owner of the stream set to get")]
         owner: String,
     },
 }
 
 #[derive(Subcommand)]
 enum DeleteResource {
-    /// Delete a desired stream.
+    #[command(about = "Delete a desired stream")]
     Stream {
-        /// Name of the stream to delete.
+        #[arg(help = "Name of the stream to delete")]
         name: String,
     },
 }
@@ -184,8 +185,6 @@ fn node_token(key: Option<&str>, id: &str, epoch: u64) -> Result<String> {
     Ok(key.token_for(id, epoch))
 }
 
-/// Present the bearer token when one is configured. Without it northbound
-/// answers `401`; [`unauthorized_hint`] explains why.
 fn authorized(request: RequestBuilder, token: Option<&Token>) -> RequestBuilder {
     match token {
         Some(token) => request.header(reqwest::header::AUTHORIZATION, token.header_value()),
@@ -193,8 +192,6 @@ fn authorized(request: RequestBuilder, token: Option<&Token>) -> RequestBuilder 
     }
 }
 
-/// Extra guidance appended to a `401`, since a missing `--token` is by far the
-/// likeliest cause and the bare status does not say so.
 fn unauthorized_hint(token: Option<&Token>) -> &'static str {
     if token.is_none() {
         "\nno token was sent: pass --token or set WEAVE_NORTHBOUND_TOKEN"
@@ -888,7 +885,6 @@ struct Found {
     body: String,
 }
 
-/// The resource at `path`, or `None` when northbound answers `404`.
 async fn lookup(
     client: &reqwest::Client,
     url: &str,
@@ -1934,8 +1930,6 @@ destinations:
         })
     }
 
-    /// A northbound from a later release: every body carries a field, a value
-    /// or a union kind this CLI does not know.
     async fn stub_newer_server() -> String {
         async fn route(method: axum::http::Method, uri: axum::http::Uri) -> Response {
             match (method.as_str(), uri.path()) {

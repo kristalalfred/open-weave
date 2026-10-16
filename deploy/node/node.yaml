@@ -1,4 +1,3 @@
-# Replace every <placeholder>. The node token comes from WEAVE_SOUTHBOUND_TOKEN.
 node:
   id: <node-id>
   southbound_url: https://<control-plane-host>:8443

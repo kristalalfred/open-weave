@@ -1,4 +1,3 @@
-# Disabled stream: accepted and listed but never provisioned (status idle).
 name: disabled
 enabled: false
 source:

@@ -1,19 +1,3 @@
-//! Bearer-token authentication for the control-plane HTTP surfaces.
-//!
-//! Operators and the CLI present one shared secret, [`NORTHBOUND_TOKEN_VAR`], to
-//! northbound, which re-presents it to the controller. Each node presents a
-//! token of its own, [`SOUTHBOUND_TOKEN_VAR`], to southbound, which forwards it
-//! to the controller. A node token is
-//! `<node id>.<epoch>.<hex HMAC-SHA256(key, "<node id>.<epoch>")>`, where the key
-//! is [`SOUTHBOUND_KEY_VAR`]: southbound and the controller hold the key, derive
-//! the node id from the token, and refuse a node acting under another node's id.
-//! [`SOUTHBOUND_MIN_EPOCHS_VAR`] revokes one node's older tokens.
-//!
-//! [`Guard::from_env`] and [`NodeGuard::from_env`] error when their variable is
-//! unset or blank, and [`NodeGuard::from_env`] also when the key is shorter than
-//! [`MIN_NODE_KEY_LEN`], so a service with no secret or a weak key does not start.
-//! [`AUTH_DISABLED_VAR`] switches authentication off for local development.
-
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -22,57 +6,38 @@ use sha2::Sha256;
 
 use crate::validate_resource_id;
 
-/// Environment variable holding the token for the northbound (operator) surface.
 pub const NORTHBOUND_TOKEN_VAR: &str = "WEAVE_NORTHBOUND_TOKEN";
-/// Environment variable holding a node's own southbound token.
+
 pub const SOUTHBOUND_TOKEN_VAR: &str = "WEAVE_SOUTHBOUND_TOKEN";
-/// Environment variable holding the key southbound and the controller derive
-/// node tokens from.
+
 pub const SOUTHBOUND_KEY_VAR: &str = "WEAVE_SOUTHBOUND_KEY";
-/// The fewest characters a [`NodeKey`] may have.
+
 pub const MIN_NODE_KEY_LEN: usize = 32;
-/// Environment variable holding the lowest token epoch southbound and the
-/// controller accept for a node, as comma-separated `<node id>=<epoch>` pairs.
+
 pub const SOUTHBOUND_MIN_EPOCHS_VAR: &str = "WEAVE_SOUTHBOUND_MIN_EPOCHS";
-/// Set to `1` or `true` to serve and call without authentication. Local
-/// development only.
+
 pub const AUTH_DISABLED_VAR: &str = "WEAVE_AUTH_DISABLED";
 
-/// A bearer token.
-///
-/// [`fmt::Debug`] redacts the value, no [`fmt::Display`] is implemented, and
-/// [`Token::header_value`] is the only accessor.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Token(String);
 
 impl Token {
-    /// Wrap a token value, trimming surrounding whitespace.
-    ///
-    /// Returns `None` when the value is blank, so an env var set to the empty
-    /// string is treated as unset rather than as a token that matches nothing.
     #[must_use]
     pub fn new(value: &str) -> Option<Self> {
         let value = value.trim();
         (!value.is_empty()).then(|| Self(value.to_string()))
     }
 
-    /// Read a token from environment variable `var`, `None` when unset or blank.
     #[must_use]
     pub fn from_env(var: &str) -> Option<Self> {
         std::env::var(var).ok().as_deref().and_then(Token::new)
     }
 
-    /// The `Authorization` header value presenting this token.
     #[must_use]
     pub fn header_value(&self) -> String {
         format!("Bearer {}", self.0)
     }
 
-    /// Whether `header` is an `Authorization` value presenting this token.
-    ///
-    /// The scheme is matched normally — it carries no secret — and the token
-    /// itself is compared in constant time. Only the token's *length* can leak,
-    /// which is inherent to comparing variable-length secrets.
     #[must_use]
     pub fn matches_header(&self, header: &str) -> bool {
         bearer_value(header)
@@ -86,7 +51,6 @@ impl fmt::Debug for Token {
     }
 }
 
-/// The token presented by an `Authorization: Bearer <token>` header value.
 fn bearer_value(header: &str) -> Option<&str> {
     let (scheme, value) = header.split_once(' ')?;
     scheme
@@ -94,7 +58,6 @@ fn bearer_value(header: &str) -> Option<&str> {
         .then(|| value.trim_start())
 }
 
-/// Compare two byte strings without an early exit on the first differing byte.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -102,22 +65,14 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b).fold(0u8, |diff, (x, y)| diff | (x ^ y)) == 0
 }
 
-/// Whether a surface authenticates requests, and with which token.
 #[derive(Clone, Debug)]
 pub enum Guard {
-    /// Every request must present this token.
     Required(Token),
-    /// Authentication is switched off via [`AUTH_DISABLED_VAR`]; every request
-    /// passes.
+
     Disabled,
 }
 
 impl Guard {
-    /// Resolve the guard for the surface whose token lives in `var`.
-    ///
-    /// # Errors
-    /// Returns [`AuthError::MissingToken`] when `var` is unset or blank and the
-    /// [`AUTH_DISABLED_VAR`] escape hatch is not engaged.
     pub fn from_env(var: &str) -> Result<Self, AuthError> {
         if auth_disabled() {
             return Ok(Self::Disabled);
@@ -129,10 +84,6 @@ impl Guard {
             })
     }
 
-    /// The token this guard requires, `None` when authentication is disabled.
-    ///
-    /// A stateless proxy re-presents its own surface token to the controller, so
-    /// this doubles as the outbound client credential.
     #[must_use]
     pub fn token(&self) -> Option<&Token> {
         match self {
@@ -141,32 +92,22 @@ impl Guard {
         }
     }
 
-    /// Whether authentication is switched off.
     #[must_use]
     pub fn is_disabled(&self) -> bool {
         matches!(self, Self::Disabled)
     }
 }
 
-/// The key node tokens are derived from, and the lowest epoch accepted for each
-/// node. [`fmt::Debug`] redacts the key.
 #[derive(Clone)]
 pub struct NodeKey {
     key: Vec<u8>,
     min_epochs: MinEpochs,
 }
 
-/// The lowest token epoch accepted for each node it names. A node it does not
-/// name accepts every epoch.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MinEpochs(BTreeMap<String, u64>);
 
 impl MinEpochs {
-    /// Parse comma-separated `<node id>=<epoch>` pairs. Blank means none.
-    ///
-    /// # Errors
-    /// Returns what is wrong with the first pair that is not a valid node id and
-    /// a non-negative integer, or that names a node again.
     pub fn parse(value: &str) -> Result<Self, String> {
         let mut epochs = BTreeMap::new();
         for pair in value
@@ -189,10 +130,6 @@ impl MinEpochs {
         Ok(Self(epochs))
     }
 
-    /// Read [`SOUTHBOUND_MIN_EPOCHS_VAR`]; unset means none.
-    ///
-    /// # Errors
-    /// Returns [`AuthError::InvalidMinEpochs`] when it does not parse.
     pub fn from_env() -> Result<Self, AuthError> {
         Self::parse(&std::env::var(SOUTHBOUND_MIN_EPOCHS_VAR).unwrap_or_default()).map_err(
             |reason| AuthError::InvalidMinEpochs {
@@ -207,7 +144,6 @@ impl MinEpochs {
     }
 }
 
-/// Why a value is not a [`NodeKey`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum NodeKeyError {
     #[error("the key is blank")]
@@ -217,11 +153,6 @@ pub enum NodeKeyError {
 }
 
 impl NodeKey {
-    /// Wrap a key, trimming surrounding whitespace.
-    ///
-    /// # Errors
-    /// Returns [`NodeKeyError`] when the key is blank or shorter than
-    /// [`MIN_NODE_KEY_LEN`].
     pub fn new(value: &str) -> Result<Self, NodeKeyError> {
         match value.trim() {
             "" => Err(NodeKeyError::Blank),
@@ -233,11 +164,6 @@ impl NodeKey {
         }
     }
 
-    /// Read a key from environment variable `var`.
-    ///
-    /// # Errors
-    /// Returns [`AuthError::MissingToken`] when `var` is unset or blank and
-    /// [`AuthError::ShortKey`] when it is shorter than [`MIN_NODE_KEY_LEN`].
     pub fn from_env(var: &str) -> Result<Self, AuthError> {
         Self::new(&std::env::var(var).unwrap_or_default()).map_err(|error| match error {
             NodeKeyError::Blank => AuthError::MissingToken {
@@ -249,24 +175,16 @@ impl NodeKey {
         })
     }
 
-    /// This key, accepting for each node only tokens at or above its epoch in
-    /// `min_epochs`.
     #[must_use]
     pub fn with_min_epochs(self, min_epochs: MinEpochs) -> Self {
         Self { min_epochs, ..self }
     }
 
-    /// The token that authenticates as `node_id` at `epoch`: the id, the epoch,
-    /// and the lowercase hex HMAC-SHA256 of `<id>.<epoch>` under this key,
-    /// joined by `.`.
     #[must_use]
     pub fn token_for(&self, node_id: &str, epoch: u64) -> String {
         format!("{node_id}.{epoch}.{}", self.mac_hex(node_id, epoch))
     }
 
-    /// The node id an `Authorization` header value authenticates as, `None`
-    /// unless it presents a token this key issued at an epoch no lower than the
-    /// node's minimum. The MAC is compared in constant time.
     #[must_use]
     pub fn verify_header(&self, header: &str) -> Option<String> {
         let (node_id, rest) = bearer_value(header)?.split_once('.')?;
@@ -299,23 +217,14 @@ impl fmt::Debug for NodeKey {
     }
 }
 
-/// Whether the node surface authenticates requests, and with which key.
 #[derive(Clone, Debug)]
 pub enum NodeGuard {
-    /// Every request must present a token derived from this key.
     Required(NodeKey),
-    /// Authentication is switched off via [`AUTH_DISABLED_VAR`]; every request
-    /// passes and may act as any node.
+
     Disabled,
 }
 
 impl NodeGuard {
-    /// Resolve the guard from the key in `var` and the minimum epochs in
-    /// [`SOUTHBOUND_MIN_EPOCHS_VAR`].
-    ///
-    /// # Errors
-    /// Returns the [`NodeKey::from_env`] or [`MinEpochs::from_env`] error when
-    /// the [`AUTH_DISABLED_VAR`] escape hatch is not engaged.
     pub fn from_env(var: &str) -> Result<Self, AuthError> {
         if auth_disabled() {
             return Ok(Self::Disabled);
@@ -324,8 +233,6 @@ impl NodeGuard {
         Ok(Self::Required(key.with_min_epochs(MinEpochs::from_env()?)))
     }
 
-    /// Who a request with this `Authorization` header value is from, `None`
-    /// when the request is refused.
     #[must_use]
     pub fn caller(&self, header: Option<&str>) -> Option<NodeCaller> {
         match self {
@@ -336,25 +243,20 @@ impl NodeGuard {
         }
     }
 
-    /// Whether authentication is switched off.
     #[must_use]
     pub fn is_disabled(&self) -> bool {
         matches!(self, Self::Disabled)
     }
 }
 
-/// The node a southbound request authenticated as.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NodeCaller {
-    /// The request presented this node's token.
     Node(String),
-    /// Authentication is disabled, so the caller may act as any node.
+
     Anyone,
 }
 
 impl NodeCaller {
-    /// Whether this caller may register, heartbeat or read desired hops as
-    /// `node_id`.
     #[must_use]
     pub fn may_act_as(&self, node_id: &str) -> bool {
         match self {
@@ -364,10 +266,6 @@ impl NodeCaller {
     }
 }
 
-/// Whether the [`AUTH_DISABLED_VAR`] escape hatch is engaged.
-///
-/// Only an explicit `1` or `true` counts; `WEAVE_AUTH_DISABLED=0` leaves
-/// authentication on.
 #[must_use]
 pub fn auth_disabled() -> bool {
     std::env::var(AUTH_DISABLED_VAR).is_ok_and(|value| {
@@ -401,11 +299,6 @@ mod middleware {
         response::{IntoResponse, Response},
     };
 
-    /// axum middleware enforcing a [`Guard`] over the routes it is layered onto.
-    ///
-    /// Wire it with `middleware::from_fn_with_state(guard, require_bearer)` on a
-    /// sub-router holding only the routes that need authentication, so `/health`
-    /// and any browser-loaded surface stay reachable.
     pub async fn require_bearer(
         State(guard): State<Guard>,
         request: Request,
@@ -421,7 +314,6 @@ mod middleware {
             .is_some_and(|header| token.matches_header(header));
 
         if !authorized {
-            // Method and path only: the presented credential never reaches a log.
             tracing::warn!(
                 method = %request.method(),
                 path = %request.uri().path(),
@@ -432,9 +324,6 @@ mod middleware {
         next.run(request).await
     }
 
-    /// axum middleware enforcing a [`NodeGuard`]: a request without a valid node
-    /// token gets `401`, and an accepted one carries its [`NodeCaller`] as a
-    /// request extension for [`refuse_other_node`].
     pub async fn require_node_token(
         State(guard): State<NodeGuard>,
         mut request: Request,
@@ -458,8 +347,6 @@ mod middleware {
         next.run(request).await
     }
 
-    /// The `403 forbidden` to send when `caller` may not act as `node_id`,
-    /// `None` when it may.
     #[must_use]
     pub fn refuse_other_node(caller: &NodeCaller, node_id: &str) -> Option<Response> {
         if caller.may_act_as(node_id) {
@@ -475,7 +362,6 @@ mod middleware {
         )
     }
 
-    /// `401` with a `WWW-Authenticate: Bearer` challenge.
     #[must_use]
     pub fn unauthorized() -> Response {
         (
@@ -531,7 +417,6 @@ mod tests {
         let rendered = format!("{:?}", Token::new("s3cret").unwrap());
         assert!(!rendered.contains("s3cret"), "{rendered}");
 
-        // Also covers the guard, which is logged at startup.
         let rendered = format!("{:?}", Guard::Required(Token::new("s3cret").unwrap()));
         assert!(!rendered.contains("s3cret"), "{rendered}");
     }
@@ -565,9 +450,6 @@ mod tests {
         format!("Bearer {token}")
     }
 
-    /// The MAC `printf %s strom-node-1.0 | openssl dgst -sha256 -hmac
-    /// bench-southbound-key-for-local-use-only -r` prints, which `docs/security.md`
-    /// gives as the way to mint a token without this crate.
     #[test]
     fn node_token_matches_the_openssl_one_liner() {
         assert_eq!(

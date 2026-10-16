@@ -7,7 +7,7 @@ hops each node reports running.
 
 The Strom adapter's capabilities are built in, the Strom profiles under
 [Shipped profiles](#shipped-profiles). Its topology comes from `node.topology`
-in its config, and [`examples/node.yaml`](../examples/node.yaml) is annotated.
+in its config; see [`examples/node.yaml`](../examples/node.yaml).
 The config takes no `capabilities` key, and the adapter refuses to start on a
 config that has one.
 
@@ -129,10 +129,7 @@ reported at another host is taken as a caller and holds no port.
 
 ## Lifecycle
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `WEAVE_NODE_TTL_SECS` | `15` | Seconds without a heartbeat before a node reads `offline`. |
-| `WEAVE_NODE_FORGET_SECS` | `300` | Seconds without a heartbeat before an offline node is removed. |
+[Operations](operations.md#configuration) lists the heartbeat TTL and forget interval.
 
 A node that a stored stream names as its source, a destination or a `via` relay
 is never removed and stays listed as `offline`. A removed node's next heartbeat

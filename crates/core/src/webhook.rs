@@ -1,10 +1,3 @@
-//! Node and stream events the controller pushes to a configured receiver.
-//!
-//! The controller serializes these types. A Rust receiver decodes
-//! [`crate::read::Event`], which also takes the fields, event types and subjects
-//! a newer controller sends. Delivery, with its queueing, retries and auth,
-//! belongs to the controller; see `weave-controller`'s `webhook` module.
-
 use std::fmt;
 
 use schemars::JsonSchema;
@@ -13,21 +6,18 @@ use serde::{Deserialize, Serialize};
 use crate::api::{StreamCondition, StreamStatus};
 use crate::{NodeCapabilities, NodeDescriptor, NodeStatus, NodeTopology, PathStatus};
 
-/// One event. The whole JSON body of a delivery.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Event {
-    /// Stable across retries of one delivery, so a receiver can deduplicate.
     pub event_id: String,
     pub event_type: EventType,
-    /// RFC 3339, UTC.
+
     pub occurred_at: String,
-    /// Serialized as a `node` or a `stream` field beside the others.
+
     #[serde(flatten)]
     pub subject: Subject,
 }
 
-/// What an event is about.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Subject {
@@ -36,7 +26,6 @@ pub enum Subject {
 }
 
 impl Subject {
-    /// The node id or the stream name.
     #[must_use]
     pub fn id(&self) -> &str {
         match self {
@@ -73,7 +62,6 @@ pub enum EventType {
 }
 
 impl EventType {
-    /// Every type: a node's lifecycle in order, then the stream event.
     pub const ALL: [Self; 5] = [
         Self::NodeRegistered,
         Self::NodeOnline,
@@ -93,7 +81,6 @@ impl EventType {
         }
     }
 
-    /// The type named by its wire form, `None` for anything else.
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.as_str() == value)
@@ -106,10 +93,6 @@ impl fmt::Display for EventType {
     }
 }
 
-/// The node an event is about.
-///
-/// A [`crate::NodeRegistration`] also carries `endpoints` and `hop_status`.
-/// Those describe hops rather than the node, and are not part of this contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NodeSummary {
@@ -133,10 +116,6 @@ impl From<&NodeDescriptor> for NodeSummary {
     }
 }
 
-/// The stream an event is about: its generations, status and conditions.
-///
-/// A [`StreamStatus`] also carries the stream's nodes, ingress and destination
-/// endpoints. Those are addresses, and are not part of this contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamSummary {

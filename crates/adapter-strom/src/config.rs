@@ -1,5 +1,3 @@
-//! Adapter configuration loaded from a YAML file at startup.
-
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -7,10 +5,8 @@ use serde::Deserialize;
 use weave_core::NodeConfig;
 use weave_core::auth::Token;
 
-/// Environment variable holding the bearer token presented to Strom.
 pub const STROM_TOKEN_VAR: &str = "WEAVE_STROM_TOKEN";
 
-/// Strom adapter configuration: a shared node section plus the Strom endpoint.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdapterConfig {
@@ -39,10 +35,6 @@ fn default_request_timeout_secs() -> u64 {
 }
 
 impl StromSection {
-    /// Resolve the bearer token presented to Strom: the config value when set,
-    /// otherwise [`STROM_TOKEN_VAR`] from the environment. `None` presents no
-    /// credential and is not an error — Strom authenticates on its own terms, so
-    /// [`weave_core::auth::AUTH_DISABLED_VAR`] does not apply.
     #[must_use]
     pub fn resolve_token(&self) -> Option<Token> {
         pick_token(
@@ -59,11 +51,6 @@ fn pick_token(config: Option<&str>, env: Option<&str>) -> Option<Token> {
 }
 
 impl AdapterConfig {
-    /// Load and validate the adapter config from a YAML file.
-    ///
-    /// # Errors
-    /// Returns an error if the file cannot be read, the YAML is malformed or
-    /// carries unknown fields, or the node config fails validation.
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
@@ -120,9 +107,6 @@ strom:
         assert_eq!(config.node.validate(), Ok(()));
     }
 
-    /// The token may live in the node YAML instead of the environment. Which
-    /// source wins is [`NodeConfig::resolve_southbound_token`]'s job and depends
-    /// on process env, so it is covered on the bench rather than here.
     #[test]
     fn accepts_an_inline_southbound_token() {
         let config: AdapterConfig = serde_norway::from_str(VALID).expect("parse");
@@ -155,8 +139,6 @@ strom:
         assert_eq!(config.strom.token.as_deref(), Some("from-yaml"));
     }
 
-    /// Precedence without mutating process env, which parallel tests share.
-    /// [`StromSection::resolve_token`] adds only the [`STROM_TOKEN_VAR`] lookup.
     #[test]
     fn config_token_wins_over_the_environment() {
         assert_eq!(

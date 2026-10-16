@@ -1,15 +1,3 @@
-//! Delivery of [`weave_core::webhook`] events to one receiver, configured at start.
-//!
-//! [`Emitter::emit`] queues and returns. A registration must not fail or block
-//! because a receiver is slow or down, so a full queue drops rather than waits.
-//! One worker drains the queue, which keeps deliveries in the order they were
-//! emitted — `node.registered` reaches a receiver before the `node.offline` that
-//! follows it.
-//!
-//! Delivery is at-least-once: a receiver that answers late still gets a retry,
-//! and events are lost on a controller restart. A consumer reconciles against
-//! `GET /nodes` and `GET /status` rather than treating the events as complete.
-
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -22,21 +10,18 @@ use weave_core::webhook::{Event, EventType, Subject};
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Absolute URL receiving events. Webhooks are off when `None` or blank,
-    /// so an env var set to the empty string reads as unset — as it does for
-    /// [`Token`].
     pub url: Option<String>,
-    /// Presented as `Authorization: Bearer <token>`.
+
     pub token: Option<String>,
-    /// Event types to deliver, by wire name. Empty means all of them.
+
     pub events: Vec<String>,
-    /// Events queued but not yet delivered, beyond which [`Emitter::emit`] drops.
+
     pub queue_capacity: usize,
-    /// Attempts per event, counting the first.
+
     pub max_attempts: u32,
-    /// Wait before the second attempt; doubles for each one after.
+
     pub backoff: Duration,
-    /// Per-attempt HTTP timeout.
+
     pub timeout: Duration,
 }
 
@@ -63,7 +48,6 @@ pub struct Emitter {
 }
 
 impl Emitter {
-    /// `None` when no URL is configured, so every call site is a no-op by default.
     pub fn new(config: Config) -> Option<Self> {
         let url = config
             .url
@@ -150,23 +134,16 @@ impl Emitter {
         }
     }
 
-    /// Number the events emitted from here on from `first`, which a controller
-    /// taking over from another sets to the time it took the lease.
     pub fn count_from(&self, first: u64) {
         self.seq.store(first, Ordering::Relaxed);
     }
 
-    /// Events discarded because the queue was full. Logged on each transition
-    /// into and out of the dropping state; read directly only by the tests.
     #[cfg(test)]
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
     }
 }
 
-/// Event ids count up from the controller's start time in microseconds, so a
-/// restarted controller sends none of the ids an earlier run sent unless that
-/// run averaged more than one event per microsecond, or the clock went back.
 fn first_sequence() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -175,7 +152,6 @@ fn first_sequence() -> u64 {
         })
 }
 
-/// The configured types, or all of them when none are named.
 fn resolve_events(configured: &[String]) -> Vec<EventType> {
     if configured.iter().all(|name| name.trim().is_empty()) {
         return EventType::ALL.to_vec();
@@ -237,7 +213,7 @@ async fn deliver(
                 );
                 return;
             }
-            // A 4xx is the receiver rejecting the event, not a transient fault.
+
             Ok(response) if response.status().is_client_error() => {
                 tracing::warn!(
                     event_id = %event.event_id,
@@ -288,7 +264,6 @@ pub(crate) mod tests {
         pub(crate) event: Event,
     }
 
-    /// A receiver that answers `status`, recording what it was sent.
     pub(crate) struct Sink {
         pub(crate) url: String,
         deliveries: mpsc::UnboundedReceiver<Delivery>,
@@ -298,7 +273,7 @@ pub(crate) mod tests {
     struct SinkState {
         deliveries: mpsc::UnboundedSender<Delivery>,
         status: StatusCode,
-        /// Held open forever before answering, to keep the worker busy.
+
         stall: bool,
     }
 
@@ -357,7 +332,6 @@ pub(crate) mod tests {
         }
     }
 
-    /// Fast retries so a test that exhausts the cap does not sleep for seconds.
     fn config(url: &str) -> Config {
         Config {
             url: Some(url.to_string()),
@@ -506,8 +480,7 @@ pub(crate) mod tests {
         .unwrap();
 
         emitter.emit(EventType::NodeRegistered, node("guest-1"));
-        // The sink never answers, so the worker is parked on this one and
-        // everything past the queue capacity has nowhere to go.
+
         sink.next().await;
         for _ in 0..16 {
             emitter.emit(EventType::NodeRegistered, node("guest-1"));
@@ -564,7 +537,6 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn an_unreachable_receiver_does_not_stall_the_emitter() {
         let emitter = Emitter::new(Config {
-            // Reserved for documentation; nothing listens there.
             url: Some("http://192.0.2.1:1/hook".to_string()),
             timeout: Duration::from_millis(50),
             ..config("unused")

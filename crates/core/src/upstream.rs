@@ -1,7 +1,3 @@
-//! The controllers a stateless proxy forwards to. With several sharing one
-//! Postgres, the one holding the lease answers and the others say
-//! `503 not_leader`.
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -10,11 +6,10 @@ use axum::body::Bytes;
 use crate::logging::ErrorChain;
 use crate::{ApiError, ApiErrorCode};
 
-/// A comma-separated list of controller base URLs.
 pub const CONTROLLER_URL_VAR: &str = "WEAVE_CONTROLLER_URL";
 pub const DEFAULT_CONTROLLER_URL: &str = "http://127.0.0.1:8082";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
-/// How long a request may take in all, answer included.
+
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
@@ -27,7 +22,6 @@ pub enum ControllersError {
     Client(#[source] reqwest::Error),
 }
 
-/// A request no controller answered.
 #[derive(Debug, thiserror::Error)]
 #[error("no answer from {url}")]
 pub struct Unanswered {
@@ -37,9 +31,6 @@ pub struct Unanswered {
 }
 
 impl Unanswered {
-    /// `504 controller_timeout` when the controller took too long, since it
-    /// may have acted on the request, and `502 controller_unreachable`
-    /// otherwise.
     pub fn response(&self) -> axum::response::Response {
         tracing::warn!(error = %ErrorChain(&self.source), url = %self.url, "proxying to controller failed");
         if self.source.is_timeout() && !self.source.is_connect() {
@@ -58,7 +49,6 @@ impl Unanswered {
     }
 }
 
-/// A controller's response, read in full.
 #[derive(Debug)]
 pub struct Answer {
     pub status: reqwest::StatusCode,
@@ -128,14 +118,6 @@ impl Controllers {
         &self.urls
     }
 
-    /// Send `method path`, shaped by `build`, to the controller that answered
-    /// last, then to each other one in turn. It moves on when a controller
-    /// cannot be connected to or answers `503 not_leader`, since neither has
-    /// acted on the request. A `GET` also moves on when a controller fails or
-    /// times out after connecting. Any other request is not sent again, since
-    /// the controller may have acted on it; the next one goes to another
-    /// controller first. Any other answer is returned, and so is `not_leader`
-    /// when no controller leads.
     pub async fn send(
         &self,
         method: reqwest::Method,
@@ -202,8 +184,6 @@ mod tests {
         }
     }
 
-    /// A controller answering every request with `status`, and with an API
-    /// error carrying `code` when there is one.
     async fn stub(status: StatusCode, code: Option<ApiErrorCode>) -> Stub {
         let hits = Arc::new(AtomicUsize::new(0));
         let app = Router::new().fallback({
@@ -224,7 +204,6 @@ mod tests {
         Stub { url, hits }
     }
 
-    /// An address nothing listens on.
     async fn refusing() -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         format!("http://{}", listener.local_addr().unwrap())
@@ -246,7 +225,6 @@ mod tests {
         Some(ApiErrorCode::NotLeader)
     }
 
-    /// Accepts connections, through the kernel's backlog, and never answers.
     async fn frozen() -> (tokio::net::TcpListener, String) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());

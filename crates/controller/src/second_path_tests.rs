@@ -59,8 +59,6 @@ fn node(id: &str, attachments: Vec<NetworkAttachment>) -> NodeDescriptor {
     }
 }
 
-/// Dials out over `internet-a` and `internet-b` and listens only on a site
-/// network of its own.
 fn nat_node(id: &str) -> NodeDescriptor {
     node(
         id,
@@ -124,8 +122,6 @@ fn plan(
     .expect("derive")
 }
 
-/// What each node reports for the hops it was given, resolved the way the
-/// Strom adapter resolves them.
 fn running(planned: &PlannedStream, nodes: &[NodeDescriptor]) -> Vec<HopStatus> {
     let status = |socket: &SocketSpec, own_host: &str| SocketStatus {
         condition: LinkCondition::Flowing,
@@ -191,8 +187,6 @@ fn hop<'a>(planned: &'a PlannedStream, id: &str) -> &'a DesiredHop {
 const FIRST: &str = "weave-feed-bridge-studio-0";
 const SECOND: &str = "weave-feed-bridge-studio.2-0";
 
-/// A NAT'd source and merging studio, and relays `relay-a` and `relay-c` on
-/// `internet-a` and `relay-b` on `internet-b`.
 fn three_relays() -> Vec<NodeDescriptor> {
     vec![
         nat_node("source"),
@@ -239,7 +233,6 @@ fn a_first_path_with_no_other_relay_still_takes_the_second_paths_relay() {
     );
 }
 
-/// Each relay holds one NAT-to-NAT bridge: its two listeners.
 fn full_relays(with_room: bool) -> Vec<NodeDescriptor> {
     let mut nodes = vec![
         nat_node("source"),

@@ -75,35 +75,17 @@
                           "type": "object",
                           "properties": {
                             "transport": {
-                              "description": "A transport that carries media between two nodes.",
-                              "oneOf": [
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "srt"
-                                  ]
-                                },
-                                {
-                                  "description": "WebRTC ingest. The `Connect` end pushes media to the `Listen` end's\n signalling URL.",
-                                  "type": "string",
-                                  "const": "whip"
-                                },
-                                {
-                                  "description": "WebRTC playback. The `Connect` end pulls media from the `Listen` end's\n signalling URL.",
-                                  "type": "string",
-                                  "const": "whep"
-                                },
-                                {
-                                  "description": "RIST simple profile. The `Connect` end pushes to the `Listen` end.",
-                                  "type": "string",
-                                  "const": "rist"
-                                }
+                              "type": "string",
+                              "enum": [
+                                "srt",
+                                "whip",
+                                "whep",
+                                "rist"
                               ]
                             },
                             "roles": {
                               "type": "array",
                               "items": {
-                                "description": "Which end of a link a socket is: `Listen` hosts and `Connect` dials.",
                                 "type": "string",
                                 "enum": [
                                   "listen",
@@ -123,7 +105,6 @@
                           "type": "object",
                           "properties": {
                             "device": {
-                              "description": "The node's own capture or display device, where media starts or ends.",
                               "type": "string",
                               "enum": [
                                 "capture",
@@ -131,13 +112,11 @@
                               ]
                             },
                             "tracks": {
-                              "description": "The tracks a capture device sends. Absent means unknown.",
                               "type": [
                                 "array",
                                 "null"
                               ],
                               "items": {
-                                "description": "A kind of media track a capture device sends.",
                                 "type": "string",
                                 "enum": [
                                   "audio",
@@ -159,35 +138,17 @@
                           "type": "object",
                           "properties": {
                             "transport": {
-                              "description": "A transport that carries media between two nodes.",
-                              "oneOf": [
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "srt"
-                                  ]
-                                },
-                                {
-                                  "description": "WebRTC ingest. The `Connect` end pushes media to the `Listen` end's\n signalling URL.",
-                                  "type": "string",
-                                  "const": "whip"
-                                },
-                                {
-                                  "description": "WebRTC playback. The `Connect` end pulls media from the `Listen` end's\n signalling URL.",
-                                  "type": "string",
-                                  "const": "whep"
-                                },
-                                {
-                                  "description": "RIST simple profile. The `Connect` end pushes to the `Listen` end.",
-                                  "type": "string",
-                                  "const": "rist"
-                                }
+                              "type": "string",
+                              "enum": [
+                                "srt",
+                                "whip",
+                                "whep",
+                                "rist"
                               ]
                             },
                             "roles": {
                               "type": "array",
                               "items": {
-                                "description": "Which end of a link a socket is: `Listen` hosts and `Connect` dials.",
                                 "type": "string",
                                 "enum": [
                                   "listen",
@@ -207,7 +168,6 @@
                           "type": "object",
                           "properties": {
                             "device": {
-                              "description": "The node's own capture or display device, where media starts or ends.",
                               "type": "string",
                               "enum": [
                                 "capture",
@@ -215,13 +175,11 @@
                               ]
                             },
                             "tracks": {
-                              "description": "The tracks a capture device sends. Absent means unknown.",
                               "type": [
                                 "array",
                                 "null"
                               ],
                               "items": {
-                                "description": "A kind of media track a capture device sends.",
                                 "type": "string",
                                 "enum": [
                                   "audio",
@@ -246,11 +204,9 @@
                       "minimum": 1
                     },
                     "merge": {
-                      "description": "The hop can take a second ingress of the `ingress` class carrying another\n copy of the same media, and merge the two.",
                       "type": "boolean"
                     },
                     "accepts": {
-                      "description": "The media this profile's ingress takes. Absent takes anything. A\n source `format` it does not accept is reported as a format mismatch.",
                       "type": [
                         "object",
                         "null"
@@ -323,7 +279,6 @@
                                 "null"
                               ],
                               "items": {
-                                "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                 "type": "object",
                                 "properties": {
                                   "numerator": {
@@ -475,7 +430,6 @@
                               "type": "string"
                             },
                             "port_range": {
-                              "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                               "type": "object",
                               "properties": {
                                 "start": {
@@ -535,7 +489,6 @@
                           ]
                         },
                         "rist": {
-                          "description": "Each RIST link takes an even port from `port_range` and the one after it.",
                           "type": [
                             "object",
                             "null"
@@ -545,7 +498,6 @@
                               "type": "string"
                             },
                             "port_range": {
-                              "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                               "type": "object",
                               "properties": {
                                 "start": {
@@ -639,7 +591,6 @@
             ]
           },
           "transports": {
-            "description": "Transport labels an adapter recognised on this endpoint, such as\n `webrtc` or `ndi`. Guesses read off the underlying system, not offers.",
             "type": "array",
             "items": {
               "type": "string"
@@ -665,7 +616,6 @@
     "hops": {
       "type": "array",
       "items": {
-        "description": "Node-reported realisation status for one desired hop.",
         "type": "object",
         "properties": {
           "id": {
@@ -675,7 +625,6 @@
             "type": "string"
           },
           "state": {
-            "description": "Control-plane lifecycle of a hop's provisioning. Runtime link health is\n reported separately per socket via [`LinkCondition`].",
             "type": "string",
             "enum": [
               "pending",
@@ -684,37 +633,16 @@
             ]
           },
           "ingress": {
-            "description": "Observed condition, address, and statistics for one socket.",
             "type": "object",
             "properties": {
               "condition": {
-                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                "oneOf": [
-                  {
-                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                    "type": "string",
-                    "const": "idle"
-                  },
-                  {
-                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                    "type": "string",
-                    "const": "connecting"
-                  },
-                  {
-                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                    "type": "string",
-                    "const": "connected"
-                  },
-                  {
-                    "description": "Connection up and media flowing.",
-                    "type": "string",
-                    "const": "flowing"
-                  },
-                  {
-                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                    "type": "string",
-                    "const": "stalled"
-                  }
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "connecting",
+                  "connected",
+                  "flowing",
+                  "stalled"
                 ],
                 "default": "idle"
               },
@@ -741,7 +669,6 @@
                 ]
               },
               "stats": {
-                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                 "type": [
                   "object",
                   "null"
@@ -796,40 +723,19 @@
             ]
           },
           "merge_ingress": {
-            "description": "Observed condition, address, and statistics for one socket.",
             "type": [
               "object",
               "null"
             ],
             "properties": {
               "condition": {
-                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                "oneOf": [
-                  {
-                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                    "type": "string",
-                    "const": "idle"
-                  },
-                  {
-                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                    "type": "string",
-                    "const": "connecting"
-                  },
-                  {
-                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                    "type": "string",
-                    "const": "connected"
-                  },
-                  {
-                    "description": "Connection up and media flowing.",
-                    "type": "string",
-                    "const": "flowing"
-                  },
-                  {
-                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                    "type": "string",
-                    "const": "stalled"
-                  }
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "connecting",
+                  "connected",
+                  "flowing",
+                  "stalled"
                 ],
                 "default": "idle"
               },
@@ -856,7 +762,6 @@
                 ]
               },
               "stats": {
-                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                 "type": [
                   "object",
                   "null"
@@ -913,40 +818,19 @@
           "egresses": {
             "type": "array",
             "items": {
-              "description": "Observed status for one identified egress branch.",
               "type": "object",
               "properties": {
                 "branch_id": {
                   "type": "string"
                 },
                 "condition": {
-                  "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                  "oneOf": [
-                    {
-                      "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                      "type": "string",
-                      "const": "idle"
-                    },
-                    {
-                      "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                      "type": "string",
-                      "const": "connecting"
-                    },
-                    {
-                      "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                      "type": "string",
-                      "const": "connected"
-                    },
-                    {
-                      "description": "Connection up and media flowing.",
-                      "type": "string",
-                      "const": "flowing"
-                    },
-                    {
-                      "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                      "type": "string",
-                      "const": "stalled"
-                    }
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "connecting",
+                    "connected",
+                    "flowing",
+                    "stalled"
                   ],
                   "default": "idle"
                 },
@@ -973,7 +857,6 @@
                   ]
                 },
                 "stats": {
-                  "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                   "type": [
                     "object",
                     "null"

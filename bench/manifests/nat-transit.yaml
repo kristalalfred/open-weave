@@ -1,6 +1,3 @@
-# Two NAT'd sites: node 3 sends to node 4 with no `via`.
-# Neither site can dial the other, so the controller puts a relay between them
-# on a node both can dial out to, and both ends call out to it.
 name: nat-transit
 enabled: true
 source:

@@ -1,126 +1,40 @@
 # AGENTS.md
 
-open-weave is a control plane for live media contribution. An operator applies a
-stream manifest; the controller plans SRT/WHIP/WHEP/RIST hops across registered
-media nodes and each node's adapter builds them. `docs/` is the reference for
-every contract; this file is the short version plus the things that are easy to
-get wrong.
+Compatibility: breaking-allowed
 
-## Commands
+## Checks
 
-```sh
-just build            # cargo build
-just test             # cargo test --workspace, then node nodes/browser/check.mjs
-just lint             # clippy --workspace --all-targets --all-features -D warnings
-just fmt-check        # cargo fmt --all --check
-just board            # backlog items by status
-```
+Run `just build`, `just fmt-check`, `just lint` and `just test` before completing
+changes. Tests live beside the code in `#[cfg(test)]` modules.
 
-CI runs `fmt-check`, `lint` and `test` on the workspace, then the controller's
-`#[ignore]`d tests against a Postgres service, plus the browser-node check as a
-separate job. Run all four before proposing a change. The Postgres tests need a
-database:
+With a test Postgres database, also run:
 
 ```sh
 DATABASE_URL=postgres://... cargo test --workspace --bin weave-controller -- --ignored --test-threads=1
 ```
 
-Two more workflows run on every push: `bench.yml` runs the `bench/` media
-scenarios, and `release.yml` builds the image for linux/amd64 and linux/arm64
-and the binaries, publishing them only on a `v*` tag. The workspace declares
-Rust 1.88, the release image's toolchain, so `just lint` flags a standard
-library API newer than that.
+Run `just contracts` after changing routes or wire types. Tests check the
+committed OpenAPI and JSON Schema artifacts for drift.
 
-Tests are `#[cfg(test)]` modules beside the code they cover; there is no
-`tests/` directory.
+## Boundaries
 
-## Running it
+- The controller owns state and plans routes. Northbound and southbound are
+  stateless proxies. Media runs in the nodes, outside the control plane.
+- Keep planning side-effect free. Plan against the full candidate stream set.
+- Southbound protocol changes require updating `PROTOCOL_VERSION` and every
+  adapter, including `nodes/browser/`.
+- Formats are declarations. Report mismatches without inferring or converting
+  media.
 
-Every service refuses to start without its secret, the controller also without
-its SRT key secret, and the adapter without its node token, so either export
-them or opt out explicitly:
+## Repository text
 
-```sh
-export WEAVE_NORTHBOUND_TOKEN=$(openssl rand -hex 32)
-export WEAVE_SOUTHBOUND_KEY=$(openssl rand -hex 32)       # southbound, controller
-export WEAVE_SRT_KEY_SECRET=$(openssl rand -hex 32)       # controller
-export WEAVE_SOUTHBOUND_TOKEN=$(just cli node-token strom-node-1)  # the adapter
-# or, for local work only:
-export WEAVE_AUTH_DISABLED=1
-```
+Comments are forbidden. Preserve executable directives such as shebangs and
+Dockerfile syntax directives. Put CLI help in explicit argument metadata.
 
-```sh
-just run-north        # 127.0.0.1:9080
-just run-south        # 127.0.0.1:8081
-just run-controller   # 127.0.0.1:8082, dashboard at /ui
-just run-strom-adapter --config examples/node.yaml
-just apply            # examples/stream.yaml, through northbound
-just get-streams
-```
+Keep documentation concise and check claims against code. Remove obsolete or
+unsupported prose and completed backlog items. Do not treat backlog claims as
+proof. Distinguish unit-test coverage from media verified on the bench.
 
-The adapter needs a node config from `--config` or `WEAVE_NODE_CONFIG` and will
-not start without one.
-
-## Layout
-
-| Crate | What it is |
-|---|---|
-| `crates/core` (`weave-core`) | Shared domain types, `PROTOCOL_VERSION`, auth middleware |
-| `crates/cli` (`weave`) | Operator CLI |
-| `crates/northbound` | Operator-facing desired-state API |
-| `crates/controller` | Reconciler, sole owner of state, dashboard |
-| `crates/southbound` | Adapter-facing API |
-| `crates/adapter-strom` | Southbound adapter for Strom |
-| `crates/strom` | HTTP client for Strom's own API |
-| `crates/bench` (`weave-bench`) | Runner for the media scenarios in `bench/cases` |
-
-`nodes/browser/` is a media node that runs in a page. `bench/` is a
-docker-compose stack of real Strom instances behind per-node `netem` routers.
-
-## What to get right
-
-- **open-weave routes; it does not orchestrate or carry media.** It decides which
-  node dials which, over which standard protocol and through which relays.
-  Scheduling and feed choice belong to an application driving northbound; media
-  nodes and the data plane belong to the runtimes behind the adapters.
-  `BACKLOG.md` opens with the full scope.
-- **The controller owns all state.** Northbound and southbound are stateless
-  proxies that call into it. The controller answers no request by calling out;
-  its one outbound call is the node and stream webhook, which is fire-and-forget
-  and off unless `WEAVE_WEBHOOK_URL` is set. With Postgres, several controllers
-  can share one database: only the one holding the lease serves or writes, and
-  the proxies move to it on a connect error or `503 not_leader`.
-- **Protocol mismatches are refused, not smoothed over.** `PROTOCOL_VERSION`
-  marks the southbound adapter protocol. A registration carrying the wrong
-  version gets `409` and is not recorded. HTTP routes are unversioned before a
-  stable release, with no back-compat aliases or deprecation window at `0.1.0`.
-- **Formats are declared, not discovered.** An absent `format` means unknown,
-  not wrong, and nothing is inferred from it. A `format` is fixated; an
-  `accepts` is a constraint set. A mismatch is reported on the stream and the
-  media still flows.
-- **Manifests name nodes, never addresses or transports between them.** The
-  controller resolves addresses and socket roles at plan time from what each
-  node declared about its own reachability.
-- **Strom edits made outside open-weave are drift**, as with direct edits to
-  Kubernetes-managed objects. Desired state is the source of truth.
-
-## What is not built
-
-The items in `backlog/` are the authority on gaps, with the evidence behind each
-one, and `BACKLOG.md` says how to work them. Do not infer from the code that
-something works; if an open item lists it, it does not.
-Not implemented today: TLS served by the services themselves (the bench puts a
-proxy in front), Postgres HA, format conversion, and every adapter except Strom.
-
-Anything only verified on the `bench/` stack is verified there and nowhere else.
-Say which one a claim rests on.
-
-## Docs
-
-`README.md`, `docs/`, `BACKLOG.md` and `backlog/` are written plainly: short
-sentences, no hype, no restated conclusions. Match that. State what the code
-does rather than why someone chose it, and keep new comments to the ones a
-reader could not get from the code itself.
-
-`README.md` is the front page: what open-weave is, a quickstart, and links. It
-stays short. Contract detail goes in the matching page under `docs/`.
+`README.md` holds the quickstart and links. `docs/` holds contracts,
+`bench/README.md` the local media test setup, and `deploy/README.md` the Compose
+setup. `just board` lists open work.

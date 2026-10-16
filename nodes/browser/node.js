@@ -1,7 +1,5 @@
 "use strict";
 
-// Must equal weave_core::PROTOCOL_VERSION; check.mjs reads this line and
-// compares it with the constant in crates/core.
 const PROTOCOL_VERSION = 5;
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 2000;
@@ -49,15 +47,11 @@ function parseIceServers(text) {
   return null;
 }
 
-// A node token is `<node id>.<epoch>.<mac>`, so it names the node it authenticates as.
 function tokenNodeId(token) {
   const dot = token.indexOf(".");
   return dot > 0 ? token.slice(0, dot) : "";
 }
 
-// `#node=<id>` pins the id, for a page that must keep its name across restarts.
-// Otherwise the token's node id, and without one, one id per tab for as long as
-// it lives: a reload keeps the node, a new tab is a new node.
 function readNodeId() {
   if (config.node) return config.node;
   if (tokenOwner) return tokenOwner;
@@ -73,8 +67,6 @@ function readNodeId() {
 function validResourceId(value) {
   return value.length <= RESOURCE_ID_MAX_LEN && RESOURCE_ID_PATTERN.test(value);
 }
-
-// --- southbound ---
 
 async function southbound(method, path, body) {
   const headers = {};
@@ -166,8 +158,6 @@ async function pollDesired() {
   render();
 }
 
-// Hops are matched by id. A hop whose spec changed is torn down and restarted;
-// an unchanged one is left alone, whatever its state.
 function reconcile(desired) {
   const wanted = new Map(desired.map(spec => [spec.id, spec]));
   for (const [id, hop] of hops) {
@@ -189,11 +179,6 @@ function hopStatuses() {
   return Array.from(hops.values(), hop => hop.status());
 }
 
-// --- byte progress ---
-
-// Byte progress across polls is what separates a connected session that is
-// carrying media from one that is silent; a counter that stops moving after
-// having moved is a stall.
 class Progress {
   constructor() {
     this.last = null;
@@ -232,14 +217,8 @@ class Progress {
   }
 }
 
-// --- hops ---
-
-// Must equal weave_core::DEVICE_TRANSPORT; check.mjs reads this line and
-// compares it with the constant in crates/core.
 const DEVICE_TRANSPORT = "device";
 
-// A socket named as core prints one: `srt`, `whip`, `whep`, `capture device`,
-// `display device`.
 function socketName(socket) {
   if (!socket) return "nothing";
   return socket.transport === DEVICE_TRANSPORT ? `${socket.role} device` : socket.transport;
@@ -332,10 +311,6 @@ class Hop {
     return pc;
   }
 
-  // WHIP and WHEP share one signalling exchange: POST the offer as SDP, read the
-  // answer, remember the session resource from Location for teardown. Strom does
-  // not expose Location to a cross-origin page, so the resource may stay unknown;
-  // closing the peer connection then relies on Strom's inactivity timeout.
   async signal(url) {
     const pc = this.pc;
     await pc.setLocalDescription(await pc.createOffer());
@@ -419,7 +394,6 @@ class Hop {
   }
 }
 
-// device (camera) → whip connect
 class SenderHop extends Hop {
   constructor(spec) {
     super(spec);
@@ -444,7 +418,6 @@ class SenderHop extends Hop {
     }
   }
 
-  // The camera is this hop's ingress: producing while its tracks are live.
   ingressCondition() {
     const tracks = this.stream ? this.stream.getTracks() : [];
     if (!tracks.some(t => t.readyState === "live")) return "idle";
@@ -456,7 +429,6 @@ class SenderHop extends Hop {
   }
 }
 
-// whep connect → device (screen)
 class ReceiverHop extends Hop {
   constructor(spec) {
     super(spec);
@@ -493,7 +465,6 @@ class ReceiverHop extends Hop {
     return this.progress.condition(this.connected);
   }
 
-  // The screen is this hop's egress: consuming once the element plays.
   egressCondition() {
     if (!this.video.srcObject) return "connecting";
     return this.video.readyState >= 2 && !this.video.paused ? "flowing" : "connected";
@@ -527,10 +498,6 @@ class UnsupportedHop extends Hop {
   }
 }
 
-// Camera and microphone, or the camera alone with `#media=video`. A device the
-// OS never answers for leaves getUserMedia pending rather than rejecting, and a
-// pending request blocks every later one in the page, so the wait is bounded
-// and there is no in-page fallback: pick the devices in the URL.
 function captureDevices() {
   if (!navigator.mediaDevices) {
     return Promise.reject(
@@ -564,8 +531,6 @@ function iceGathered(pc, timeoutMs) {
   });
 }
 
-// --- page ---
-
 const logLines = [];
 function log(line) {
   logLines.unshift(`${new Date().toLocaleTimeString()} ${line}`);
@@ -575,8 +540,7 @@ function log(line) {
 function manifests() {
   const cameraName = derivedStreamName("cam");
   const returnName = derivedStreamName("return");
-  return `# camera to a Strom node
-name: ${cameraName}
+  return `name: ${cameraName}
 source:
   device:
     node: ${nodeId}
@@ -584,7 +548,6 @@ destinations:
   - srt:
       node: strom-node-1
 
-# a Strom node's SRT ingress to this screen
 name: ${returnName}
 source:
   srt:

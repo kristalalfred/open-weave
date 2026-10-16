@@ -1,7 +1,3 @@
-//! Northbound API — desired-state surface for operators and systems. Stateless:
-//! it validates stream submissions at the boundary and proxies every request to
-//! the controller, which owns all state, or to whichever of several leads.
-
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -27,7 +23,7 @@ use weave_core::{
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = long_about())]
 struct Args {
-    /// Address to listen on.
+    #[arg(help = "Address to listen on")]
     #[arg(
         long,
         env = "WEAVE_NORTHBOUND_ADDR",
@@ -35,7 +31,7 @@ struct Args {
         default_value = "127.0.0.1:9080"
     )]
     listen: String,
-    /// Controller base URLs, comma-separated.
+    #[arg(help = "Controller base URLs, comma-separated")]
     #[arg(
         long,
         env = CONTROLLER_URL_VAR,
@@ -60,8 +56,7 @@ fn long_about() -> String {
 #[derive(Clone)]
 struct AppState {
     controllers: Arc<Controllers>,
-    /// Re-presented to the controller on every proxied request. `None` when
-    /// authentication is disabled.
+
     token: Option<Token>,
 }
 
@@ -106,9 +101,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// `/health` stays open for compose healthchecks and load balancers. Every contract route
-/// requires the northbound bearer token, `/status` included — unlike on the
-/// controller, where the embedded dashboard reads the same rollup.
 fn router(state: AppState, guard: Guard) -> Router {
     let operator = Router::new()
         .route(ROUTE_NODES, get(list_nodes))
@@ -363,8 +355,6 @@ fn invalid_json(rejection: JsonRejection) -> Response {
     .response(StatusCode::BAD_REQUEST)
 }
 
-/// Forward a request to the leading controller, passing its status and body
-/// back faithfully. Handlers name the same paths this service serves.
 async fn proxy(
     state: &AppState,
     method: reqwest::Method,
@@ -459,8 +449,6 @@ mod tests {
         if_none_match: Option<String>,
     }
 
-    /// A stub controller listening on a real socket. Records the last request and
-    /// returns a canned status + JSON body so proxy fidelity can be asserted.
     async fn stub_controller(status: StatusCode) -> (String, Arc<Mutex<Option<Captured>>>) {
         use axum::extract::State as AxState;
         let captured: Arc<Mutex<Option<Captured>>> = Arc::new(Mutex::new(None));
@@ -524,7 +512,6 @@ mod tests {
         Token::new(TOKEN).unwrap()
     }
 
-    /// A router with authentication switched off, for the proxy-fidelity tests.
     fn open_app(controller_url: String) -> Router {
         router(
             AppState::new(Controllers::new(&controller_url).unwrap(), None),
@@ -532,7 +519,6 @@ mod tests {
         )
     }
 
-    /// A router requiring [`TOKEN`], which it also re-presents to the controller.
     fn guarded_app(controller_url: String) -> Router {
         router(
             AppState::new(Controllers::new(&controller_url).unwrap(), Some(token())),
@@ -632,7 +618,6 @@ mod tests {
         );
     }
 
-    /// A controller on standby: every request gets `503 not_leader`.
     async fn standby_controller() -> String {
         let app = Router::new().fallback(|| async {
             ApiError::new(ApiErrorCode::NotLeader, "standby")
@@ -646,8 +631,6 @@ mod tests {
         format!("http://{addr}")
     }
 
-    /// A controller refusing every token, as one holding another northbound
-    /// token does.
     async fn refusing_controller() -> String {
         let app = Router::new().fallback(|| async { auth::unauthorized() });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1214,7 +1197,6 @@ mod tests {
         assert!(captured.lock().unwrap().is_none());
     }
 
-    /// Version-prefixed paths are not aliases for the current contract.
     #[tokio::test]
     async fn retired_contract_paths_are_not_served() {
         let (url, captured) = stub_controller(StatusCode::OK).await;
@@ -1315,8 +1297,6 @@ mod tests {
         );
     }
 
-    /// Missing and wrong tokens are both rejected, on read and write, with a
-    /// `Bearer` challenge — and nothing reaches the controller.
     #[tokio::test]
     async fn contract_routes_reject_missing_and_wrong_tokens() {
         for header in [None, Some("Bearer wrong-token"), Some("Basic ignored")] {

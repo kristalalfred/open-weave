@@ -12,8 +12,6 @@ categories = ["multimedia::video", "network-programming"]
 
 [features]
 default = []
-# Enables the axum bearer-token middleware in `auth`. Servers opt in; client
-# crates (CLI, adapters) use the same module without pulling axum in.
 server = ["axum", "reqwest"]
 
 [dependencies]

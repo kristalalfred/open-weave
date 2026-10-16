@@ -1,7 +1,3 @@
-//! Keys for SRT links between nodes. Each key is derived from one controller
-//! secret, the id of the hop the link feeds and the two nodes it joins, so both
-//! ends get the same key on every tick and nothing is stored.
-
 use std::fmt::{self, Write};
 
 use hmac::{Hmac, Mac};
@@ -36,7 +32,6 @@ pub(crate) enum SecretError {
     Random(String),
 }
 
-/// Where the secret came from, so the caller can warn about a generated one.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SecretSource {
     Configured,
@@ -50,8 +45,6 @@ impl LinkKeys {
         }
     }
 
-    /// Read [`SECRET_VAR`]. When it is unset or blank and authentication is
-    /// disabled, a random secret is generated instead.
     pub(crate) fn from_env() -> Result<(Self, SecretSource), SecretError> {
         Self::resolve(
             std::env::var(SECRET_VAR).ok().as_deref(),
@@ -81,9 +74,6 @@ impl LinkKeys {
         Self::new("0123456789abcdef0123456789abcdef")
     }
 
-    /// The key for the link feeding hop `hop_id` between the nodes `ends`, in
-    /// either order: HMAC-SHA256 of the secret over the hop id and both node
-    /// ids, as 64 lowercase hex characters.
     pub(crate) fn link(&self, hop_id: &str, mut ends: [&str; 2]) -> Passphrase {
         ends.sort_unstable();
         let mut mac = Hmac::<Sha256>::new_from_slice(&self.secret)

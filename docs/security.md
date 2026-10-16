@@ -34,13 +34,7 @@ short key offline. Both services refuse to start with a shorter key, and
 
 `weave node-token <id>` prints a node's token at epoch 0, and `--epoch <n>` at
 another. It reads the key from `WEAVE_SOUTHBOUND_KEY` only, which keeps it off
-the command line, and calls no service. openssl gives the same value, though it
-takes the key on its own command line while it runs:
-
-```sh
-id=strom-node-1 epoch=0
-printf '%s.%s.%s\n' "$id" "$epoch" "$(printf %s "$id.$epoch" | openssl dgst -sha256 -hmac "$WEAVE_SOUTHBOUND_KEY" -r | cut -d' ' -f1)"
-```
+the command line, and calls no service.
 
 An adapter takes its token from `WEAVE_SOUTHBOUND_TOKEN`, or from
 `node.southbound_token` in its config, which takes precedence.
@@ -115,8 +109,7 @@ A page on another origin needs `WEAVE_SOUTHBOUND_CORS_ORIGIN` on southbound: an
 exact origin such as `https://studio.example`, or `*` for development. When it
 is set, southbound sends CORS headers on its API routes and answers the
 preflight before the bearer check, allowing `Authorization` and `Content-Type`.
-When it is unset, no CORS headers are sent and only non-browser adapters can
-register.
+When it is unset, cross-origin browser requests cannot register.
 
 ### Strom
 

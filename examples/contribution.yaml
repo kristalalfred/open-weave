@@ -1,6 +1,3 @@
-# Single contribution feed: SRT listener relayed to the egress node.
-# The destination references its node; the controller resolves node-2's data-plane
-# address and assigns a port from the node's declared range.
 name: contribution
 enabled: true
 source:

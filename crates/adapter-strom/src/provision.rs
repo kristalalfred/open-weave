@@ -1,5 +1,3 @@
-//! Pure diff between desired hops and Strom's actual flows.
-
 use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
@@ -9,20 +7,14 @@ use weave_core::{
 };
 use weave_strom::{FlowSpec, SrtUri, StromFlow, flow_spec_from_hop, hop_srt_uris};
 
-/// Consecutive polls without byte progress on one side before a running,
-/// ever-flowed hop is judged stalled there. At the default 5s poll this is ~15s
-/// of frozen bytes.
 const STALL_POLLS: u32 = 3;
 
-/// Per-poll observation of one side of a hop, fed to the [`StallTracker`].
 #[derive(Debug, Clone, Copy)]
 pub struct SideObservation {
-    /// Cumulative bytes through that side, or `None` when stats are unavailable
-    /// this cycle.
     pub bytes: Option<i64>,
-    /// Whether the flow still claims to be running.
+
     pub running: bool,
-    /// Whether the flow's GStreamer state is `Paused` (healthy-idle listener).
+
     pub gst_paused: bool,
 }
 
@@ -33,17 +25,12 @@ struct HopProgress {
     ever_flowed: bool,
 }
 
-/// Which side of a hop a byte counter belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {
     Ingress,
     Egress(usize),
 }
 
-/// Consecutive polls an SRT caller ingress may go without a finished handshake in
-/// a running flow before the flow is first restarted. At the default 5s poll this
-/// is ~30s. Each restart that does not bring the handshake doubles the wait, up
-/// to [`MAX_REDIAL_POLLS`].
 const REDIAL_POLLS: u32 = 6;
 const MAX_REDIAL_POLLS: u32 = 96;
 
@@ -53,10 +40,6 @@ struct CallerWait {
     due_at: u32,
 }
 
-/// In-memory byte-progress tracker keyed by hop id and side, plus how long each
-/// hop's SRT caller ingress has gone without a handshake. Byte progress across polls is
-/// the only reliable signal that a connected socket is truly flowing; no single
-/// instantaneous field separates a dead flow from a live one.
 #[derive(Debug, Default)]
 pub struct StallTracker {
     hops: HashMap<(String, Side), HopProgress>,
@@ -64,8 +47,6 @@ pub struct StallTracker {
     sessions: HashMap<(String, Side), SessionTotal>,
 }
 
-/// A WebRTC side's bytes folded over its sessions: each session's last count,
-/// and the total they have carried since the side was first seen.
 #[derive(Debug, Default)]
 struct SessionTotal {
     last: HashMap<String, i64>,
@@ -73,24 +54,17 @@ struct SessionTotal {
 }
 
 impl StallTracker {
-    /// Fold one poll's observation of `side` of `hop_id` and report whether that
-    /// side is stalled: it has flowed since we began watching, its bytes have
-    /// been frozen for at least [`STALL_POLLS`] polls, and the flow still runs and
-    /// is not a paused idle listener.
     pub fn observe(&mut self, hop_id: &str, side: Side, obs: SideObservation) -> bool {
         let progress = self.hops.entry((hop_id.to_string(), side)).or_default();
 
         if let Some(bytes) = obs.bytes {
             match progress.last_bytes {
-                // First sighting only establishes a baseline, so a counter that is
-                // already frozen reads never-flowed until it is seen to advance.
                 None => {}
                 Some(prev) if bytes > prev => {
                     progress.ever_flowed = true;
                     progress.stale_polls = 0;
                 }
-                // Equal (frozen) or lower (SRT settles the counter down at caller
-                // disconnect, or the flow was recreated) is not forward progress.
+
                 Some(_) => progress.stale_polls = progress.stale_polls.saturating_add(1),
             }
             progress.last_bytes = Some(bytes);
@@ -102,7 +76,6 @@ impl StallTracker {
             && progress.stale_polls >= STALL_POLLS
     }
 
-    /// Whether `side` of `hop_id` advanced on its most recent observation.
     #[must_use]
     pub fn advanced(&self, hop_id: &str, side: Side) -> bool {
         self.hops
@@ -110,12 +83,6 @@ impl StallTracker {
             .is_some_and(|progress| progress.ever_flowed && progress.stale_polls == 0)
     }
 
-    /// Drop tracked hops no longer desired so state cannot grow without bound.
-    /// Fold one poll's per-session byte counts for `side` of `hop_id` into one
-    /// total that never falls: each session adds what it carried since the last
-    /// poll, and a session that ends takes nothing away. The total is what
-    /// [`StallTracker::observe`] is fed for a WebRTC side, since a sum over the
-    /// sessions present would drop when one ends and read as no progress.
     pub fn session_total(&mut self, hop_id: &str, side: Side, sessions: &[(&str, i64)]) -> i64 {
         let entry = self.sessions.entry((hop_id.to_string(), side)).or_default();
         let mut last = HashMap::with_capacity(sessions.len());
@@ -136,9 +103,6 @@ impl StallTracker {
             .retain(|id, _| desired.contains(id.as_str()));
     }
 
-    /// Fold one poll of a running flow's SRT caller ingress: whether its SRT
-    /// handshake has finished. A finished handshake forgets the wait and its
-    /// backoff.
     pub fn note_caller(&mut self, hop_id: &str, handshaken: bool) {
         if handshaken {
             self.unconnected_callers.remove(hop_id);
@@ -153,9 +117,6 @@ impl StallTracker {
         }
     }
 
-    /// Whether `hop_id`'s flow is due a restart: its SRT caller ingress has gone
-    /// without a handshake for as many polls as it is allowed. A due restart
-    /// starts the count again and doubles the allowance.
     pub fn caller_due_restart(&mut self, hop_id: &str) -> bool {
         match self.unconnected_callers.get_mut(hop_id) {
             Some(wait) if wait.polls >= wait.due_at => {
@@ -170,11 +131,10 @@ impl StallTracker {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct HopPlan {
-    /// Desired hops with no same-named flow yet (flow name == hop id).
     pub create: Vec<DesiredHop>,
-    /// Strom flow ids that are desired and present but not running.
+
     pub start: Vec<String>,
-    /// Strom flow ids owned by open-weave that are no longer desired.
+
     pub delete: Vec<String>,
 }
 
@@ -185,14 +145,6 @@ impl HopPlan {
     }
 }
 
-/// Reconcile desired hops against observed Strom flows.
-///
-/// Flows are adopted by name. A flow whose sockets no longer match the desired
-/// hop (an SRT address, latency or key changed, or a WHIP/WHEP endpoint id) is
-/// treated as drifted: it is deleted and recreated rather than adopted, so a
-/// changed stream actually reaches the node. Only flows carrying the managed hop-id
-/// prefix are ever deleted, so flows created outside open-weave are left
-/// untouched.
 #[must_use]
 pub fn diff_hops(desired: &[DesiredHop], flows: &[StromFlow]) -> HopPlan {
     let desired_by_id: HashMap<&str, &DesiredHop> =
@@ -228,12 +180,6 @@ pub fn diff_hops(desired: &[DesiredHop], flows: &[StromFlow]) -> HopPlan {
     }
 }
 
-/// Whether an adopted flow's sockets diverge from the desired hop: its SRT
-/// sockets (element `uri`s and block `srt_uri`s, with every parameter in them),
-/// its RIST addresses (`ristsrc` port, `ristsink` address and port), its
-/// WHIP/WHEP endpoint ids (block `endpoint_id`s), or the block properties set
-/// from the hop's tracks. A flow exposing no socket cannot be compared, so it is
-/// adopted rather than recreated.
 fn flow_drifted(flow: &StromFlow, hop: &DesiredHop) -> bool {
     let actual_srt = sorted(flow_srt_uris(flow));
     let actual_rist = sorted(flow_rist_endpoints(flow));
@@ -248,7 +194,6 @@ fn flow_drifted(flow: &StromFlow, hop: &DesiredHop) -> bool {
             .is_ok_and(|spec| flow_track_settings(flow) != spec_track_settings(&spec))
 }
 
-/// Block properties the adapter sets from a hop's `tracks`.
 const TRACK_PROPERTIES: [&str; 3] = ["mode", "num_video_tracks", "num_audio_tracks"];
 
 type TrackSetting = (String, &'static str, String);
@@ -299,8 +244,6 @@ fn flow_srt_uris(flow: &StromFlow) -> Vec<SrtUri> {
         .collect()
 }
 
-/// `(host, port)` of each RIST element: an empty host for a `ristsrc`, which
-/// binds, and the `address` a `ristsink` sends to.
 fn flow_rist_endpoints(flow: &StromFlow) -> Vec<(String, u16)> {
     flow.elements
         .iter()
@@ -348,10 +291,6 @@ fn hop_endpoint_ids(hop: &DesiredHop) -> Vec<String> {
         .collect()
 }
 
-/// Derive a hop's control-plane lifecycle state from its flow presence.
-///
-/// Runtime link health (connection up, media flowing) is reported separately per
-/// socket via [`socket_condition`], not folded into the lifecycle state.
 #[must_use]
 pub fn hop_state(flow: Option<&StromFlow>, failed: bool) -> HopState {
     if failed {
@@ -363,13 +302,6 @@ pub fn hop_state(flow: Option<&StromFlow>, failed: bool) -> HopState {
     }
 }
 
-/// Map an observed socket to its link condition.
-///
-/// A `stalled` verdict overrides all else: the socket carried media but its bytes
-/// froze while the flow claims to run. Otherwise a socket with no SRT connection is
-/// `Idle` when it listens (healthy waiting) and `Connecting` when it calls (retrying
-/// — ambiguous, not degraded). A live connection is `Flowing` when media moves and
-/// `Connected` when it is silent.
 #[must_use]
 pub fn socket_condition(
     role: SocketRole,
@@ -388,14 +320,6 @@ pub fn socket_condition(
     }
 }
 
-/// Map a WHIP or WHEP socket to its link condition, read from its own sessions
-/// in Strom's `webrtc-stats`.
-///
-/// A `stalled` verdict overrides all else, as in [`socket_condition`]: the
-/// socket carried media and its bytes have not moved since, whether its peer is
-/// still in session or gone. Otherwise a socket with no session carrying RTP
-/// waits, `Idle` when it hosts and `Connecting` when it dials; one in session is
-/// `Flowing` when its bytes advanced this poll and `Connected` when they did not.
 #[must_use]
 pub fn webrtc_condition(
     role: SocketRole,
@@ -414,13 +338,6 @@ pub fn webrtc_condition(
     }
 }
 
-/// Map a RIST socket to its link condition, read from the SRT side of its hop:
-/// Strom reports nothing about RIST elements. A sender's RIST egress follows its
-/// SRT ingress and cannot tell whether anything receives; a receiver's RIST
-/// ingress follows its SRT egresses, so it waits until a consumer pulls. With
-/// no SRT connection the socket waits, `Idle` when it listens and `Connecting`
-/// when it dials; with one, a `stalled` verdict wins, then `Flowing` when the
-/// bytes advanced this poll and `Connected` when they did not.
 #[must_use]
 pub fn rist_condition(
     role: SocketRole,
@@ -437,10 +354,6 @@ pub fn rist_condition(
     }
 }
 
-/// Best-effort resolved address for a socket spec. A listener resolves to the
-/// node's advertised data-plane host so peers connect to a concrete address,
-/// falling back to the wildcard when the node declares none; a socket carrying
-/// no address of its own cannot be resolved.
 #[must_use]
 pub fn resolved_addr(spec: &SocketSpec, listener_host: Option<&str>) -> Option<ResolvedAddr> {
     let (host, port) = match spec {
@@ -545,8 +458,6 @@ mod tests {
 
     #[test]
     fn drifted_flow_is_deleted_and_recreated() {
-        // hop("weave-a") listens on 7001 and dials 10.0.0.2:7002; the adopted flow
-        // still listens on 9999, so its port drifted.
         let desired = vec![hop("weave-a")];
         let flows = vec![flow_with_uris(
             "weave-a",
@@ -894,8 +805,6 @@ mod tests {
 
     #[test]
     fn counter_settling_lower_then_freezing_still_stalls() {
-        // SRT settles bytes_received down at caller disconnect before freezing; a
-        // hop that has flowed is still judged stalled, not treated as fresh.
         let mut tracker = StallTracker::default();
         tracker.observe("weave-a", Side::Ingress, flowing(71_416_276));
         tracker.observe("weave-a", Side::Ingress, flowing(72_000_000));
@@ -912,8 +821,6 @@ mod tests {
 
     #[test]
     fn frozen_from_first_observation_reads_never_flowed() {
-        // After an adapter restart the tracker adopts an already-dead flow; with no
-        // observed advance it reads never-flowed rather than stalled.
         let mut tracker = StallTracker::default();
         for _ in 0..6 {
             assert!(!tracker.observe("weave-a", Side::Ingress, flowing(9_299_932)));

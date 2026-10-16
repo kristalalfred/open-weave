@@ -72,38 +72,14 @@
               "status": {
                 "anyOf": [
                   {
-                    "description": "End-to-end status of a path, derived from its hops' conditions.",
-                    "oneOf": [
-                      {
-                        "description": "The path is disabled.",
-                        "type": "string",
-                        "const": "idle"
-                      },
-                      {
-                        "description": "At least one hop failed to provision.",
-                        "type": "string",
-                        "const": "failed"
-                      },
-                      {
-                        "description": "A hop is still provisioning or has not reported yet.",
-                        "type": "string",
-                        "const": "pending"
-                      },
-                      {
-                        "description": "Provisioned end to end, but no media is entering at the source.",
-                        "type": "string",
-                        "const": "awaiting_input"
-                      },
-                      {
-                        "description": "Media is entering at the source but not flowing all the way through.",
-                        "type": "string",
-                        "const": "degraded"
-                      },
-                      {
-                        "description": "Media is flowing across every hop.",
-                        "type": "string",
-                        "const": "flowing"
-                      }
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "failed",
+                      "pending",
+                      "awaiting_input",
+                      "degraded",
+                      "flowing"
                     ]
                   },
                   {
@@ -216,7 +192,6 @@
                     "type": "string"
                   },
                   "host": {
-                    "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
                     "type": [
                       "string",
                       "null"
@@ -232,7 +207,6 @@
                     "maximum": 65535
                   },
                   "url": {
-                    "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
                     "type": "string"
                   }
                 },
@@ -255,38 +229,14 @@
                     "status": {
                       "anyOf": [
                         {
-                          "description": "End-to-end status of a path, derived from its hops' conditions.",
-                          "oneOf": [
-                            {
-                              "description": "The path is disabled.",
-                              "type": "string",
-                              "const": "idle"
-                            },
-                            {
-                              "description": "At least one hop failed to provision.",
-                              "type": "string",
-                              "const": "failed"
-                            },
-                            {
-                              "description": "A hop is still provisioning or has not reported yet.",
-                              "type": "string",
-                              "const": "pending"
-                            },
-                            {
-                              "description": "Provisioned end to end, but no media is entering at the source.",
-                              "type": "string",
-                              "const": "awaiting_input"
-                            },
-                            {
-                              "description": "Media is entering at the source but not flowing all the way through.",
-                              "type": "string",
-                              "const": "degraded"
-                            },
-                            {
-                              "description": "Media is flowing across every hop.",
-                              "type": "string",
-                              "const": "flowing"
-                            }
+                          "type": "string",
+                          "enum": [
+                            "idle",
+                            "failed",
+                            "pending",
+                            "awaiting_input",
+                            "degraded",
+                            "flowing"
                           ]
                         },
                         {
@@ -399,7 +349,6 @@
                           "type": "string"
                         },
                         "host": {
-                          "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
                           "type": [
                             "string",
                             "null"
@@ -415,7 +364,6 @@
                           "maximum": 65535
                         },
                         "url": {
-                          "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
                           "type": "string"
                         }
                       },

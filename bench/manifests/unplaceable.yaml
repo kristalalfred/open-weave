@@ -1,5 +1,3 @@
-# Source pinned to a node that never registers: stays pending, never provisions.
-# Kubernetes-style unschedulable — it places as soon as that node appears.
 name: unplaceable
 enabled: true
 source:

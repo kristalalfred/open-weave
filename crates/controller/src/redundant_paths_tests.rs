@@ -69,8 +69,6 @@ fn merging(mut node: NodeDescriptor) -> NodeDescriptor {
     node
 }
 
-/// Dials out over one uplink per network in `uplinks` and listens only on a
-/// site network of its own.
 fn nat_node(id: &str, uplinks: &[&str]) -> NodeDescriptor {
     let mut attachments: Vec<_> = uplinks
         .iter()
@@ -115,7 +113,6 @@ fn stream(name: &str, destinations: Vec<StreamDestination>) -> StreamDefinition 
     }
 }
 
-/// Source and studio both on `net-a` and `net-b`, each with a listener on both.
 fn dual_homed() -> Vec<NodeDescriptor> {
     vec![
         node(
@@ -139,8 +136,6 @@ fn dual_homed() -> Vec<NodeDescriptor> {
     ]
 }
 
-/// A NAT'd source and studio with an uplink to `internet-a` and `internet-b`,
-/// and one public relay on each.
 fn nat_pair() -> Vec<NodeDescriptor> {
     vec![
         nat_node("source", &["internet-a", "internet-b"]),
@@ -542,8 +537,6 @@ async fn a_plan_with_one_path_of_two_gives_the_reason() {
     );
 }
 
-/// The derived keys a hop's SRT sockets carry. Terminal sockets in these
-/// fixtures set no manifest passphrase, so every key here is a link key.
 fn link_keys(hop: &DesiredHop) -> Vec<Passphrase> {
     std::iter::once(&hop.ingress)
         .chain(hop.merge_ingress.as_ref())
@@ -557,9 +550,6 @@ fn link_keys(hop: &DesiredHop) -> Vec<Passphrase> {
         .collect()
 }
 
-/// Stream `x` to `a-receiver-b` and stream `x-receiver-a` to `b` spell the same
-/// receiver id, so their merge links are both fed by
-/// `weave-x-receiver-a-receiver-b.2`.
 #[test]
 fn two_streams_that_spell_one_merge_link_id_never_both_carry_its_key() {
     let nodes = dual_homed();

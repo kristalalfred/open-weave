@@ -1,12 +1,4 @@
 #!/bin/sh
-# Generate the bench's private CA and the certificate the `tls` proxy serves.
-# Runs in the `tls-certs` one-shot service on every `up`, so the host needs no
-# openssl of its own. Files already there are kept while the server certificate
-# names the proxy's address and is more than a day from expiring.
-#
-#   public/ca.pem       the CA, mounted into nodes and read by host recipes
-#   server/server.pem   the proxy's certificate and key
-#   ca/ca.key           the CA key, mounted nowhere
 set -eu
 proxy=10.97.25.25
 cd "${1:-/tls}"

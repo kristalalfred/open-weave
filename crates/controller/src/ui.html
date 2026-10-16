@@ -161,14 +161,10 @@
 "use strict";
 
 const COLORS = {
-  // stream / path status
   flowing: "var(--green)", awaiting_input: "var(--blue)", degraded: "var(--amber)",
   failed: "var(--red)", pending: "var(--gray)", idle: "var(--gray)",
-  // reconcile status
   converged: "var(--green)", converging: "var(--amber)", starting: "var(--gray)",
-  // node status
   ready: "var(--green)", offline: "var(--red)",
-  // link conditions
   connecting: "var(--amber)", connected: "var(--blue)", stalled: "var(--red)",
 };
 const HOLLOW = new Set(["idle", "pending", "connecting", "starting", "unreported"]);
@@ -268,8 +264,6 @@ function addrChip(tag, text, title) {
   return el;
 }
 
-// SRT and a device end are the unremarkable cases and draw a bare arrow; any
-// other transport is named on the arrow.
 function arrow(socket) {
   const transport = socket && socket.transport;
   const bare = !transport || transport === "srt" || transport === DEVICE_TRANSPORT;
@@ -278,23 +272,16 @@ function arrow(socket) {
   return el;
 }
 
-// The chip standing in for a device end: the media starts at the node's own
-// camera or ends on its own screen, so there is no address to show.
 function deviceChip(tag, socket) {
   return addrChip(tag, socket.mode === "capture" ? "camera" : "screen", "the node's own device");
 }
 
-// Bridges on a destination's chain, upstream-first. A bridge id carries both
-// the destination it serves and its position along that destination's chain.
 function bridgesFor(hops, id) {
   return hops
     .filter(hop => hop.role === "bridge" && hop.egresses.some(egress => egress.branch_id === id))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-// A trunk line (ingress address -> sender), then one indented branch line per
-// destination: the relays it transits, then its receiver hop and consumer
-// address, or the remote address the last hop dials out to.
 function renderPath(stream) {
   const path = h("div", "path");
   const [sender, ...downstream] = stream.hops;
@@ -320,7 +307,7 @@ function renderPath(stream) {
       link = bridge.egresses[0];
     }
     const receiver = output && output.node === ""
-      ? null // remote destination: the chain dials out, no receiver hop
+      ? null
       : downstream.find(r => r.id === `weave-${stream.name}-receiver-${id}`);
     if (receiver) {
       branch.append(arrow(link), hopChip(receiver));

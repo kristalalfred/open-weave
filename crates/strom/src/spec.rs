@@ -1,5 +1,3 @@
-//! Serializable Strom flow spec and mapping from a desired hop.
-
 use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -21,8 +19,6 @@ pub struct FlowSpec {
     pub links: Vec<Link>,
 }
 
-/// A Strom block: a packaged sub-pipeline addressed by `block_definition_id`,
-/// linked through its external pads as `<id>:<pad>`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Block {
     pub id: String,
@@ -72,33 +68,6 @@ pub enum MappingError {
     },
 }
 
-/// Map a desired hop to a Strom flow. The flow name is the hop id, so flows are
-/// adopted by name.
-///
-/// The shape follows the hop's (ingress, egress) sockets:
-///
-/// - `srt → srt`: elements only, a byte relay. A single egress yields
-///   srtsrc→queue→srtsink; several yield srtsrc→tee→N×(queue→srtsink).
-/// - `whip → srt`: a gateway from a WHIP ingest hosted here to an SRT socket,
-///   `whip_input → videoenc → mpegtssrt_output`, audio passed straight to the
-///   muxer. Several egresses tee after the encoder.
-/// - `srt → whep`: `mpegtssrt_input(decode) → whep_output`. Several egresses tee
-///   the decoded video and audio.
-/// - `srt → rist`: srtsrc→capsfilter→queue→rtpmp2tpay→ristsink, the MPEG-TS
-///   payloaded into RTP. Several egresses tee after the capsfilter.
-/// - `rist → srt`: ristsrc→rtpmp2tdepay→queue→srtsink. Several egresses tee after
-///   the depayloader.
-/// - `whip → whep`: `whip_input(decode) → whep_output`, from a WHIP ingest hosted
-///   here to WHEP players. Several egresses tee the decoded video and audio.
-///
-/// The `whip` and `whep` shapes build only the tracks a hop's `tracks` names:
-/// no audio pads for video alone, no encoder for audio alone.
-///
-/// Every egress of a hop must ask for one shape; a hop asked to fan out over two
-/// is [`MappingError::MixedEgress`]. No shape merges two ingresses, so a hop
-/// with a merge ingress is [`MappingError::MergeIngress`]. The selected profile
-/// id dispatches the constructor and its sockets are checked against that
-/// profile.
 pub fn flow_spec_from_hop(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     if hop.merge_ingress.is_some() {
         return Err(MappingError::MergeIngress);
@@ -122,7 +91,6 @@ pub fn flow_spec_from_hop(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     }
 }
 
-/// The flow shape a socket asks for, setting aside the address it carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shape {
     Srt,
@@ -142,8 +110,6 @@ fn shape(spec: &SocketSpec) -> Shape {
     }
 }
 
-/// The first egress of `hop`, checking that every egress asks for the same
-/// shape: one flow carries one egress shape.
 fn sole_egress(hop: &DesiredHop) -> Result<&SocketSpec, MappingError> {
     let first = hop.egresses.first().ok_or(MappingError::NoEgress)?;
     match hop
@@ -176,7 +142,6 @@ fn srt_relay_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     })
 }
 
-/// The SRT socket a Strom element or SRT block is built from.
 fn srt_socket(spec: &SocketSpec) -> Result<&SrtSocket, MappingError> {
     match spec {
         SocketSpec::Srt(socket) => Ok(socket),
@@ -184,7 +149,6 @@ fn srt_socket(spec: &SocketSpec) -> Result<&SrtSocket, MappingError> {
     }
 }
 
-/// The RIST socket a `ristsrc` or `ristsink` element is built from.
 fn rist_socket(spec: &SocketSpec) -> Result<&RistSocket, MappingError> {
     match spec {
         SocketSpec::Rist(socket) => Ok(socket),
@@ -192,7 +156,6 @@ fn rist_socket(spec: &SocketSpec) -> Result<&RistSocket, MappingError> {
     }
 }
 
-/// The signalling socket a WHIP or WHEP block is built from.
 fn signalling_socket(spec: &SocketSpec) -> Result<&SignallingSocket, MappingError> {
     match spec {
         SocketSpec::Whip(socket) | SocketSpec::Whep(socket) => Ok(socket),
@@ -313,9 +276,6 @@ fn element_with(
     }
 }
 
-/// `head` linked in a chain, then each of `branches` after it through a queue:
-/// straight from the last head element for one branch, through a tee for
-/// several. Each element links `<id>:src` to the next one's `<id>:sink`.
 fn chain_flow(name: &str, head: Vec<Element>, branches: Vec<Vec<Element>>) -> FlowSpec {
     let mut spec = empty_flow(name);
     let mut x = 100.0;
@@ -363,8 +323,6 @@ fn chain_flow(name: &str, head: Vec<Element>, branches: Vec<Vec<Element>>) -> Fl
     spec
 }
 
-/// `srtsrc → capsfilter → rtpmp2tpay → ristsink`, one payloader and sink per
-/// egress.
 fn srt_to_rist_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     let mut caps = Map::new();
     caps.insert(
@@ -400,7 +358,6 @@ fn srt_to_rist_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     Ok(chain_flow(&hop.id, head, branches))
 }
 
-/// `ristsrc → rtpmp2tdepay → srtsink`, one sink per egress.
 fn rist_to_srt_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     let RistSocket::Listen { port } = rist_socket(&hop.ingress)? else {
         return Err(MappingError::UnsupportedSocket(hop.ingress.to_string()));
@@ -432,8 +389,6 @@ fn rist_to_srt_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     Ok(chain_flow(&hop.id, head, branches))
 }
 
-/// Which tracks a hop carries: the ones its `tracks` names, or both when it
-/// names none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Carried {
     video: bool,
@@ -462,8 +417,6 @@ impl Carried {
         }
     }
 
-    /// Give a block no pad for a track the hop does not carry. Strom's SRT and
-    /// WHEP blocks have one video and one audio track unless told otherwise.
     fn limit(self, mut block: Block) -> Block {
         for (carried, key) in [
             (self.video, "num_video_tracks"),
@@ -477,7 +430,6 @@ impl Carried {
     }
 }
 
-/// Decoded pads, one for each track a hop carries.
 #[derive(Debug, Clone)]
 struct MediaPads {
     video: Option<String>,
@@ -492,7 +444,6 @@ impl MediaPads {
         }
     }
 
-    /// Link these pads into `block`'s `video_in` and `audio_in` pads.
     fn link_into(&self, spec: &mut FlowSpec, block: &str, video_in: &str, audio_in: &str) {
         for (pad, input) in [(&self.video, video_in), (&self.audio, audio_in)] {
             if let Some(pad) = pad {
@@ -502,10 +453,6 @@ impl MediaPads {
     }
 }
 
-/// Decoded media fanned out to `count` consumers. One consumer links straight;
-/// more go through a tee and a queue per branch and track, since a src pad links
-/// once and tee branches need a queue each to run independently. Returns the
-/// pads to link each consumer's inputs from.
 fn fan_out(spec: &mut FlowSpec, source: MediaPads, count: usize) -> Vec<MediaPads> {
     if count <= 1 {
         return vec![source];
@@ -554,7 +501,6 @@ fn empty_flow(name: &str) -> FlowSpec {
     }
 }
 
-/// `whip_input → videoenc → mpegtssrt_output`, audio straight into the muxer.
 fn whip_to_srt_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     let carried = Carried::of(hop);
     let mut spec = empty_flow(&hop.id);
@@ -583,7 +529,6 @@ fn whip_to_srt_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     Ok(spec)
 }
 
-/// `mpegtssrt_input(decode) → whep_output`.
 fn srt_to_whep_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     let carried = Carried::of(hop);
     let mut spec = empty_flow(&hop.id);
@@ -595,7 +540,6 @@ fn srt_to_whep_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     Ok(spec)
 }
 
-/// One `whep_output` per egress of `hop`, fed from its branch of the fan-out.
 fn push_whep_outputs(
     spec: &mut FlowSpec,
     hop: &DesiredHop,
@@ -615,7 +559,6 @@ fn push_whep_outputs(
     Ok(())
 }
 
-/// `whip_input(decode) → whep_output`.
 fn whip_to_whep_flow(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
     let carried = Carried::of(hop);
     let mut spec = empty_flow(&hop.id);
@@ -636,8 +579,7 @@ fn src_props(socket: &SrtSocket) -> Map<String, Value> {
         "uri".to_string(),
         Value::String(SrtUri::new(socket, DEFAULT_SRC_LATENCY).to_uri()),
     );
-    // A listener srtsrc otherwise EOSes and never re-binds once its peer
-    // disconnects or an idle socket errors; keep-listening reuses the socket.
+
     if matches!(socket, SrtSocket::Listen { .. }) {
         props.insert("keep-listening".to_string(), Value::Bool(true));
     }
@@ -654,18 +596,11 @@ fn sink_props(socket: &SrtSocket) -> Map<String, Value> {
     props
 }
 
-/// One SRT socket as an `srt://` URI: its address plus every parameter
-/// open-weave sets. Two URIs describe the same socket when these are equal.
-///
-/// Latency and the key travel in the URI query rather than as element
-/// properties: setting an srt element's `uri` resets its latency, passphrase
-/// and key length, and Strom sets element properties in no fixed order.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SrtUri {
-    /// Empty for a listener.
     pub host: String,
     pub port: u16,
-    /// The `mode` query value: `listener` or `caller` in URIs open-weave builds.
+
     pub mode: Option<String>,
     pub latency: Option<u32>,
     pub passphrase: Option<Passphrase>,
@@ -673,8 +608,6 @@ pub struct SrtUri {
 }
 
 impl SrtUri {
-    /// The URI a flow is built with for `socket`, its latency falling back to
-    /// `default_latency`.
     #[must_use]
     pub fn new(socket: &SrtSocket, default_latency: u32) -> Self {
         let params = socket.params();
@@ -692,9 +625,6 @@ impl SrtUri {
         }
     }
 
-    /// Parse an `srt://host:port?...` URI. A listener URI (`srt://:port`) has an
-    /// empty host. Returns `None` when the string is not an `srt://` authority
-    /// with a numeric port.
     #[must_use]
     pub fn parse(uri: &str) -> Option<Self> {
         let rest = uri.strip_prefix("srt://")?;
@@ -722,7 +652,6 @@ impl SrtUri {
         Some(parsed)
     }
 
-    /// The URI string. It carries the passphrase in the clear.
     #[must_use]
     pub fn to_uri(&self) -> String {
         let mut query = Vec::new();
@@ -748,7 +677,6 @@ impl SrtUri {
     }
 }
 
-/// The SRT sockets a flow built from `hop` carries, as [`SrtUri`]s.
 #[must_use]
 pub fn hop_srt_uris(hop: &DesiredHop) -> Vec<SrtUri> {
     let ingress = srt_socket(&hop.ingress)
@@ -804,8 +732,6 @@ fn linear_srt_flow(
     }
 }
 
-/// srtsrc→tee→N×(queue→srtsink). The tee's request source pads are named
-/// `src_%u` per GStreamer; unnamed request-pad links are dropped by Strom.
 fn tee_srt_flow(
     name: String,
     src_props: Map<String, Value>,
@@ -1147,8 +1073,6 @@ mod tests {
         )
     }
 
-    /// The Strom side of `alice-cam`: a browser pushes WHIP in, a consumer pulls
-    /// SRT out.
     fn whip_gateway_hop() -> DesiredHop {
         DesiredHop {
             id: "weave-alice-cam-receiver-studio".to_string(),
@@ -1162,8 +1086,6 @@ mod tests {
         }
     }
 
-    /// The Strom side of `alice-return`: a producer pushes SRT in, a browser
-    /// pulls WHEP out.
     fn whep_gateway_hop() -> DesiredHop {
         DesiredHop {
             id: "weave-alice-return-sender".to_string(),
@@ -1296,8 +1218,6 @@ mod tests {
         );
     }
 
-    /// The Strom side of a browser-to-browser stream: a page pushes WHIP in, a
-    /// page pulls WHEP out.
     fn whip_to_whep_hop() -> DesiredHop {
         let mut hop = whip_gateway_hop();
         hop.id = "weave-b2b-bridge-display-0".to_string();

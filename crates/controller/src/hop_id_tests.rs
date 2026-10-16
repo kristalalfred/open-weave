@@ -85,8 +85,6 @@ fn stream(name: &str, source: &str, destinations: &[(&str, &str)]) -> StreamDefi
     }
 }
 
-/// `edge` and `core` share a network; `site` reaches `core` only through `edge`,
-/// so a stream from `site` to `core` bridges on `edge`.
 fn nodes() -> Vec<NodeDescriptor> {
     let mut edge = node("edge", "internet");
     edge.topology.attachments.push(NetworkAttachment {
@@ -119,7 +117,6 @@ fn run_on(nodes: Vec<NodeDescriptor>, streams: Vec<StreamDefinition>) -> Reconci
     )
 }
 
-/// Hop ids planned by more than one stream.
 fn shared_ids(outcome: &ReconcileOutcome) -> Vec<String> {
     let mut seen = BTreeSet::new();
     let mut shared = Vec::new();
@@ -133,9 +130,6 @@ fn shared_ids(outcome: &ReconcileOutcome) -> Vec<String> {
     shared
 }
 
-/// Pairs of valid streams whose hop ids, joined with `-`, spell the same id on
-/// one node: a sender and a receiver, two receivers, a receiver and a bridge,
-/// and two bridges.
 fn colliding_pairs() -> Vec<[StreamDefinition; 2]> {
     vec![
         [

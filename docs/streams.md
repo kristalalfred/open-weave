@@ -1,8 +1,9 @@
 # Streams
 
 A stream carries one source to one or more destinations. Its manifest names
-nodes, never addresses or the transports between them. The controller chooses
-those at plan time from what each node declares (see [Nodes](nodes.md)).
+nodes for managed endpoints. External SRT destinations name a remote address.
+The controller chooses links between nodes from their declarations (see
+[Nodes](nodes.md)).
 
 ```yaml
 name: cam1-to-studio
@@ -15,7 +16,7 @@ destinations:
     srt: { node: strom-node-2, network: internet }
 ```
 
-[`examples/stream.yaml`](../examples/stream.yaml) is annotated, and
+[`examples/stream.yaml`](../examples/stream.yaml) is a complete example, and
 [`contracts/json-schema/`](../contracts/json-schema/) has every field. Names and
 ids follow the [identifier rule](api.md#identifiers). `weave apply -f` stores a
 stream, and `weave plan -f` previews its placement without storing it.

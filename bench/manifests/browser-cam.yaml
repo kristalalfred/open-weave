@@ -1,5 +1,3 @@
-# Browser camera into node-1: the planner picks WHIP hosted on Strom; a consumer pulls SRT.
-# Templated: browser-placeholder is the page's id, filled in by `just bench browser-stream`.
 name: browser-cam
 enabled: true
 source:

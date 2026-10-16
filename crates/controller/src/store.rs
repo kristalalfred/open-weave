@@ -1,11 +1,3 @@
-//! Persistence for operator stream definitions, stream-set ownership, node
-//! registrations with what each node last reported, and each stream's status as
-//! the last tick that changed it computed it. Desired hops and endpoints are
-//! derived in memory and never stored.
-//!
-//! Postgres also holds the controller lease. Only the controller holding it
-//! writes: every write checks the lease in its own transaction.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -84,8 +76,6 @@ fn database_counter(value: u64, field: &'static str) -> Result<i64, StoreError> 
     i64::try_from(value).map_err(|_| StoreError::CounterTooLarge { field, value })
 }
 
-/// Durable state access. Everything is written through on change and hydrated
-/// into memory on boot.
 #[async_trait]
 #[allow(
     clippy::double_must_use,
@@ -117,20 +107,12 @@ pub trait StateStore: Send + Sync {
     async fn load_nodes(&self) -> Result<Vec<NodeRegistration>, StoreError>;
     async fn upsert_node(&self, registration: &NodeRegistration) -> Result<(), StoreError>;
     async fn delete_node(&self, id: &str) -> Result<(), StoreError>;
-    /// Statuses of streams that still exist.
+
     async fn load_stream_statuses(&self) -> Result<Vec<StreamStatus>, StoreError>;
-    /// Replace the stored status of each stream named; a stream that no longer
-    /// exists is skipped. A deleted stream's status goes with it.
+
     async fn save_stream_statuses(&self, statuses: &[StreamStatus]) -> Result<(), StoreError>;
 }
 
-/// Decode stored registrations, dropping any a running node will send again.
-///
-/// A registration is a cache of what a node reported: every node implementation
-/// re-registers when a heartbeat is answered `404`, so a row this build cannot
-/// read, or one hydrating a protocol version this build no longer serves,
-/// costs one heartbeat interval. A stream definition has no such second copy,
-/// which is why [`PgStore::load_streams`] still fails the boot.
 fn decode_registrations(rows: Vec<(String, serde_json::Value)>) -> Vec<NodeRegistration> {
     rows.into_iter()
         .filter_map(
@@ -157,35 +139,22 @@ fn decode_registrations(rows: Vec<(String, serde_json::Value)>) -> Vec<NodeRegis
         .collect()
 }
 
-/// One controller's hold on the lease.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LeaseTerm {
-    /// One more than the previous holder's. Writes carry it as their fence.
     pub epoch: u64,
-    /// When the lease was taken, in microseconds since the Unix epoch on the
-    /// Postgres clock, which every controller shares.
+
     pub started_micros: u64,
 }
 
-/// Postgres-backed store. Connecting creates the schema and records its version, or refuses a database at another version.
-///
-/// The store [`PgStore::connect`] returns takes and holds the lease and writes
-/// nothing. Writes go through [`PgStore::for_term`], one handle per term.
 pub struct PgStore {
     pool: sqlx::PgPool,
-    /// The lease epoch this process holds, or 0 for none.
+
     epoch: Arc<AtomicU64>,
-    /// The term this handle writes for, or 0 for none.
+
     term: u64,
 }
 
 impl PgStore {
-    /// Connect (retrying briefly so boot survives Postgres not being ready yet)
-    /// and ensure the schema exists.
-    ///
-    /// # Errors
-    /// Returns [`StoreError`] if the connection never succeeds within the retry
-    /// window or the schema DDL fails.
     pub async fn connect(url: &str) -> Result<Self, StoreError> {
         let pool = Self::connect_with_retry(url, 30, Duration::from_secs(1)).await?;
         let store = Self {
@@ -341,8 +310,6 @@ impl PgStore {
         Ok(())
     }
 
-    /// Take the lease for `ttl` if nobody holds it or the holder let it
-    /// expire, by the Postgres clock. `None` while another controller holds it.
     pub async fn acquire_lease(
         &self,
         holder: &str,
@@ -383,8 +350,6 @@ impl PgStore {
         Ok(Some(term))
     }
 
-    /// Extend the held lease by `ttl` from now. `false`, and the store holds no
-    /// lease any more, once it has expired or another controller has taken it.
     pub async fn renew_lease(&self, ttl: Duration) -> Result<bool, StoreError> {
         let epoch = self.held_epoch()?;
         let renewed = sqlx::query(
@@ -404,7 +369,6 @@ impl PgStore {
         Ok(renewed)
     }
 
-    /// Expire the held lease now, so a standby can take it on its next try.
     pub async fn release_lease(&self) -> Result<(), StoreError> {
         let epoch = self.epoch.swap(0, Ordering::SeqCst);
         if epoch == 0 {
@@ -421,15 +385,10 @@ impl PgStore {
         Ok(())
     }
 
-    /// Stop writing under the held lease without touching the row, which then
-    /// expires on its own.
     pub fn drop_lease(&self) {
         self.epoch.store(0, Ordering::SeqCst);
     }
 
-    /// A handle that writes only while this process still holds the lease it
-    /// took as `epoch`. Once the lease is lost, or taken again under a later
-    /// epoch, its writes fail with [`StoreError::NotLeader`].
     pub fn for_term(&self, epoch: u64) -> Self {
         Self {
             pool: self.pool.clone(),
@@ -452,10 +411,6 @@ impl PgStore {
         database_counter(self.term, "lease epoch")
     }
 
-    /// Fail the transaction unless this handle's term holds the current,
-    /// unexpired lease. The row stays share-locked until the transaction ends,
-    /// so a takeover waits for a write already past this check to commit, and
-    /// the new holder then loads it.
     async fn fence(
         &self,
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -1010,8 +965,6 @@ fn stored_stream_from_row(
     })
 }
 
-/// In-memory store for tests. Records mutation counts so tests can assert which
-/// paths write through (register/stream upsert) and which do not (heartbeat).
 #[derive(Default)]
 pub struct MemStore {
     inner: std::sync::Mutex<MemInner>,
@@ -1173,7 +1126,6 @@ impl MemStore {
         self.lock().upsert_node_calls
     }
 
-    /// Make the next `count` node and stream-status writes fail.
     #[cfg(test)]
     pub fn fail_writes(&self, count: usize) {
         self.lock().failing_writes = count;
@@ -1413,9 +1365,6 @@ pub(crate) mod tests {
         }
     }
 
-    /// Rows written before node capabilities changed shape, taken from a bench
-    /// Postgres: node 1 carries the retired `webrtc_base_url`, the page carries
-    /// `device` as a transport. Both were fatal at boot.
     #[test]
     fn stored_registrations_this_build_cannot_read_are_dropped() {
         let old_strom = serde_json::json!({
@@ -1462,9 +1411,6 @@ pub(crate) mod tests {
         );
     }
 
-    /// A row shaped exactly as a v1 adapter wrote it: it deserializes cleanly,
-    /// so only the protocol-version check drops it. Left hydrated, its
-    /// heartbeats are answered `202` instead of `404` and it never re-registers.
     #[test]
     fn stored_registrations_from_a_retired_protocol_version_are_dropped() {
         let v1_but_readable = serde_json::json!({
@@ -1838,8 +1784,6 @@ pub(crate) mod tests {
         assert!(store.load_nodes().await.unwrap().is_empty());
     }
 
-    /// A new, empty database on the server `DATABASE_URL` names, so ignored
-    /// tests can run in parallel without sharing the lease row.
     pub(crate) async fn fresh_database() -> String {
         let url = std::env::var("DATABASE_URL").expect("DATABASE_URL set for ignored test");
         let mut suffix = [0u8; 8];
@@ -1944,7 +1888,6 @@ pub(crate) mod tests {
         }
     }
 
-    /// A handle for the term of a lease taken for a minute.
     pub(crate) async fn leading_pg_store(url: &str) -> PgStore {
         let store = PgStore::connect(url).await.expect("connect");
         let term = store
@@ -1955,8 +1898,6 @@ pub(crate) mod tests {
         store.for_term(term.epoch)
     }
 
-    /// Round-trips against a real Postgres. Ignored by default so `cargo test`
-    /// stays DB-free; run with `DATABASE_URL` set and `--ignored`.
     #[tokio::test]
     #[ignore = "requires a running Postgres via DATABASE_URL"]
     async fn pgstore_round_trips_streams_and_nodes() {

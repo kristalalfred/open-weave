@@ -1,25 +1,3 @@
-// Drive the browser node without a human: launch Chromium with a fake camera,
-// open the page against a southbound, and wait for the node to register.
-//
-//   node check.mjs --southbound http://host:8081 --token <token> [--page URL]
-//                  [--serve PORT] [--stay] [--headed] [--video-only] [--node ID]
-//                  [--ice JSON] [--executable PATH]
-//   node check.mjs --check-only
-//
-// --video-only (or WEAVE_BROWSER_MEDIA=video) asks the page for the camera
-// alone, for hosts where the fake microphone never answers (macOS without
-// microphone permission for the browser) and for a sender with no audio.
-//
-// --executable (or WEAVE_BROWSER_EXECUTABLE) launches that Chromium binary
-// instead of Playwright's own build.
-//
-// With --serve the script hosts this directory itself on loopback and opens it
-// from http://127.0.0.1:PORT/ (or --page when given, for a different origin).
-// With --stay the browser is left running after the node registers, which is how
-// the bench keeps a node alive; without it the script exits 0 on success.
-//
-// --check-only compares the page's copies of the crates/core constants with the
-// Rust source and exits, launching no browser and needing no southbound.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { dirname, extname, join, resolve, sep } from "node:path";
@@ -71,12 +49,8 @@ if (!page) {
   process.exit(2);
 }
 
-// Imported here rather than at the top so --check-only runs without Playwright
-// installed.
 const { chromium } = await import("playwright");
 
-// The full Chromium build, not the headless shell: only the former answers
-// getUserMedia for the fake devices.
 const executablePath = args.executable || process.env.WEAVE_BROWSER_EXECUTABLE;
 const browser = await chromium.launch({
   ...(executablePath ? { executablePath } : { channel: "chromium" }),
@@ -95,8 +69,6 @@ const videoOnly = args["video-only"] || process.env.WEAVE_BROWSER_MEDIA === "vid
 const media = videoOnly ? "&media=video" : "";
 const iceServers = typeof args.ice === "string" ? `&ice=${encodeURIComponent(args.ice)}` : "";
 const pinned = args.node ? `&node=${encodeURIComponent(args.node)}` : "";
-// GET /nodes still lists a node an earlier run registered, so this run counts
-// only a registration its own page got accepted.
 const registeredHere = tab
   .waitForResponse(
     response =>
@@ -151,8 +123,6 @@ if (args.stay) {
   server?.close();
 }
 
-// The file under `here` a request addresses, or null when the path leaves the
-// directory.
 function servedFile(url) {
   let path;
   try {
@@ -164,12 +134,6 @@ function servedFile(url) {
   return file === here || file.startsWith(here + sep) ? file : null;
 }
 
-// The page carries its own copies of two weave_core constants: PROTOCOL_VERSION,
-// where a registration declaring the wrong one is refused, and DEVICE_TRANSPORT,
-// whose tag the page's device branch matches on. Both are compared with
-// crates/core before a browser is launched. A Rust source out of reach is
-// reported rather than fatal unless `required`: the bench mounts nodes/browser
-// alone.
 async function checkDeclaredConstants(required) {
   const DRIFT_CHECKS = [
     {

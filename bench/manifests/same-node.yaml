@@ -1,4 +1,3 @@
-# Loopback: source and destination both placed on node-1.
 name: same-node
 enabled: true
 source:

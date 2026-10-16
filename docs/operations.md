@@ -35,7 +35,7 @@ in Postgres. Any number of controllers can share one database: one leads and the
 others stand by. Without `DATABASE_URL` there is no lease and one controller.
 
 - A standby answers `503 not_leader` on every route except `/health`, `/` and
-  `/ui`. It runs no reconcile tick and sends no webhook. `/health` answers `200`
+  `/ui`. It runs no reconcile tick and generates no new webhook events. `/health` answers `200`
   on both, and `/status` tells them apart.
 - The leader renews the lease every third of the TTL. When no renewal has
   succeeded for two thirds of the TTL, it stops serving and writing. The lease
@@ -92,10 +92,11 @@ start.
 - The proxy moves to the next controller when it cannot connect within two
   seconds or gets `503 not_leader`. Neither has acted on the request, so a write
   is never sent twice.
-- A request waits at most ten seconds for its answer. A `GET` that gets none, or
+- Each controller attempt has a ten-second timeout. A `GET` that gets no answer, or
   fails after connecting, moves on to the next controller. Any other request is
-  not sent again, since the controller may have applied it, and gets
-  `504 controller_timeout`. The next request tries another controller first.
+  not sent again, since the controller may have applied it. A timeout returns
+  `504 controller_timeout`; other connection or response failures return
+  `502 controller_unreachable`. The next request tries another controller first.
 - Every other answer is passed back unchanged. When no controller leads, the
   proxy returns `503 not_leader`, and when none can be reached,
   `502 controller_unreachable`.
@@ -110,8 +111,7 @@ Each `v*` tag publishes the image `ghcr.io/kristalalfred/open-weave` for
 linux/amd64 and linux/arm64, and a GitHub release with the five binaries for
 x86_64 and aarch64 Linux and aarch64 macOS. The tag must be `v` followed by the
 workspace version. A tag with a pre-release part, such as `v0.1.0-rc.1`, makes a
-pre-release and moves neither `latest` nor `0.1`. `v0.1.0-rc.1` is the first
-tag. The image and binary builds also run, without publishing, on every push to
+pre-release and moves neither `latest` nor `0.1`. The image and binary builds also run, without publishing, on every push to
 `main` and every pull request.
 
 [`deploy/README.md`](../deploy/README.md) covers running the image.

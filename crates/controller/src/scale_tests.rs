@@ -1,7 +1,3 @@
-//! One stream fanned out to a few hundred registered nodes, and the dashboard
-//! view of many running streams. Timings are printed, not asserted; run with
-//! `--nocapture` to read them.
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -84,8 +80,6 @@ fn public_node(id: &str, host: &str) -> NodeRegistration {
     registration(id, vec![attachment("wan", "internet", srt_listener(host))])
 }
 
-/// Dials out to the internet and listens only on a site network nobody else
-/// is on, so every link to or from it needs a relay.
 fn nat_node(id: &str) -> NodeRegistration {
     registration(
         id,
@@ -291,7 +285,6 @@ fn flowing() -> SocketStatus {
     }
 }
 
-/// A report of each of `hops` provisioned with every socket flowing.
 fn running(hops: &[DesiredHop]) -> Vec<HopStatus> {
     hops.iter()
         .map(|hop| HopStatus {
@@ -312,7 +305,6 @@ fn running(hops: &[DesiredHop]) -> Vec<HopStatus> {
         .collect()
 }
 
-/// Sends each node's heartbeat reporting every hop it was given running.
 async fn report_every_hop_running(state: &AppState, app: &Router) -> usize {
     let desired: Vec<(String, Vec<DesiredHop>)> = state
         .desired
@@ -350,8 +342,6 @@ async fn timed_view(app: &Router) -> (serde_json::Value, Duration) {
     (serde_json::from_slice(&body).unwrap(), elapsed)
 }
 
-/// Times `GET /view` with `count` streams from `source` to `studio`, placed and
-/// reported running by both nodes.
 async fn time_the_view_with_reports(count: usize) {
     let state = fresh_state().await;
     let app = router(state.clone(), Guard::Disabled, NodeGuard::Disabled);
@@ -397,8 +387,6 @@ async fn the_view_with_reports_at_one_and_two_thousand_streams() {
     time_the_view_with_reports(2000).await;
 }
 
-/// Times `GET /view` with one stream from `source` to `receivers` direct
-/// receivers, every hop reported running.
 async fn time_the_view_of_a_fan_out(receivers: usize) {
     let state = fan_out("direct", direct_nodes(receivers), receivers).await;
     let app = router(state.clone(), Guard::Disabled, NodeGuard::Disabled);

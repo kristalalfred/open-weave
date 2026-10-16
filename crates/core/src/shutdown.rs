@@ -1,14 +1,7 @@
-//! The signal every binary shuts down on.
-
 use std::io;
 
 use crate::logging::ErrorChain;
 
-/// Resolves when the process receives SIGTERM or Ctrl-C (SIGINT). On platforms
-/// without SIGTERM it resolves on Ctrl-C only.
-///
-/// # Errors
-/// Returns an error if a signal handler cannot be installed.
 pub async fn signal() -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -23,9 +16,6 @@ pub async fn signal() -> io::Result<()> {
     tokio::signal::ctrl_c().await
 }
 
-/// [`signal`] for `axum::serve(..).with_graceful_shutdown(..)`: logs what
-/// stopped the server and never fails, since a server that cannot hear the
-/// signal should keep serving.
 pub async fn graceful(name: &str) {
     match signal().await {
         Ok(()) => tracing::info!("{name} shutting down"),

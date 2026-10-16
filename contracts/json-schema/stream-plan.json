@@ -36,7 +36,6 @@
     "hops": {
       "type": "array",
       "items": {
-        "description": "One provisioning unit placed on a single node: one ingress socket fanned out\n to one or more egress sockets (a sender tees to every destination).",
         "type": "object",
         "properties": {
           "id": {
@@ -64,7 +63,6 @@
             ]
           },
           "ingress": {
-            "description": "Flat wire form of a [`SocketSpec`]: a `transport` and `role` naming the\n variant, plus the fields that variant carries.",
             "type": "object",
             "properties": {
               "transport": {
@@ -142,7 +140,6 @@
                     "minimum": 0
                   },
                   "passphrase": {
-                    "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
                     "type": [
                       "string",
                       "null"
@@ -152,7 +149,6 @@
                     "pattern": "^[ -~]*$"
                   },
                   "pbkeylen": {
-                    "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
                     "type": [
                       "integer",
                       "null"
@@ -175,7 +171,6 @@
             ]
           },
           "merge_ingress": {
-            "description": "A second ingress carrying another copy of the same media over a disjoint\n path, for the hop to merge with `ingress`. Only a receiver whose profile\n merges has one.",
             "type": [
               "object",
               "null"
@@ -256,7 +251,6 @@
                     "minimum": 0
                   },
                   "passphrase": {
-                    "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
                     "type": [
                       "string",
                       "null"
@@ -266,7 +260,6 @@
                     "pattern": "^[ -~]*$"
                   },
                   "pbkeylen": {
-                    "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
                     "type": [
                       "integer",
                       "null"
@@ -291,7 +284,6 @@
           "egresses": {
             "type": "array",
             "items": {
-              "description": "One identified output branch of a desired hop.",
               "type": "object",
               "properties": {
                 "branch_id": {
@@ -372,7 +364,6 @@
                       "minimum": 0
                     },
                     "passphrase": {
-                      "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
                       "type": [
                         "string",
                         "null"
@@ -382,7 +373,6 @@
                       "pattern": "^[ -~]*$"
                     },
                     "pbkeylen": {
-                      "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
                       "type": [
                         "integer",
                         "null"
@@ -407,7 +397,6 @@
             }
           },
           "tracks": {
-            "description": "The tracks the stream's source sends, copied onto every hop of its path:\n a capture device's declared tracks, or those an outside WHIP sender's\n declared `format` carries. Absent when the source declares neither.",
             "type": [
               "array",
               "null"
@@ -415,7 +404,6 @@
             "items": {
               "anyOf": [
                 {
-                  "description": "A kind of media track a capture device sends.",
                   "type": "string",
                   "enum": [
                     "audio",
@@ -455,7 +443,6 @@
               "type": "string"
             },
             "host": {
-              "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
               "type": [
                 "string",
                 "null"
@@ -471,7 +458,6 @@
               "maximum": 65535
             },
             "url": {
-              "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
               "type": "string"
             }
           },
@@ -501,7 +487,6 @@
                     "type": "string"
                   },
                   "host": {
-                    "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
                     "type": [
                       "string",
                       "null"
@@ -517,7 +502,6 @@
                     "maximum": 65535
                   },
                   "url": {
-                    "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
                     "type": "string"
                   }
                 },

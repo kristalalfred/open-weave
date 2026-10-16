@@ -1,10 +1,5 @@
-//! The Strom releases the adapter is written for.
-
-/// The oldest Strom release the adapter supports: `(major, minor, patch)`.
 pub const MIN_VERSION: (u64, u64, u64) = (0, 6, 9);
 
-/// Whether `version`, as Strom reports it (`0.6.10`, `v0.6.10-rc1`), is at least
-/// [`MIN_VERSION`]. `None` when the string has no `major.minor.patch` prefix.
 #[must_use]
 pub fn is_supported(version: &str) -> Option<bool> {
     parse(version).map(|found| found >= MIN_VERSION)

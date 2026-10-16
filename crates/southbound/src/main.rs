@@ -1,8 +1,3 @@
-//! Southbound API — the adapter-facing surface. Stateless: every request is
-//! proxied to the controller, which owns all node and desired state. Adapters
-//! keep dialing this service; it relays to the controller with the node's own
-//! token, and to whichever of several controllers leads.
-
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -29,7 +24,7 @@ const CORS_ORIGIN_VAR: &str = "WEAVE_SOUTHBOUND_CORS_ORIGIN";
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = long_about())]
 struct Args {
-    /// Address to listen on.
+    #[arg(help = "Address to listen on")]
     #[arg(
         long,
         env = "WEAVE_SOUTHBOUND_ADDR",
@@ -37,7 +32,7 @@ struct Args {
         default_value = "127.0.0.1:8081"
     )]
     listen: String,
-    /// Controller base URLs, comma-separated.
+    #[arg(help = "Controller base URLs, comma-separated")]
     #[arg(
         long,
         env = CONTROLLER_URL_VAR,
@@ -45,8 +40,9 @@ struct Args {
         default_value = DEFAULT_CONTROLLER_URL
     )]
     controller_url: String,
-    /// Origin a browser-hosted node may call the adapter contract from, or `*`
-    /// for any origin, for development. Unset sends no CORS headers.
+    #[arg(
+        help = "Origin a browser-hosted node may call the adapter contract from, or `*` for any origin, for development. Unset sends no CORS headers"
+    )]
     #[arg(long, env = CORS_ORIGIN_VAR, hide_env_values = true)]
     cors_origin: Option<String>,
 }
@@ -119,16 +115,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// `/health` stays open for compose healthchecks and load balancers.
-/// Everything else — registration, heartbeats, and the desired-state and topology
-/// reads — requires a node token. Registration, heartbeat and desired hops also
-/// require the token to belong to the node named, which the controller checks
-/// again.
-///
-/// A browser-hosted node calls this contract from a web page, so API routes
-/// optionally carry CORS headers. The layer sits outside the bearer
-/// check: a preflight carries no `Authorization` header and must be answered
-/// before it, not refused by it.
 fn router(state: AppState, guard: NodeGuard, cors: Option<CorsLayer>) -> Router {
     let mut nodes = Router::new()
         .route(ROUTE_NODES, get(list_nodes))
@@ -153,8 +139,6 @@ fn router(state: AppState, guard: NodeGuard, cors: Option<CorsLayer>) -> Router 
         .with_state(state)
 }
 
-/// CORS for the adapter contract: `origin` is an exact origin or `*`. The page
-/// sends `Authorization` and `Content-Type`, so the preflight must allow both.
 fn cors_layer(origin: &str) -> Result<CorsLayer> {
     let allow_origin = if origin == "*" {
         AllowOrigin::any()
@@ -196,8 +180,6 @@ async fn get_state(State(state): State<AppState>, headers: HeaderMap) -> Respons
     proxy(&state, &headers, reqwest::Method::GET, "/state", None).await
 }
 
-/// A body that does not name a node id is forwarded as it is, for the
-/// controller to refuse with its own validation error.
 async fn register_node(
     State(state): State<AppState>,
     Extension(caller): Extension<NodeCaller>,
@@ -269,9 +251,6 @@ async fn get_desired(
     .await
 }
 
-/// Forward a request to the leading controller with the caller's
-/// `Authorization`, passing its status and body back faithfully. Handlers name
-/// the same paths this service serves.
 async fn proxy(
     state: &AppState,
     headers: &HeaderMap,
@@ -405,7 +384,6 @@ mod tests {
         NodeGuard::Required(NodeKey::new(KEY).unwrap())
     }
 
-    /// `Authorization` value presenting `node_id`'s token under [`KEY`].
     fn bearer(node_id: &str) -> String {
         format!(
             "Bearer {}",
@@ -413,7 +391,6 @@ mod tests {
         )
     }
 
-    /// A router with authentication switched off, for the proxy-fidelity tests.
     fn state(controller_url: &str) -> AppState {
         AppState::new(Controllers::new(controller_url).unwrap())
     }
@@ -422,7 +399,6 @@ mod tests {
         router(state(&controller_url), NodeGuard::Disabled, None)
     }
 
-    /// A router requiring node tokens derived from [`KEY`].
     fn guarded_app(controller_url: String) -> Router {
         router(state(&controller_url), guard(), None)
     }
@@ -432,7 +408,6 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
-    /// [`guarded_app`] that also admits a browser page served from `origin`.
     fn cors_app(controller_url: String, origin: &str) -> Router {
         router(
             state(&controller_url),
@@ -443,9 +418,6 @@ mod tests {
 
     const PAGE: &str = "http://172.25.0.40:8000";
 
-    /// A browser's preflight for an authenticated `POST` carries no bearer token;
-    /// it must be answered with the allowed headers, not refused with `401`, and
-    /// it never reaches the controller.
     #[tokio::test]
     async fn preflight_is_answered_before_the_bearer_check() {
         let (url, captured) = stub_controller(StatusCode::ACCEPTED).await;
@@ -551,8 +523,6 @@ mod tests {
         assert_eq!(response.headers()["access-control-allow-origin"], "*");
     }
 
-    /// Without the variable the adapter contract carries no CORS headers at all,
-    /// and a preflight is just an unauthenticated request.
     #[tokio::test]
     async fn without_a_configured_origin_there_is_no_cors() {
         let (url, captured) = stub_controller(StatusCode::OK).await;
@@ -664,7 +634,6 @@ mod tests {
         assert_eq!(seen.path, "/nodes/strom-node-1/heartbeat");
     }
 
-    /// A controller on standby: every request gets `503 not_leader`.
     async fn standby_controller() -> String {
         let app = Router::new().fallback(|| async {
             ApiError::new(ApiErrorCode::NotLeader, "standby")
@@ -678,8 +647,6 @@ mod tests {
         format!("http://{addr}")
     }
 
-    /// A controller refusing every token, as one with a higher minimum epoch
-    /// than southbound's does.
     async fn refusing_controller() -> String {
         let app = Router::new().fallback(|| async { auth::unauthorized() });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -836,7 +803,6 @@ mod tests {
         }
     }
 
-    /// Version-prefixed paths are not aliases for the current contract.
     #[tokio::test]
     async fn retired_node_paths_are_not_served() {
         let (url, captured) = stub_controller(StatusCode::OK).await;
@@ -919,10 +885,6 @@ mod tests {
         );
     }
 
-    /// Registering a node id and pulling that node's topology and allocated ports
-    /// are both unreachable without a node token, and neither reaches the
-    /// controller. The key itself and a pre-node-token shared secret are not
-    /// tokens.
     #[tokio::test]
     async fn node_routes_reject_missing_and_wrong_tokens() {
         let key_as_token = format!("Bearer {KEY}");

@@ -50,7 +50,6 @@
             ]
           },
           "transports": {
-            "description": "Transport labels an adapter recognised on this endpoint, such as\n `webrtc` or `ndi`. Guesses read off the underlying system, not offers.",
             "type": "array",
             "items": {
               "type": "string"
@@ -73,7 +72,6 @@
     "hop_status": {
       "type": "array",
       "items": {
-        "description": "Node-reported realisation status for one desired hop.",
         "type": "object",
         "properties": {
           "id": {
@@ -83,7 +81,6 @@
             "type": "string"
           },
           "state": {
-            "description": "Control-plane lifecycle of a hop's provisioning. Runtime link health is\n reported separately per socket via [`LinkCondition`].",
             "type": "string",
             "enum": [
               "pending",
@@ -92,37 +89,16 @@
             ]
           },
           "ingress": {
-            "description": "Observed condition, address, and statistics for one socket.",
             "type": "object",
             "properties": {
               "condition": {
-                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                "oneOf": [
-                  {
-                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                    "type": "string",
-                    "const": "idle"
-                  },
-                  {
-                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                    "type": "string",
-                    "const": "connecting"
-                  },
-                  {
-                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                    "type": "string",
-                    "const": "connected"
-                  },
-                  {
-                    "description": "Connection up and media flowing.",
-                    "type": "string",
-                    "const": "flowing"
-                  },
-                  {
-                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                    "type": "string",
-                    "const": "stalled"
-                  }
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "connecting",
+                  "connected",
+                  "flowing",
+                  "stalled"
                 ],
                 "default": "idle"
               },
@@ -149,7 +125,6 @@
                 ]
               },
               "stats": {
-                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                 "type": [
                   "object",
                   "null"
@@ -193,40 +168,19 @@
             "additionalProperties": false
           },
           "merge_ingress": {
-            "description": "Observed condition, address, and statistics for one socket.",
             "type": [
               "object",
               "null"
             ],
             "properties": {
               "condition": {
-                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                "oneOf": [
-                  {
-                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                    "type": "string",
-                    "const": "idle"
-                  },
-                  {
-                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                    "type": "string",
-                    "const": "connecting"
-                  },
-                  {
-                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                    "type": "string",
-                    "const": "connected"
-                  },
-                  {
-                    "description": "Connection up and media flowing.",
-                    "type": "string",
-                    "const": "flowing"
-                  },
-                  {
-                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                    "type": "string",
-                    "const": "stalled"
-                  }
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "connecting",
+                  "connected",
+                  "flowing",
+                  "stalled"
                 ],
                 "default": "idle"
               },
@@ -253,7 +207,6 @@
                 ]
               },
               "stats": {
-                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                 "type": [
                   "object",
                   "null"
@@ -299,40 +252,19 @@
           "egresses": {
             "type": "array",
             "items": {
-              "description": "Observed status for one identified egress branch.",
               "type": "object",
               "properties": {
                 "branch_id": {
                   "type": "string"
                 },
                 "condition": {
-                  "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                  "oneOf": [
-                    {
-                      "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                      "type": "string",
-                      "const": "idle"
-                    },
-                    {
-                      "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                      "type": "string",
-                      "const": "connecting"
-                    },
-                    {
-                      "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                      "type": "string",
-                      "const": "connected"
-                    },
-                    {
-                      "description": "Connection up and media flowing.",
-                      "type": "string",
-                      "const": "flowing"
-                    },
-                    {
-                      "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                      "type": "string",
-                      "const": "stalled"
-                    }
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "connecting",
+                    "connected",
+                    "flowing",
+                    "stalled"
                   ],
                   "default": "idle"
                 },
@@ -359,7 +291,6 @@
                   ]
                 },
                 "stats": {
-                  "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                   "type": [
                     "object",
                     "null"

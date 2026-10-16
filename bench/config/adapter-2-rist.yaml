@@ -1,7 +1,3 @@
-# Node 2 as a site that takes contribution over RIST only: it dials nothing, its
-# internet attachment offers only a RIST listener, and its SRT listener serves
-# consumers on its own LAN. `just bench topology rist` mounts this in place of
-# adapter-2.yaml.
 node:
   id: strom-node-2
   southbound_url: https://10.97.25.25:8443

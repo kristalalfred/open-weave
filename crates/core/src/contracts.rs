@@ -30,20 +30,15 @@ pub fn artifacts() -> Vec<ContractArtifact> {
     artifacts
 }
 
-/// Who reads a payload, which decides how its schema renders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reader {
-    /// The controller reading a request: what deserializes, closed.
     Controller,
-    /// An adapter reading southbound: what serializes, closed.
-    /// [`crate::PROTOCOL_VERSION`] pins the shape.
+
     Adapter,
-    /// A northbound client or a webhook receiver: what serializes, open to
-    /// what a newer server adds.
+
     Client,
 }
 
-/// A payload with a JSON Schema document of its own under `contracts/`.
 struct Payload {
     path: &'static str,
     reader: Reader,
@@ -97,8 +92,6 @@ fn schema<T: JsonSchema>(reader: Reader) -> Value {
     serde_json::to_value(settings.into_generator().into_root_schema_for::<T>()).unwrap()
 }
 
-/// Lets a schema accept what a newer server may add: other properties, other
-/// values of an enumeration, and other kinds of a union.
 #[derive(Clone)]
 struct OpenToClients;
 
@@ -127,8 +120,6 @@ impl Transform for OpenToClients {
     }
 }
 
-/// A closed set of strings: an `enum` or `const` of strings, which may also
-/// allow `null`, or a `oneOf` whose every branch is a string `const`.
 fn is_enumeration(schema: &Value) -> bool {
     let string_or_null = |value: &Value| value.is_string() || value.is_null();
     if let Some(values) = schema.get("enum").and_then(Value::as_array) {
@@ -648,9 +639,6 @@ mod tests {
         assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 
-    /// Where `schema` refuses what a newer server can add: a closed object, an
-    /// enumeration with no branch for another string, or a union with no branch
-    /// for another object.
     fn refusals_in(schema: &Value, root: &str) -> Vec<String> {
         let mut refusals = Vec::new();
         refused(schema, root, "", &mut refusals);
@@ -727,9 +715,6 @@ mod tests {
         gaps
     }
 
-    /// Collects every object schema under `schema` that names properties and
-    /// accepts others. A branch of a union is closed by its parent's
-    /// `unevaluatedProperties`, which is how a flattened enum renders.
     fn unclosed(schema: &Value, root: &str, at: &str, closed: bool, gaps: &mut Vec<String>) {
         let Some(object) = schema.as_object() else {
             return;

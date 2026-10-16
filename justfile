@@ -1,4 +1,3 @@
-# Network-impairment media test bench (docker-compose). See bench/README.md.
 mod bench
 
 default:
@@ -71,7 +70,6 @@ get-endpoints NAME:
 delete-stream NAME:
     cargo run -p weave-cli -- delete stream {{NAME}}
 
-# Backlog items by status. See BACKLOG.md.
 board:
     #!/usr/bin/env bash
     set -euo pipefail

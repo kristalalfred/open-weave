@@ -1,5 +1,3 @@
-# Producer SRT into node-1, played on the browser's screen: the planner picks WHEP hosted on Strom.
-# Templated: browser-placeholder is the page's id, filled in by `just bench browser-stream`.
 name: browser-return
 enabled: true
 source:
