@@ -2,7 +2,7 @@
 id: OW-83
 title: "The release workflow has never run, tags an RC as latest, and builds amd64 only"
 type: bug
-status: in-progress
+status: done
 depends_on: [OW-77]
 assignee: claude-rc
 ---
@@ -27,7 +27,7 @@ job. The workflow:
 
 ## Done when
 
-- [ ] The image and binary builds run on every push to `main` and every pull
+- [x] The image and binary builds run on every push to `main` and every pull
       request, without publishing.
 - [x] The image builds for linux/amd64 and linux/arm64, and binaries for x86_64
       and aarch64 Linux and aarch64 macOS. Archives hold `LICENSE` and
@@ -36,7 +36,7 @@ job. The workflow:
       is published.
 - [x] A tag with a pre-release part publishes no `latest` or `major.minor`
       image tag, and its GitHub release is marked pre-release.
-- [ ] The workflow has run green on GitHub on a push.
+- [x] The workflow has run green on GitHub on a push.
 
 ## Log
 
@@ -70,3 +70,12 @@ job. The workflow:
   with Rust 1.88. The workspace now declares `rust-version = "1.88"`; clippy's
   `incompatible_msrv` then failed on that call, and it was replaced. Boxes 1
   and 5 wait for a push: nothing has run on GitHub.
+- 2026-10-16: Release ran green on GitHub on the pushes of `466103e` (run
+  38867785315) and `7650264` (run 38869809217): `version`, `image` and the
+  three `binaries` jobs succeeded and `release` was skipped. The image job
+  pushes only when `github.ref_type == 'tag'`, and
+  `ghcr.io/kristalalfred/open-weave` still answers `404`, so nothing was
+  published. The `pull_request` trigger is read from the workflow; no pull
+  request has run it. The `aarch64-macos` archive from run 38869809217 ran a
+  control plane, two adapters and a stream end to end on this Mac against two
+  Strom 0.6.10 containers. Boxes 1 and 5 ticked by claude-rc-fixes.
