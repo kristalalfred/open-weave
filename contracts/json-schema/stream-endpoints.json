@@ -1,13 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "destinations": {
       "items": {
-        "additionalProperties": false,
         "properties": {
           "endpoint": {
-            "additionalProperties": false,
             "properties": {
               "host": {
                 "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
@@ -50,14 +47,14 @@
           }
         },
         "required": [
-          "id"
+          "id",
+          "endpoint"
         ],
         "type": "object"
       },
       "type": "array"
     },
     "ingress": {
-      "additionalProperties": false,
       "properties": {
         "host": {
           "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
@@ -94,6 +91,7 @@
     }
   },
   "required": [
+    "ingress",
     "destinations"
   ],
   "title": "StreamEndpoints",

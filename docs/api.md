@@ -33,10 +33,38 @@ has JSON Schema 2020-12 documents for every request and response payload, and
 `webhook-event.json` for a webhook delivery. Both are generated from the Rust
 wire types by `just contracts`, and a test fails when the committed files drift.
 
-The schemas carry id patterns, required lists, unknown-field rejection and enum
-values. Rules that depend on where a shared type appears, such as `format` being
-source-only, are enforced only by the validator at runtime. `/health` and the
-dashboard routes are not in OpenAPI.
+The schemas carry id patterns, required lists and enum values. Rules that depend
+on where a shared type appears, such as `format` being source-only, are enforced
+only by the validator at runtime. `/health` and the dashboard routes are not in
+OpenAPI.
+
+Each schema is rendered for the side that reads the payload:
+
+| Payload | Read by | Schema |
+|---|---|---|
+| Requests: streams, stream sets, registrations, heartbeats | the controller | What the controller accepts. Every object refuses other properties. |
+| Southbound responses | an adapter | What the controller sends. Every object refuses other properties. |
+| Northbound responses, webhook events | a client | What the controller sends, open to additions. Objects accept other properties, each enumeration is an `anyOf` with `{"type": "string"}`, and each union is an `anyOf` with `{"type": "object"}`. |
+
+A response schema's `required` list names the fields every response carries.
+
+## Compatibility
+
+A request, northbound or southbound, with a field the API does not define at any
+depth, or with a value an enumeration does not name, gets `400 invalid_json`,
+and the detail names the path.
+
+A release can add fields to northbound responses and webhook events, values to
+their enumerations, such as a condition `reason`, a status or an error `code`,
+and kinds to their unions, such as a destination transport. A client must ignore
+a field it does not know and must accept a value or a kind it does not know.
+`weave` prints an unknown value as it arrives, and `-o json` and `-o yaml` print
+the response body as returned. A Rust client reads responses with the types in
+`weave_core::read`, which ignore unknown fields and keep unknown values. The
+other `weave_core` types refuse anything they do not name.
+
+Southbound payloads are exact for one protocol version. See
+[Registration](#registration).
 
 ## Errors
 
@@ -90,8 +118,8 @@ generation and ETag.
 The controller validates every write. Northbound runs the same validator first
 for early feedback, and a client posting to the controller directly gets the
 same rules. An invalid stream returns `400` with every issue and is not stored.
-A stream with a field the API does not define, at any depth, returns
-`400 invalid_json`, and the detail names the field's path.
+A stream with a field or value the API does not define is refused as
+[Compatibility](#compatibility) describes.
 
 When a stored stream no longer passes validation, the controller names the
 stream, field and error and does not serve. With `DATABASE_URL` it gives up the
@@ -262,7 +290,9 @@ before its body is checked, and both shipped nodes then register again.
 ```
 
 `PROTOCOL_VERSION` changes when adapter behavior or payload meaning becomes
-incompatible. Version 5 adds, over 4:
+incompatible. The controller and the Strom adapter refuse a southbound field or
+value they do not define, so any change to a southbound payload is incompatible.
+Version 5 adds, over 4:
 
 - SRT socket `params` with `passphrase` and `pbkeylen` (see
   [SRT encryption](security.md#srt-encryption)). An adapter at 4 would build its

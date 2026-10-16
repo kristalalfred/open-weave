@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "changed": {
       "type": "boolean"
@@ -21,22 +20,35 @@
       "type": "array"
     },
     "status": {
-      "enum": [
-        "accepted"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "accepted"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ]
     },
     "streams": {
       "items": {
-        "additionalProperties": false,
         "properties": {
           "action": {
-            "enum": [
-              "created",
-              "updated",
-              "unchanged"
-            ],
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "created",
+                  "updated",
+                  "unchanged"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "generation": {
             "format": "uint64",

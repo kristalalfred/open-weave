@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "changed": {
       "type": "boolean"
@@ -17,10 +16,17 @@
       "type": "string"
     },
     "status": {
-      "enum": [
-        "accepted"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "accepted"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ]
     }
   },
   "required": [

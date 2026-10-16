@@ -1,4 +1,5 @@
-use schemars::{JsonSchema, generate::SchemaSettings};
+use schemars::transform::{Transform, transform_subschemas};
+use schemars::{JsonSchema, Schema, generate::SchemaSettings, json_schema};
 use serde_json::{Map, Value, json};
 
 use crate::{
@@ -24,42 +25,58 @@ pub fn artifacts() -> Vec<ContractArtifact> {
     artifacts.extend(
         payloads()
             .into_iter()
-            .map(|payload| artifact(payload.path, (payload.schema)())),
+            .map(|payload| artifact(payload.path, (payload.schema)(payload.reader))),
     );
     artifacts
+}
+
+/// Who reads a payload, which decides how its schema renders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reader {
+    /// The controller reading a request: what deserializes, closed.
+    Controller,
+    /// An adapter reading southbound: what serializes, closed.
+    /// [`crate::PROTOCOL_VERSION`] pins the shape.
+    Adapter,
+    /// A northbound client or a webhook receiver: what serializes, open to
+    /// what a newer server adds.
+    Client,
 }
 
 /// A payload with a JSON Schema document of its own under `contracts/`.
 struct Payload {
     path: &'static str,
-    schema: fn() -> Value,
+    reader: Reader,
+    schema: fn(Reader) -> Value,
 }
 
-fn payload<T: JsonSchema>(path: &'static str) -> Payload {
+fn payload<T: JsonSchema>(path: &'static str, reader: Reader) -> Payload {
     Payload {
         path,
+        reader,
         schema: schema::<T>,
     }
 }
 
 fn payloads() -> [Payload; 16] {
+    use Reader::{Adapter, Client, Controller};
     [
-        payload::<ApiError>("contracts/json-schema/api-error.json"),
-        payload::<StatusResponse>("contracts/json-schema/status-response.json"),
-        payload::<StreamAccepted>("contracts/json-schema/stream-accepted.json"),
-        payload::<StreamDefinition>("contracts/json-schema/stream-definition.json"),
-        payload::<StreamEndpoints>("contracts/json-schema/stream-endpoints.json"),
-        payload::<StreamPlan>("contracts/json-schema/stream-plan.json"),
-        payload::<StreamResource>("contracts/json-schema/stream-resource.json"),
-        payload::<StreamSetAccepted>("contracts/json-schema/stream-set-accepted.json"),
-        payload::<StreamSetApply>("contracts/json-schema/stream-set-apply.json"),
-        payload::<StreamSetResource>("contracts/json-schema/stream-set-resource.json"),
-        payload::<NodeAccepted>("contracts/json-schema/node-accepted.json"),
-        payload::<NodeHeartbeat>("contracts/json-schema/node-heartbeat.json"),
-        payload::<NodeRegistration>("contracts/json-schema/node-registration.json"),
-        payload::<ObservedState>("contracts/json-schema/observed-state.json"),
-        payload::<Vec<DesiredHop>>("contracts/json-schema/desired-hops.json"),
-        payload::<webhook::Event>("contracts/json-schema/webhook-event.json"),
+        payload::<ApiError>("contracts/json-schema/api-error.json", Client),
+        payload::<StatusResponse>("contracts/json-schema/status-response.json", Client),
+        payload::<StreamAccepted>("contracts/json-schema/stream-accepted.json", Client),
+        payload::<StreamDefinition>("contracts/json-schema/stream-definition.json", Controller),
+        payload::<StreamEndpoints>("contracts/json-schema/stream-endpoints.json", Client),
+        payload::<StreamPlan>("contracts/json-schema/stream-plan.json", Client),
+        payload::<StreamResource>("contracts/json-schema/stream-resource.json", Client),
+        payload::<StreamSetAccepted>("contracts/json-schema/stream-set-accepted.json", Client),
+        payload::<StreamSetApply>("contracts/json-schema/stream-set-apply.json", Controller),
+        payload::<StreamSetResource>("contracts/json-schema/stream-set-resource.json", Client),
+        payload::<NodeAccepted>("contracts/json-schema/node-accepted.json", Adapter),
+        payload::<NodeHeartbeat>("contracts/json-schema/node-heartbeat.json", Controller),
+        payload::<NodeRegistration>("contracts/json-schema/node-registration.json", Controller),
+        payload::<ObservedState>("contracts/json-schema/observed-state.json", Adapter),
+        payload::<Vec<DesiredHop>>("contracts/json-schema/desired-hops.json", Adapter),
+        payload::<webhook::Event>("contracts/json-schema/webhook-event.json", Client),
     ]
 }
 
@@ -70,10 +87,73 @@ fn artifact(path: &'static str, value: Value) -> ContractArtifact {
     }
 }
 
-fn schema<T: JsonSchema>() -> Value {
-    let mut settings = SchemaSettings::draft2020_12();
-    settings.inline_subschemas = true;
+fn schema<T: JsonSchema>(reader: Reader) -> Value {
+    let base = SchemaSettings::draft2020_12().with(|settings| settings.inline_subschemas = true);
+    let settings = match reader {
+        Reader::Controller => base.for_deserialize(),
+        Reader::Adapter => base.for_serialize(),
+        Reader::Client => base.for_serialize().with_transform(OpenToClients),
+    };
     serde_json::to_value(settings.into_generator().into_root_schema_for::<T>()).unwrap()
+}
+
+/// Lets a schema accept what a newer server may add: other properties, other
+/// values of an enumeration, and other kinds of a union.
+#[derive(Clone)]
+struct OpenToClients;
+
+impl Transform for OpenToClients {
+    fn transform(&mut self, schema: &mut Schema) {
+        if is_enumeration(schema.as_value()) {
+            let closed = std::mem::take(schema);
+            *schema = json_schema!({ "anyOf": [closed, { "type": "string" }] });
+            return;
+        }
+        transform_subschemas(self, schema);
+        for key in ["additionalProperties", "unevaluatedProperties"] {
+            if schema.get(key) == Some(&Value::Bool(false)) {
+                schema.remove(key);
+            }
+        }
+        let union = ["oneOf", "anyOf"]
+            .into_iter()
+            .find(|key| schema.get(*key).is_some_and(is_object_union));
+        if let Some(key) = union
+            && let Some(Value::Array(mut branches)) = schema.remove(key)
+        {
+            branches.push(json!({ "type": "object" }));
+            schema.insert("anyOf".to_string(), Value::Array(branches));
+        }
+    }
+}
+
+/// A closed set of strings: an `enum` or `const` of strings, which may also
+/// allow `null`, or a `oneOf` whose every branch is a string `const`.
+fn is_enumeration(schema: &Value) -> bool {
+    let string_or_null = |value: &Value| value.is_string() || value.is_null();
+    if let Some(values) = schema.get("enum").and_then(Value::as_array) {
+        return values.iter().all(string_or_null);
+    }
+    if let Some(value) = schema.get("const") {
+        return value.is_string();
+    }
+    schema
+        .get("oneOf")
+        .and_then(Value::as_array)
+        .is_some_and(|branches| {
+            branches
+                .iter()
+                .all(|branch| branch.get("const").is_some_and(Value::is_string))
+        })
+}
+
+fn is_object_union(branches: &Value) -> bool {
+    branches.as_array().is_some_and(|branches| {
+        branches.len() > 1
+            && branches
+                .iter()
+                .all(|branch| branch.get("type") == Some(&json!("object")))
+    })
 }
 
 fn components(entries: &[(&str, Value)]) -> Value {
@@ -164,7 +244,7 @@ fn common_document(title: &str, paths: Value, components: Value) -> Value {
 
 #[must_use]
 pub fn northbound_openapi() -> Value {
-    let error = schema::<ApiError>();
+    use Reader::{Client, Controller};
     common_document(
         "open-weave northbound API",
         json!({
@@ -360,26 +440,26 @@ pub fn northbound_openapi() -> Value {
             }
         }),
         components(&[
-            ("ApiError", error),
-            ("NodeList", schema::<Vec<NodeDescriptor>>()),
-            ("StatusResponse", schema::<StatusResponse>()),
-            ("StreamAccepted", schema::<StreamAccepted>()),
-            ("StreamDefinition", schema::<StreamDefinition>()),
-            ("StreamEndpoints", schema::<StreamEndpoints>()),
-            ("StreamPlan", schema::<StreamPlan>()),
-            ("StreamResource", schema::<StreamResource>()),
-            ("StreamList", schema::<Vec<StreamResource>>()),
-            ("StreamSetAccepted", schema::<StreamSetAccepted>()),
-            ("StreamSetApply", schema::<StreamSetApply>()),
-            ("StreamSetResource", schema::<StreamSetResource>()),
-            ("StreamSetList", schema::<Vec<StreamSetResource>>()),
+            ("ApiError", schema::<ApiError>(Client)),
+            ("NodeList", schema::<Vec<NodeDescriptor>>(Client)),
+            ("StatusResponse", schema::<StatusResponse>(Client)),
+            ("StreamAccepted", schema::<StreamAccepted>(Client)),
+            ("StreamDefinition", schema::<StreamDefinition>(Controller)),
+            ("StreamEndpoints", schema::<StreamEndpoints>(Client)),
+            ("StreamPlan", schema::<StreamPlan>(Client)),
+            ("StreamResource", schema::<StreamResource>(Client)),
+            ("StreamList", schema::<Vec<StreamResource>>(Client)),
+            ("StreamSetAccepted", schema::<StreamSetAccepted>(Client)),
+            ("StreamSetApply", schema::<StreamSetApply>(Controller)),
+            ("StreamSetResource", schema::<StreamSetResource>(Client)),
+            ("StreamSetList", schema::<Vec<StreamSetResource>>(Client)),
         ]),
     )
 }
 
 #[must_use]
 pub fn southbound_openapi() -> Value {
-    let error = schema::<ApiError>();
+    use Reader::{Adapter, Controller};
     common_document(
         "open-weave southbound API",
         json!({
@@ -471,14 +551,14 @@ pub fn southbound_openapi() -> Value {
             }
         }),
         components(&[
-            ("ApiError", error),
-            ("DesiredHopList", schema::<Vec<DesiredHop>>()),
-            ("EndpointList", schema::<Vec<EndpointDescriptor>>()),
-            ("NodeAccepted", schema::<NodeAccepted>()),
-            ("NodeHeartbeat", schema::<NodeHeartbeat>()),
-            ("NodeList", schema::<Vec<NodeDescriptor>>()),
-            ("NodeRegistration", schema::<NodeRegistration>()),
-            ("ObservedState", schema::<ObservedState>()),
+            ("ApiError", schema::<ApiError>(Adapter)),
+            ("DesiredHopList", schema::<Vec<DesiredHop>>(Adapter)),
+            ("EndpointList", schema::<Vec<EndpointDescriptor>>(Adapter)),
+            ("NodeAccepted", schema::<NodeAccepted>(Adapter)),
+            ("NodeHeartbeat", schema::<NodeHeartbeat>(Controller)),
+            ("NodeList", schema::<Vec<NodeDescriptor>>(Adapter)),
+            ("NodeRegistration", schema::<NodeRegistration>(Controller)),
+            ("ObservedState", schema::<ObservedState>(Adapter)),
         ]),
     )
 }
@@ -487,7 +567,7 @@ pub fn southbound_openapi() -> Value {
 mod tests {
     use super::*;
     use crate::NodeConfig;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::path::Path;
 
     #[test]
@@ -503,14 +583,148 @@ mod tests {
     fn the_model_refuses_unknown_fields_at_every_depth() {
         let mut gaps = Vec::new();
         for payload in payloads() {
-            unclosed(&(payload.schema)(), payload.path, "", false, &mut gaps);
+            gaps.extend(gaps_in(&(payload.schema)(Reader::Controller), payload.path));
         }
-        unclosed(&schema::<NodeConfig>(), "node config", "", false, &mut gaps);
+        gaps.extend(gaps_in(
+            &schema::<NodeConfig>(Reader::Controller),
+            "node config",
+        ));
         assert!(
             gaps.is_empty(),
             "these objects accept fields they do not name; give each one's type #[serde(deny_unknown_fields)]:\n{}",
             gaps.join("\n")
         );
+    }
+
+    fn requests(document: &Value) -> BTreeSet<&str> {
+        document["paths"]
+            .as_object()
+            .unwrap()
+            .values()
+            .flat_map(|operations| operations.as_object().unwrap().values())
+            .filter_map(|operation| {
+                operation["requestBody"]["content"]["application/json"]["schema"]["$ref"].as_str()
+            })
+            .map(|reference| reference.trim_start_matches("#/components/schemas/"))
+            .collect()
+    }
+
+    #[test]
+    fn northbound_responses_and_webhooks_are_open_and_the_rest_closed() {
+        let mut problems = Vec::new();
+        for payload in payloads() {
+            let schema = (payload.schema)(payload.reader);
+            problems.extend(match payload.reader {
+                Reader::Client => refusals_in(&schema, payload.path),
+                Reader::Controller | Reader::Adapter => gaps_in(&schema, payload.path),
+            });
+        }
+
+        let north = northbound_openapi();
+        let south = southbound_openapi();
+        assert_eq!(
+            requests(&north),
+            BTreeSet::from(["StreamDefinition", "StreamSetApply"])
+        );
+        assert_eq!(
+            requests(&south),
+            BTreeSet::from(["NodeHeartbeat", "NodeRegistration"])
+        );
+        for (name, document, responses_open) in
+            [("northbound", &north, true), ("southbound", &south, false)]
+        {
+            let requests = requests(document);
+            for (component, schema) in document["components"]["schemas"].as_object().unwrap() {
+                let at = format!("{name} {component}");
+                problems.extend(
+                    if responses_open && !requests.contains(component.as_str()) {
+                        refusals_in(schema, &at)
+                    } else {
+                        gaps_in(schema, &at)
+                    },
+                );
+            }
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    /// Where `schema` refuses what a newer server can add: a closed object, an
+    /// enumeration with no branch for another string, or a union with no branch
+    /// for another object.
+    fn refusals_in(schema: &Value, root: &str) -> Vec<String> {
+        let mut refusals = Vec::new();
+        refused(schema, root, "", &mut refusals);
+        refusals
+    }
+
+    fn refused(schema: &Value, root: &str, at: &str, refusals: &mut Vec<String>) {
+        let Some(object) = schema.as_object() else {
+            return;
+        };
+        let mut refuse = |what: &str| {
+            refusals.push(format!(
+                "{root}: {}: {what}",
+                if at.is_empty() { "." } else { at }
+            ));
+        };
+        for key in ["additionalProperties", "unevaluatedProperties"] {
+            if object.get(key) == Some(&Value::Bool(false)) {
+                refuse(&format!("{key} is false"));
+            }
+        }
+        if is_enumeration(schema) {
+            refuse("a closed enumeration");
+            return;
+        }
+        if object.get("oneOf").is_some_and(is_object_union) {
+            refuse("a closed union");
+        }
+        let branches = object.get("anyOf").and_then(Value::as_array);
+        let any_string = json!({ "type": "string" });
+        let any_object = json!({ "type": "object" });
+        let open_enumeration = branches.is_some_and(|branches| branches.contains(&any_string));
+        if let Some(branches) = branches
+            && is_object_union(&object["anyOf"])
+            && branches
+                .iter()
+                .filter(|branch| **branch == any_object)
+                .count()
+                != 1
+        {
+            refuse("a union without exactly one branch for another object");
+        }
+        let child = |name: &str| {
+            if at.is_empty() {
+                name.to_string()
+            } else {
+                format!("{at}.{name}")
+            }
+        };
+        for (key, value) in object {
+            match key.as_str() {
+                "properties" => {
+                    for (name, property) in value.as_object().into_iter().flatten() {
+                        refused(property, root, &child(name), refusals);
+                    }
+                }
+                "items" => refused(value, root, &format!("{at}[]"), refusals),
+                "additionalProperties" => refused(value, root, &child("*"), refusals),
+                "anyOf" | "oneOf" | "allOf" => {
+                    for branch in value.as_array().into_iter().flatten() {
+                        if !(open_enumeration && is_enumeration(branch)) {
+                            refused(branch, root, at, refusals);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn gaps_in(schema: &Value, root: &str) -> Vec<String> {
+        let mut gaps = Vec::new();
+        unclosed(schema, root, "", false, &mut gaps);
+        gaps
     }
 
     /// Collects every object schema under `schema` that names properties and
@@ -621,7 +835,8 @@ mod tests {
 
     #[test]
     fn stream_schema_carries_the_resource_id_rule() {
-        let schema = serde_json::to_string(&schema::<StreamDefinition>()).unwrap();
+        let schema =
+            serde_json::to_string(&schema::<StreamDefinition>(Reader::Controller)).unwrap();
         assert!(schema.contains("maxLength"));
         assert!(schema.contains("^[a-z0-9]"));
     }
@@ -680,7 +895,7 @@ mod tests {
 
     #[test]
     fn condition_transition_time_is_an_rfc3339_schema_string() {
-        let schema = serde_json::to_value(schema::<StatusResponse>()).unwrap();
+        let schema = serde_json::to_value(schema::<StatusResponse>(Reader::Client)).unwrap();
         let rendered = serde_json::to_string(&schema).unwrap();
         assert!(rendered.contains("last_transition_time"));
         assert!(rendered.contains("date-time"));

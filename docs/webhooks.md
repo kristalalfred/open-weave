@@ -25,6 +25,14 @@ when it flows, without polling `/nodes` and `/status`.
 delivers node events only. The full payload schema is
 [`contracts/json-schema/webhook-event.json`](../contracts/json-schema/webhook-event.json).
 
+A release can add fields to an event, event types, values to the enumerations an
+event carries, such as a condition `reason`, and subjects beside `node` and
+`stream`. A receiver must ignore a field it does not know and must accept an
+event type, a value or a subject it does not know. The schema accepts all of
+these. A Rust receiver decodes `weave_core::read::Event`, which ignores unknown
+fields, keeps unknown values, and leaves `node` and `stream` empty for another
+subject.
+
 ### Node events
 
 `node` is the node's descriptor, without `endpoints` or `hop_status`. This one

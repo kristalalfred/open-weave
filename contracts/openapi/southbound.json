@@ -470,7 +470,10 @@
           "required": [
             "id",
             "label",
-            "kind"
+            "node_id",
+            "kind",
+            "transports",
+            "metadata"
           ],
           "type": "object"
         },
@@ -1339,6 +1342,10 @@
                   "type": "array"
                 }
               },
+              "required": [
+                "adapters",
+                "hop_profiles"
+              ],
               "type": "object"
             },
             "endpoint": {
@@ -1502,13 +1509,18 @@
                     },
                     "required": [
                       "id",
-                      "network"
+                      "network",
+                      "dial",
+                      "listeners"
                     ],
                     "type": "object"
                   },
                   "type": "array"
                 }
               },
+              "required": [
+                "attachments"
+              ],
               "type": "object"
             }
           },
@@ -1516,6 +1528,7 @@
             "id",
             "endpoint",
             "status",
+            "capabilities",
             "topology"
           ],
           "type": "object"
@@ -2581,7 +2594,10 @@
               "required": [
                 "id",
                 "label",
-                "kind"
+                "node_id",
+                "kind",
+                "transports",
+                "metadata"
               ],
               "type": "object"
             },
@@ -2691,6 +2707,14 @@
                             "type": "number"
                           }
                         },
+                        "required": [
+                          "connections",
+                          "rate_mbps",
+                          "packets_sent_lost",
+                          "packets_retransmitted",
+                          "packets_received_lost",
+                          "packets_received_retransmitted"
+                        ],
                         "type": [
                           "object",
                           "null"
@@ -2698,7 +2722,8 @@
                       }
                     },
                     "required": [
-                      "branch_id"
+                      "branch_id",
+                      "condition"
                     ],
                     "type": "object"
                   },
@@ -2800,12 +2825,23 @@
                           "type": "number"
                         }
                       },
+                      "required": [
+                        "connections",
+                        "rate_mbps",
+                        "packets_sent_lost",
+                        "packets_retransmitted",
+                        "packets_received_lost",
+                        "packets_received_retransmitted"
+                      ],
                       "type": [
                         "object",
                         "null"
                       ]
                     }
                   },
+                  "required": [
+                    "condition"
+                  ],
                   "type": "object"
                 },
                 "merge_ingress": {
@@ -2901,12 +2937,23 @@
                           "type": "number"
                         }
                       },
+                      "required": [
+                        "connections",
+                        "rate_mbps",
+                        "packets_sent_lost",
+                        "packets_retransmitted",
+                        "packets_received_lost",
+                        "packets_received_retransmitted"
+                      ],
                       "type": [
                         "object",
                         "null"
                       ]
                     }
                   },
+                  "required": [
+                    "condition"
+                  ],
                   "type": [
                     "object",
                     "null"
@@ -2929,7 +2976,8 @@
                 "id",
                 "node_id",
                 "state",
-                "ingress"
+                "ingress",
+                "egresses"
               ],
               "type": "object"
             },
@@ -3346,6 +3394,10 @@
                       "type": "array"
                     }
                   },
+                  "required": [
+                    "adapters",
+                    "hop_profiles"
+                  ],
                   "type": "object"
                 },
                 "endpoint": {
@@ -3509,13 +3561,18 @@
                         },
                         "required": [
                           "id",
-                          "network"
+                          "network",
+                          "dial",
+                          "listeners"
                         ],
                         "type": "object"
                       },
                       "type": "array"
                     }
                   },
+                  "required": [
+                    "attachments"
+                  ],
                   "type": "object"
                 }
               },
@@ -3523,6 +3580,7 @@
                 "id",
                 "endpoint",
                 "status",
+                "capabilities",
                 "topology"
               ],
               "type": "object"
@@ -3530,6 +3588,11 @@
             "type": "array"
           }
         },
+        "required": [
+          "nodes",
+          "endpoints",
+          "hops"
+        ],
         "title": "ObservedState",
         "type": "object"
       }

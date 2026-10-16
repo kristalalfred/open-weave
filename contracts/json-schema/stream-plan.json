@@ -1,16 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "endpoints": {
-      "additionalProperties": false,
       "properties": {
         "destinations": {
           "items": {
-            "additionalProperties": false,
             "properties": {
               "endpoint": {
-                "additionalProperties": false,
                 "properties": {
                   "host": {
                     "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
@@ -53,14 +49,14 @@
               }
             },
             "required": [
-              "id"
+              "id",
+              "endpoint"
             ],
             "type": "object"
           },
           "type": "array"
         },
         "ingress": {
-          "additionalProperties": false,
           "properties": {
             "host": {
               "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
@@ -97,6 +93,7 @@
         }
       },
       "required": [
+        "ingress",
         "destinations"
       ],
       "type": [
@@ -106,12 +103,10 @@
     },
     "hops": {
       "items": {
-        "additionalProperties": false,
         "description": "One provisioning unit placed on a single node: one ingress socket fanned out\n to one or more egress sockets (a sender tees to every destination).",
         "properties": {
           "egresses": {
             "items": {
-              "additionalProperties": false,
               "description": "One identified output branch of a desired hop.",
               "properties": {
                 "branch_id": {
@@ -130,7 +125,6 @@
                   ]
                 },
                 "params": {
-                  "additionalProperties": false,
                   "properties": {
                     "latency": {
                       "format": "uint32",
@@ -181,23 +175,37 @@
                   ]
                 },
                 "role": {
-                  "enum": [
-                    "listen",
-                    "connect",
-                    "capture",
-                    "display"
-                  ],
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "listen",
+                        "connect",
+                        "capture",
+                        "display"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
                 },
                 "transport": {
-                  "enum": [
-                    "srt",
-                    "whip",
-                    "whep",
-                    "rist",
-                    "device"
-                  ],
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "srt",
+                        "whip",
+                        "whep",
+                        "rist",
+                        "device"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
                 },
                 "url": {
                   "type": [
@@ -219,7 +227,6 @@
             "type": "string"
           },
           "ingress": {
-            "additionalProperties": false,
             "description": "Flat wire form of a [`SocketSpec`]: a `transport` and `role` naming the\n variant, plus the fields that variant carries.",
             "properties": {
               "endpoint_id": {
@@ -235,7 +242,6 @@
                 ]
               },
               "params": {
-                "additionalProperties": false,
                 "properties": {
                   "latency": {
                     "format": "uint32",
@@ -286,23 +292,37 @@
                 ]
               },
               "role": {
-                "enum": [
-                  "listen",
-                  "connect",
-                  "capture",
-                  "display"
-                ],
-                "type": "string"
+                "anyOf": [
+                  {
+                    "enum": [
+                      "listen",
+                      "connect",
+                      "capture",
+                      "display"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
               },
               "transport": {
-                "enum": [
-                  "srt",
-                  "whip",
-                  "whep",
-                  "rist",
-                  "device"
-                ],
-                "type": "string"
+                "anyOf": [
+                  {
+                    "enum": [
+                      "srt",
+                      "whip",
+                      "whep",
+                      "rist",
+                      "device"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
               },
               "url": {
                 "type": [
@@ -318,7 +338,6 @@
             "type": "object"
           },
           "merge_ingress": {
-            "additionalProperties": false,
             "description": "A second ingress carrying another copy of the same media over a disjoint\n path, for the hop to merge with `ingress`. Only a receiver whose profile\n merges has one.",
             "properties": {
               "endpoint_id": {
@@ -334,7 +353,6 @@
                 ]
               },
               "params": {
-                "additionalProperties": false,
                 "properties": {
                   "latency": {
                     "format": "uint32",
@@ -385,23 +403,37 @@
                 ]
               },
               "role": {
-                "enum": [
-                  "listen",
-                  "connect",
-                  "capture",
-                  "display"
-                ],
-                "type": "string"
+                "anyOf": [
+                  {
+                    "enum": [
+                      "listen",
+                      "connect",
+                      "capture",
+                      "display"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
               },
               "transport": {
-                "enum": [
-                  "srt",
-                  "whip",
-                  "whep",
-                  "rist",
-                  "device"
-                ],
-                "type": "string"
+                "anyOf": [
+                  {
+                    "enum": [
+                      "srt",
+                      "whip",
+                      "whep",
+                      "rist",
+                      "device"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
               },
               "url": {
                 "type": [
@@ -426,22 +458,36 @@
             "type": "string"
           },
           "role": {
-            "enum": [
-              "sender",
-              "bridge",
-              "receiver"
-            ],
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "sender",
+                  "bridge",
+                  "receiver"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "tracks": {
             "description": "The tracks the stream's source sends, copied onto every hop of its path:\n a capture device's declared tracks, or those an outside WHIP sender's\n declared `format` carries. Absent when the source declares neither.",
             "items": {
-              "description": "A kind of media track a capture device sends.",
-              "enum": [
-                "audio",
-                "video"
-              ],
-              "type": "string"
+              "anyOf": [
+                {
+                  "description": "A kind of media track a capture device sends.",
+                  "enum": [
+                    "audio",
+                    "video"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ]
             },
             "type": [
               "array",
@@ -483,12 +529,19 @@
       ]
     },
     "status": {
-      "enum": [
-        "disabled",
-        "placed",
-        "unplaced"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "disabled",
+            "placed",
+            "unplaced"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ]
     }
   },
   "required": [

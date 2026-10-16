@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "generation": {
       "format": "uint64",
@@ -17,7 +16,6 @@
       ]
     },
     "spec": {
-      "additionalProperties": false,
       "description": "Operator intent: one source streamed to one or more destinations over a transport.",
       "properties": {
         "allow_cleartext_links": {
@@ -26,19 +24,15 @@
         },
         "destinations": {
           "items": {
-            "description": "One stable, named output branch of a stream.",
-            "oneOf": [
+            "anyOf": [
               {
                 "properties": {
                   "srt": {
-                    "additionalProperties": false,
                     "properties": {
                       "accepts": {
-                        "additionalProperties": false,
                         "description": "What this endpoint will accept. Destinations only. Absent accepts\n anything.",
                         "properties": {
                           "audio": {
-                            "additionalProperties": false,
                             "properties": {
                               "channels": {
                                 "items": {
@@ -55,14 +49,21 @@
                               },
                               "codec": {
                                 "items": {
-                                  "enum": [
-                                    "aac",
-                                    "opus",
-                                    "mp2",
-                                    "pcm_s16",
-                                    "pcm_s24"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "aac",
+                                        "opus",
+                                        "mp2",
+                                        "pcm_s16",
+                                        "pcm_s24"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -90,11 +91,18 @@
                           },
                           "container": {
                             "items": {
-                              "enum": [
-                                "mpeg_ts",
-                                "rtp"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "mpeg_ts",
+                                    "rtp"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "minItems": 1,
                             "type": [
@@ -103,16 +111,22 @@
                             ]
                           },
                           "video": {
-                            "additionalProperties": false,
                             "properties": {
                               "chroma_subsampling": {
                                 "items": {
-                                  "enum": [
-                                    "yuv420",
-                                    "yuv422",
-                                    "yuv444"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "yuv420",
+                                        "yuv422",
+                                        "yuv444"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -122,14 +136,21 @@
                               },
                               "codec": {
                                 "items": {
-                                  "enum": [
-                                    "h264",
-                                    "h265",
-                                    "av1",
-                                    "vp8",
-                                    "vp9"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "h264",
+                                        "h265",
+                                        "av1",
+                                        "vp8",
+                                        "vp9"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -139,7 +160,6 @@
                               },
                               "framerate": {
                                 "items": {
-                                  "additionalProperties": false,
                                   "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                   "properties": {
                                     "denominator": {
@@ -202,11 +222,9 @@
                         ]
                       },
                       "format": {
-                        "additionalProperties": false,
                         "description": "What the producer feeding this endpoint sends. Sources only.\n\n Declared, not discovered: an SRT flow that only moves bytes never parses\n its payload, so nothing downstream knows what is inside it. Absent means\n the format is unknown and nothing is checked against it.",
                         "properties": {
                           "audio": {
-                            "additionalProperties": false,
                             "properties": {
                               "channels": {
                                 "format": "uint8",
@@ -215,14 +233,21 @@
                                 "type": "integer"
                               },
                               "codec": {
-                                "enum": [
-                                  "aac",
-                                  "opus",
-                                  "mp2",
-                                  "pcm_s16",
-                                  "pcm_s24"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "aac",
+                                      "opus",
+                                      "mp2",
+                                      "pcm_s16",
+                                      "pcm_s24"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "sample_rate": {
                                 "description": "Samples per second. The field a sample-rate conversion changes.",
@@ -242,35 +267,54 @@
                             ]
                           },
                           "container": {
-                            "enum": [
-                              "mpeg_ts",
-                              "rtp"
-                            ],
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "mpeg_ts",
+                                  "rtp"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
                           },
                           "video": {
-                            "additionalProperties": false,
                             "properties": {
                               "chroma_subsampling": {
-                                "enum": [
-                                  "yuv420",
-                                  "yuv422",
-                                  "yuv444"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "yuv420",
+                                      "yuv422",
+                                      "yuv444"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "codec": {
-                                "enum": [
-                                  "h264",
-                                  "h265",
-                                  "av1",
-                                  "vp8",
-                                  "vp9"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "h264",
+                                      "h265",
+                                      "av1",
+                                      "vp8",
+                                      "vp9"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "framerate": {
-                                "additionalProperties": false,
                                 "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                 "properties": {
                                   "denominator": {
@@ -358,7 +402,6 @@
                         ]
                       },
                       "remote": {
-                        "additionalProperties": false,
                         "description": "External SRT listener this endpoint dials out to. Destinations only;\n mutually exclusive with [`SrtEndpoint::node`].",
                         "properties": {
                           "host": {
@@ -410,7 +453,6 @@
                 "description": "The media starts or ends at a node's own capture or display device: a\n camera when this is the source, a screen when it is a destination. The\n controller chooses the transport that carries it to or from the node.",
                 "properties": {
                   "device": {
-                    "additionalProperties": false,
                     "description": "An endpoint that is nothing but a node: the node itself produces or consumes\n the media, so there is no address, latency, or format to declare.",
                     "properties": {
                       "network": {
@@ -442,15 +484,12 @@
                 "description": "A WHIP sender open-weave does not manage pushes the media to an ingest\n on `node`. Sources only.",
                 "properties": {
                   "whip": {
-                    "additionalProperties": false,
                     "description": "A WHIP or WHEP peer open-weave does not manage, reaching the signalling\n listener `node` declares. Like an SRT producer or consumer, the peer dials\n the node; the manifest names the node, never an address.",
                     "properties": {
                       "accepts": {
-                        "additionalProperties": false,
                         "description": "What the WHEP player accepts. Destinations only.",
                         "properties": {
                           "audio": {
-                            "additionalProperties": false,
                             "properties": {
                               "channels": {
                                 "items": {
@@ -467,14 +506,21 @@
                               },
                               "codec": {
                                 "items": {
-                                  "enum": [
-                                    "aac",
-                                    "opus",
-                                    "mp2",
-                                    "pcm_s16",
-                                    "pcm_s24"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "aac",
+                                        "opus",
+                                        "mp2",
+                                        "pcm_s16",
+                                        "pcm_s24"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -502,11 +548,18 @@
                           },
                           "container": {
                             "items": {
-                              "enum": [
-                                "mpeg_ts",
-                                "rtp"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "mpeg_ts",
+                                    "rtp"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "minItems": 1,
                             "type": [
@@ -515,16 +568,22 @@
                             ]
                           },
                           "video": {
-                            "additionalProperties": false,
                             "properties": {
                               "chroma_subsampling": {
                                 "items": {
-                                  "enum": [
-                                    "yuv420",
-                                    "yuv422",
-                                    "yuv444"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "yuv420",
+                                        "yuv422",
+                                        "yuv444"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -534,14 +593,21 @@
                               },
                               "codec": {
                                 "items": {
-                                  "enum": [
-                                    "h264",
-                                    "h265",
-                                    "av1",
-                                    "vp8",
-                                    "vp9"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "h264",
+                                        "h265",
+                                        "av1",
+                                        "vp8",
+                                        "vp9"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -551,7 +617,6 @@
                               },
                               "framerate": {
                                 "items": {
-                                  "additionalProperties": false,
                                   "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                   "properties": {
                                     "denominator": {
@@ -614,11 +679,9 @@
                         ]
                       },
                       "format": {
-                        "additionalProperties": false,
                         "description": "What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].",
                         "properties": {
                           "audio": {
-                            "additionalProperties": false,
                             "properties": {
                               "channels": {
                                 "format": "uint8",
@@ -627,14 +690,21 @@
                                 "type": "integer"
                               },
                               "codec": {
-                                "enum": [
-                                  "aac",
-                                  "opus",
-                                  "mp2",
-                                  "pcm_s16",
-                                  "pcm_s24"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "aac",
+                                      "opus",
+                                      "mp2",
+                                      "pcm_s16",
+                                      "pcm_s24"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "sample_rate": {
                                 "description": "Samples per second. The field a sample-rate conversion changes.",
@@ -654,35 +724,54 @@
                             ]
                           },
                           "container": {
-                            "enum": [
-                              "mpeg_ts",
-                              "rtp"
-                            ],
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "mpeg_ts",
+                                  "rtp"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
                           },
                           "video": {
-                            "additionalProperties": false,
                             "properties": {
                               "chroma_subsampling": {
-                                "enum": [
-                                  "yuv420",
-                                  "yuv422",
-                                  "yuv444"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "yuv420",
+                                      "yuv422",
+                                      "yuv444"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "codec": {
-                                "enum": [
-                                  "h264",
-                                  "h265",
-                                  "av1",
-                                  "vp8",
-                                  "vp9"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "h264",
+                                      "h265",
+                                      "av1",
+                                      "vp8",
+                                      "vp9"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "framerate": {
-                                "additionalProperties": false,
                                 "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                 "properties": {
                                   "denominator": {
@@ -763,15 +852,12 @@
                 "description": "A WHEP player open-weave does not manage pulls the media from `node`.\n Destinations only.",
                 "properties": {
                   "whep": {
-                    "additionalProperties": false,
                     "description": "A WHIP or WHEP peer open-weave does not manage, reaching the signalling\n listener `node` declares. Like an SRT producer or consumer, the peer dials\n the node; the manifest names the node, never an address.",
                     "properties": {
                       "accepts": {
-                        "additionalProperties": false,
                         "description": "What the WHEP player accepts. Destinations only.",
                         "properties": {
                           "audio": {
-                            "additionalProperties": false,
                             "properties": {
                               "channels": {
                                 "items": {
@@ -788,14 +874,21 @@
                               },
                               "codec": {
                                 "items": {
-                                  "enum": [
-                                    "aac",
-                                    "opus",
-                                    "mp2",
-                                    "pcm_s16",
-                                    "pcm_s24"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "aac",
+                                        "opus",
+                                        "mp2",
+                                        "pcm_s16",
+                                        "pcm_s24"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -823,11 +916,18 @@
                           },
                           "container": {
                             "items": {
-                              "enum": [
-                                "mpeg_ts",
-                                "rtp"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "mpeg_ts",
+                                    "rtp"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "minItems": 1,
                             "type": [
@@ -836,16 +936,22 @@
                             ]
                           },
                           "video": {
-                            "additionalProperties": false,
                             "properties": {
                               "chroma_subsampling": {
                                 "items": {
-                                  "enum": [
-                                    "yuv420",
-                                    "yuv422",
-                                    "yuv444"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "yuv420",
+                                        "yuv422",
+                                        "yuv444"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -855,14 +961,21 @@
                               },
                               "codec": {
                                 "items": {
-                                  "enum": [
-                                    "h264",
-                                    "h265",
-                                    "av1",
-                                    "vp8",
-                                    "vp9"
-                                  ],
-                                  "type": "string"
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "h264",
+                                        "h265",
+                                        "av1",
+                                        "vp8",
+                                        "vp9"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
                                 },
                                 "minItems": 1,
                                 "type": [
@@ -872,7 +985,6 @@
                               },
                               "framerate": {
                                 "items": {
-                                  "additionalProperties": false,
                                   "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                   "properties": {
                                     "denominator": {
@@ -935,11 +1047,9 @@
                         ]
                       },
                       "format": {
-                        "additionalProperties": false,
                         "description": "What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].",
                         "properties": {
                           "audio": {
-                            "additionalProperties": false,
                             "properties": {
                               "channels": {
                                 "format": "uint8",
@@ -948,14 +1058,21 @@
                                 "type": "integer"
                               },
                               "codec": {
-                                "enum": [
-                                  "aac",
-                                  "opus",
-                                  "mp2",
-                                  "pcm_s16",
-                                  "pcm_s24"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "aac",
+                                      "opus",
+                                      "mp2",
+                                      "pcm_s16",
+                                      "pcm_s24"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "sample_rate": {
                                 "description": "Samples per second. The field a sample-rate conversion changes.",
@@ -975,35 +1092,54 @@
                             ]
                           },
                           "container": {
-                            "enum": [
-                              "mpeg_ts",
-                              "rtp"
-                            ],
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "mpeg_ts",
+                                  "rtp"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
                           },
                           "video": {
-                            "additionalProperties": false,
                             "properties": {
                               "chroma_subsampling": {
-                                "enum": [
-                                  "yuv420",
-                                  "yuv422",
-                                  "yuv444"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "yuv420",
+                                      "yuv422",
+                                      "yuv444"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "codec": {
-                                "enum": [
-                                  "h264",
-                                  "h265",
-                                  "av1",
-                                  "vp8",
-                                  "vp9"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "h264",
+                                      "h265",
+                                      "av1",
+                                      "vp8",
+                                      "vp9"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "framerate": {
-                                "additionalProperties": false,
                                 "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                 "properties": {
                                   "denominator": {
@@ -1079,8 +1215,12 @@
                   "whep"
                 ],
                 "type": "object"
+              },
+              {
+                "type": "object"
               }
             ],
+            "description": "One stable, named output branch of a stream.",
             "properties": {
               "id": {
                 "maxLength": 63,
@@ -1099,8 +1239,7 @@
             "required": [
               "id"
             ],
-            "type": "object",
-            "unevaluatedProperties": false
+            "type": "object"
           },
           "minItems": 1,
           "type": "array"
@@ -1116,20 +1255,15 @@
           "type": "string"
         },
         "source": {
-          "description": "Transport carrying a stream endpoint. Externally tagged by transport name.",
-          "oneOf": [
+          "anyOf": [
             {
-              "additionalProperties": false,
               "properties": {
                 "srt": {
-                  "additionalProperties": false,
                   "properties": {
                     "accepts": {
-                      "additionalProperties": false,
                       "description": "What this endpoint will accept. Destinations only. Absent accepts\n anything.",
                       "properties": {
                         "audio": {
-                          "additionalProperties": false,
                           "properties": {
                             "channels": {
                               "items": {
@@ -1146,14 +1280,21 @@
                             },
                             "codec": {
                               "items": {
-                                "enum": [
-                                  "aac",
-                                  "opus",
-                                  "mp2",
-                                  "pcm_s16",
-                                  "pcm_s24"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "aac",
+                                      "opus",
+                                      "mp2",
+                                      "pcm_s16",
+                                      "pcm_s24"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1181,11 +1322,18 @@
                         },
                         "container": {
                           "items": {
-                            "enum": [
-                              "mpeg_ts",
-                              "rtp"
-                            ],
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "mpeg_ts",
+                                  "rtp"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
                           },
                           "minItems": 1,
                           "type": [
@@ -1194,16 +1342,22 @@
                           ]
                         },
                         "video": {
-                          "additionalProperties": false,
                           "properties": {
                             "chroma_subsampling": {
                               "items": {
-                                "enum": [
-                                  "yuv420",
-                                  "yuv422",
-                                  "yuv444"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "yuv420",
+                                      "yuv422",
+                                      "yuv444"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1213,14 +1367,21 @@
                             },
                             "codec": {
                               "items": {
-                                "enum": [
-                                  "h264",
-                                  "h265",
-                                  "av1",
-                                  "vp8",
-                                  "vp9"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "h264",
+                                      "h265",
+                                      "av1",
+                                      "vp8",
+                                      "vp9"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1230,7 +1391,6 @@
                             },
                             "framerate": {
                               "items": {
-                                "additionalProperties": false,
                                 "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                 "properties": {
                                   "denominator": {
@@ -1293,11 +1453,9 @@
                       ]
                     },
                     "format": {
-                      "additionalProperties": false,
                       "description": "What the producer feeding this endpoint sends. Sources only.\n\n Declared, not discovered: an SRT flow that only moves bytes never parses\n its payload, so nothing downstream knows what is inside it. Absent means\n the format is unknown and nothing is checked against it.",
                       "properties": {
                         "audio": {
-                          "additionalProperties": false,
                           "properties": {
                             "channels": {
                               "format": "uint8",
@@ -1306,14 +1464,21 @@
                               "type": "integer"
                             },
                             "codec": {
-                              "enum": [
-                                "aac",
-                                "opus",
-                                "mp2",
-                                "pcm_s16",
-                                "pcm_s24"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "aac",
+                                    "opus",
+                                    "mp2",
+                                    "pcm_s16",
+                                    "pcm_s24"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "sample_rate": {
                               "description": "Samples per second. The field a sample-rate conversion changes.",
@@ -1333,35 +1498,54 @@
                           ]
                         },
                         "container": {
-                          "enum": [
-                            "mpeg_ts",
-                            "rtp"
-                          ],
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "mpeg_ts",
+                                "rtp"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
                         },
                         "video": {
-                          "additionalProperties": false,
                           "properties": {
                             "chroma_subsampling": {
-                              "enum": [
-                                "yuv420",
-                                "yuv422",
-                                "yuv444"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "yuv420",
+                                    "yuv422",
+                                    "yuv444"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "codec": {
-                              "enum": [
-                                "h264",
-                                "h265",
-                                "av1",
-                                "vp8",
-                                "vp9"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "h264",
+                                    "h265",
+                                    "av1",
+                                    "vp8",
+                                    "vp9"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "framerate": {
-                              "additionalProperties": false,
                               "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                               "properties": {
                                 "denominator": {
@@ -1449,7 +1633,6 @@
                       ]
                     },
                     "remote": {
-                      "additionalProperties": false,
                       "description": "External SRT listener this endpoint dials out to. Destinations only;\n mutually exclusive with [`SrtEndpoint::node`].",
                       "properties": {
                         "host": {
@@ -1498,11 +1681,9 @@
               "type": "object"
             },
             {
-              "additionalProperties": false,
               "description": "The media starts or ends at a node's own capture or display device: a\n camera when this is the source, a screen when it is a destination. The\n controller chooses the transport that carries it to or from the node.",
               "properties": {
                 "device": {
-                  "additionalProperties": false,
                   "description": "An endpoint that is nothing but a node: the node itself produces or consumes\n the media, so there is no address, latency, or format to declare.",
                   "properties": {
                     "network": {
@@ -1531,19 +1712,15 @@
               "type": "object"
             },
             {
-              "additionalProperties": false,
               "description": "A WHIP sender open-weave does not manage pushes the media to an ingest\n on `node`. Sources only.",
               "properties": {
                 "whip": {
-                  "additionalProperties": false,
                   "description": "A WHIP or WHEP peer open-weave does not manage, reaching the signalling\n listener `node` declares. Like an SRT producer or consumer, the peer dials\n the node; the manifest names the node, never an address.",
                   "properties": {
                     "accepts": {
-                      "additionalProperties": false,
                       "description": "What the WHEP player accepts. Destinations only.",
                       "properties": {
                         "audio": {
-                          "additionalProperties": false,
                           "properties": {
                             "channels": {
                               "items": {
@@ -1560,14 +1737,21 @@
                             },
                             "codec": {
                               "items": {
-                                "enum": [
-                                  "aac",
-                                  "opus",
-                                  "mp2",
-                                  "pcm_s16",
-                                  "pcm_s24"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "aac",
+                                      "opus",
+                                      "mp2",
+                                      "pcm_s16",
+                                      "pcm_s24"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1595,11 +1779,18 @@
                         },
                         "container": {
                           "items": {
-                            "enum": [
-                              "mpeg_ts",
-                              "rtp"
-                            ],
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "mpeg_ts",
+                                  "rtp"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
                           },
                           "minItems": 1,
                           "type": [
@@ -1608,16 +1799,22 @@
                           ]
                         },
                         "video": {
-                          "additionalProperties": false,
                           "properties": {
                             "chroma_subsampling": {
                               "items": {
-                                "enum": [
-                                  "yuv420",
-                                  "yuv422",
-                                  "yuv444"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "yuv420",
+                                      "yuv422",
+                                      "yuv444"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1627,14 +1824,21 @@
                             },
                             "codec": {
                               "items": {
-                                "enum": [
-                                  "h264",
-                                  "h265",
-                                  "av1",
-                                  "vp8",
-                                  "vp9"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "h264",
+                                      "h265",
+                                      "av1",
+                                      "vp8",
+                                      "vp9"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1644,7 +1848,6 @@
                             },
                             "framerate": {
                               "items": {
-                                "additionalProperties": false,
                                 "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                 "properties": {
                                   "denominator": {
@@ -1707,11 +1910,9 @@
                       ]
                     },
                     "format": {
-                      "additionalProperties": false,
                       "description": "What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].",
                       "properties": {
                         "audio": {
-                          "additionalProperties": false,
                           "properties": {
                             "channels": {
                               "format": "uint8",
@@ -1720,14 +1921,21 @@
                               "type": "integer"
                             },
                             "codec": {
-                              "enum": [
-                                "aac",
-                                "opus",
-                                "mp2",
-                                "pcm_s16",
-                                "pcm_s24"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "aac",
+                                    "opus",
+                                    "mp2",
+                                    "pcm_s16",
+                                    "pcm_s24"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "sample_rate": {
                               "description": "Samples per second. The field a sample-rate conversion changes.",
@@ -1747,35 +1955,54 @@
                           ]
                         },
                         "container": {
-                          "enum": [
-                            "mpeg_ts",
-                            "rtp"
-                          ],
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "mpeg_ts",
+                                "rtp"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
                         },
                         "video": {
-                          "additionalProperties": false,
                           "properties": {
                             "chroma_subsampling": {
-                              "enum": [
-                                "yuv420",
-                                "yuv422",
-                                "yuv444"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "yuv420",
+                                    "yuv422",
+                                    "yuv444"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "codec": {
-                              "enum": [
-                                "h264",
-                                "h265",
-                                "av1",
-                                "vp8",
-                                "vp9"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "h264",
+                                    "h265",
+                                    "av1",
+                                    "vp8",
+                                    "vp9"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "framerate": {
-                              "additionalProperties": false,
                               "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                               "properties": {
                                 "denominator": {
@@ -1853,19 +2080,15 @@
               "type": "object"
             },
             {
-              "additionalProperties": false,
               "description": "A WHEP player open-weave does not manage pulls the media from `node`.\n Destinations only.",
               "properties": {
                 "whep": {
-                  "additionalProperties": false,
                   "description": "A WHIP or WHEP peer open-weave does not manage, reaching the signalling\n listener `node` declares. Like an SRT producer or consumer, the peer dials\n the node; the manifest names the node, never an address.",
                   "properties": {
                     "accepts": {
-                      "additionalProperties": false,
                       "description": "What the WHEP player accepts. Destinations only.",
                       "properties": {
                         "audio": {
-                          "additionalProperties": false,
                           "properties": {
                             "channels": {
                               "items": {
@@ -1882,14 +2105,21 @@
                             },
                             "codec": {
                               "items": {
-                                "enum": [
-                                  "aac",
-                                  "opus",
-                                  "mp2",
-                                  "pcm_s16",
-                                  "pcm_s24"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "aac",
+                                      "opus",
+                                      "mp2",
+                                      "pcm_s16",
+                                      "pcm_s24"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1917,11 +2147,18 @@
                         },
                         "container": {
                           "items": {
-                            "enum": [
-                              "mpeg_ts",
-                              "rtp"
-                            ],
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "mpeg_ts",
+                                  "rtp"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
                           },
                           "minItems": 1,
                           "type": [
@@ -1930,16 +2167,22 @@
                           ]
                         },
                         "video": {
-                          "additionalProperties": false,
                           "properties": {
                             "chroma_subsampling": {
                               "items": {
-                                "enum": [
-                                  "yuv420",
-                                  "yuv422",
-                                  "yuv444"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "yuv420",
+                                      "yuv422",
+                                      "yuv444"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1949,14 +2192,21 @@
                             },
                             "codec": {
                               "items": {
-                                "enum": [
-                                  "h264",
-                                  "h265",
-                                  "av1",
-                                  "vp8",
-                                  "vp9"
-                                ],
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "h264",
+                                      "h265",
+                                      "av1",
+                                      "vp8",
+                                      "vp9"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               "minItems": 1,
                               "type": [
@@ -1966,7 +2216,6 @@
                             },
                             "framerate": {
                               "items": {
-                                "additionalProperties": false,
                                 "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                                 "properties": {
                                   "denominator": {
@@ -2029,11 +2278,9 @@
                       ]
                     },
                     "format": {
-                      "additionalProperties": false,
                       "description": "What the WHIP sender sends. Sources only; see [`SrtEndpoint::format`].",
                       "properties": {
                         "audio": {
-                          "additionalProperties": false,
                           "properties": {
                             "channels": {
                               "format": "uint8",
@@ -2042,14 +2289,21 @@
                               "type": "integer"
                             },
                             "codec": {
-                              "enum": [
-                                "aac",
-                                "opus",
-                                "mp2",
-                                "pcm_s16",
-                                "pcm_s24"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "aac",
+                                    "opus",
+                                    "mp2",
+                                    "pcm_s16",
+                                    "pcm_s24"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "sample_rate": {
                               "description": "Samples per second. The field a sample-rate conversion changes.",
@@ -2069,35 +2323,54 @@
                           ]
                         },
                         "container": {
-                          "enum": [
-                            "mpeg_ts",
-                            "rtp"
-                          ],
-                          "type": "string"
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "mpeg_ts",
+                                "rtp"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
                         },
                         "video": {
-                          "additionalProperties": false,
                           "properties": {
                             "chroma_subsampling": {
-                              "enum": [
-                                "yuv420",
-                                "yuv422",
-                                "yuv444"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "yuv420",
+                                    "yuv422",
+                                    "yuv444"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "codec": {
-                              "enum": [
-                                "h264",
-                                "h265",
-                                "av1",
-                                "vp8",
-                                "vp9"
-                              ],
-                              "type": "string"
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "h264",
+                                    "h265",
+                                    "av1",
+                                    "vp8",
+                                    "vp9"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
                             },
                             "framerate": {
-                              "additionalProperties": false,
                               "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
                               "properties": {
                                 "denominator": {
@@ -2173,12 +2446,17 @@
                 "whep"
               ],
               "type": "object"
+            },
+            {
+              "type": "object"
             }
-          ]
+          ],
+          "description": "Transport carrying a stream endpoint. Externally tagged by transport name."
         }
       },
       "required": [
         "name",
+        "enabled",
         "source",
         "destinations"
       ],

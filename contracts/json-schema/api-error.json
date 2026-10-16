@@ -1,36 +1,41 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "code": {
-      "enum": [
-        "invalid_request",
-        "invalid_json",
-        "unauthorized",
-        "forbidden",
-        "route_not_found",
-        "method_not_allowed",
-        "stream_not_found",
-        "stream_set_not_found",
-        "stream_owned",
-        "ownership_conflict",
-        "hop_id_conflict",
-        "node_not_found",
-        "stream_not_ready",
-        "precondition_required",
-        "precondition_failed",
-        "incompatible_protocol_version",
-        "persistence_failed",
-        "controller_unreachable",
-        "encoding_failed",
-        "not_leader",
-        "controller_timeout"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "invalid_request",
+            "invalid_json",
+            "unauthorized",
+            "forbidden",
+            "route_not_found",
+            "method_not_allowed",
+            "stream_not_found",
+            "stream_set_not_found",
+            "stream_owned",
+            "ownership_conflict",
+            "hop_id_conflict",
+            "node_not_found",
+            "stream_not_ready",
+            "precondition_required",
+            "precondition_failed",
+            "incompatible_protocol_version",
+            "persistence_failed",
+            "controller_unreachable",
+            "encoding_failed",
+            "not_leader",
+            "controller_timeout"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ]
     },
     "details": {
       "items": {
-        "additionalProperties": false,
         "properties": {
           "code": {
             "type": "string"
