@@ -139,7 +139,7 @@ async fn main() -> Result<()> {
     } = Cli::parse();
     let token = token.as_deref().and_then(Token::new);
 
-    match command {
+    let rendered = match command {
         Command::Apply { file } => apply(&url, token.as_ref(), &file, output).await,
         Command::ApplySet { owner, file } => {
             apply_set(&url, token.as_ref(), &owner, &file, output).await
@@ -165,10 +165,11 @@ async fn main() -> Result<()> {
         },
         Command::NodeToken { id, epoch } => {
             let key = std::env::var(auth::SOUTHBOUND_KEY_VAR).ok();
-            println!("{}", node_token(key.as_deref(), &id, epoch)?);
-            Ok(())
+            node_token(key.as_deref(), &id, epoch)
         }
-    }
+    }?;
+    println!("{}", rendered.trim_end());
+    Ok(())
 }
 
 fn node_token(key: Option<&str>, id: &str, epoch: u64) -> Result<String> {
@@ -230,12 +231,6 @@ fn format_output(output: OutputFormat, value: &serde_json::Value, human: String)
             serde_json::to_string_pretty(&value).context("encoding JSON output")?
         }
     })
-}
-
-fn emit(output: OutputFormat, value: serde_json::Value, human: String) -> Result<()> {
-    let rendered = format_output(output, &value, human)?;
-    println!("{}", rendered.trim_end());
-    Ok(())
 }
 
 fn table(headers: &[&str], rows: Vec<Vec<String>>) -> String {
@@ -568,7 +563,12 @@ fn parse_stream_set(yaml: &str) -> Result<StreamSetApply> {
     .context("parsing stream-set YAML")
 }
 
-async fn apply(url: &str, token: Option<&Token>, file: &Path, output: OutputFormat) -> Result<()> {
+async fn apply(
+    url: &str,
+    token: Option<&Token>,
+    file: &Path,
+    output: OutputFormat,
+) -> Result<String> {
     let stream = read_stream(file)?;
     apply_stream(url, token, &stream, output).await
 }
@@ -578,7 +578,7 @@ async fn apply_stream(
     token: Option<&Token>,
     stream: &StreamDefinition,
     output: OutputFormat,
-) -> Result<()> {
+) -> Result<String> {
     if let Err(error) = validate_resource_id(&stream.name) {
         bail!("invalid stream name: {error}");
     }
@@ -619,7 +619,7 @@ async fn apply_stream(
             accepted.changed.to_string(),
         ]],
     );
-    emit(output, serde_json::to_value(&accepted)?, human)
+    format_output(output, &serde_json::to_value(&accepted)?, human)
 }
 
 fn read_stream(file: &Path) -> Result<StreamDefinition> {
@@ -640,7 +640,7 @@ async fn apply_set(
     owner: &str,
     file: &Path,
     output: OutputFormat,
-) -> Result<()> {
+) -> Result<String> {
     let apply = read_stream_set(file)?;
     apply_stream_set(url, token, owner, &apply, output).await
 }
@@ -651,7 +651,7 @@ async fn apply_stream_set(
     owner: &str,
     apply: &StreamSetApply,
     output: OutputFormat,
-) -> Result<()> {
+) -> Result<String> {
     if let Err(error) = validate_resource_id(owner) {
         bail!("invalid stream-set owner: {error}");
     }
@@ -688,10 +688,15 @@ async fn apply_stream_set(
     let accepted: StreamSetAccepted =
         serde_json::from_str(&body).context("decoding accepted stream set")?;
     let human = render_stream_set_accepted(&accepted);
-    emit(output, serde_json::to_value(&accepted)?, human)
+    format_output(output, &serde_json::to_value(&accepted)?, human)
 }
 
-async fn plan(url: &str, token: Option<&Token>, file: &Path, output: OutputFormat) -> Result<()> {
+async fn plan(
+    url: &str,
+    token: Option<&Token>,
+    file: &Path,
+    output: OutputFormat,
+) -> Result<String> {
     let stream = read_stream(file)?;
     plan_stream(url, token, &stream, output).await
 }
@@ -701,7 +706,7 @@ async fn plan_stream(
     token: Option<&Token>,
     stream: &StreamDefinition,
     output: OutputFormat,
-) -> Result<()> {
+) -> Result<String> {
     let response = authorized(
         reqwest::Client::new().post(api_url(url, "/stream-plans")),
         token,
@@ -726,10 +731,10 @@ async fn plan_stream(
     }
     let plan: StreamPlan = serde_json::from_str(&body).context("decoding stream plan")?;
     let human = render_plan(&plan);
-    emit(output, serde_json::to_value(&plan)?, human)
+    format_output(output, &serde_json::to_value(&plan)?, human)
 }
 
-async fn get_streams(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<()> {
+async fn get_streams(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
     let client = reqwest::Client::new();
     let body = get_body(&client, url, token, "/streams", "streams").await?;
     let streams: Vec<StreamResource> = serde_json::from_str(&body).context("decoding streams")?;
@@ -740,7 +745,7 @@ async fn get_streams(url: &str, token: Option<&Token>, output: OutputFormat) -> 
         }
         OutputFormat::Json | OutputFormat::Yaml => String::new(),
     };
-    emit(output, serde_json::to_value(&streams)?, human)
+    format_output(output, &serde_json::to_value(&streams)?, human)
 }
 
 async fn get_stream(
@@ -748,7 +753,7 @@ async fn get_stream(
     token: Option<&Token>,
     name: &str,
     output: OutputFormat,
-) -> Result<()> {
+) -> Result<String> {
     if let Err(error) = validate_resource_id(name) {
         bail!("invalid stream name: {error}");
     }
@@ -763,7 +768,7 @@ async fn get_stream(
         }
         OutputFormat::Json | OutputFormat::Yaml => String::new(),
     };
-    emit(output, serde_json::to_value(&stream.resource)?, human)
+    format_output(output, &serde_json::to_value(&stream.resource)?, human)
 }
 
 async fn fetch_status(
@@ -775,19 +780,19 @@ async fn fetch_status(
     serde_json::from_str(&body).context("decoding status")
 }
 
-async fn get_status(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<()> {
+async fn get_status(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
     let client = reqwest::Client::new();
     let status = fetch_status(&client, url, token).await?;
     let human = render_status(&status);
-    emit(output, serde_json::to_value(&status)?, human)
+    format_output(output, &serde_json::to_value(&status)?, human)
 }
 
-async fn get_nodes(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<()> {
+async fn get_nodes(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
     let client = reqwest::Client::new();
     let body = get_body(&client, url, token, "/nodes", "nodes").await?;
     let nodes: Vec<NodeDescriptor> = serde_json::from_str(&body).context("decoding nodes")?;
     let human = render_nodes(&nodes);
-    emit(output, serde_json::to_value(&nodes)?, human)
+    format_output(output, &serde_json::to_value(&nodes)?, human)
 }
 
 async fn get_endpoints(
@@ -795,7 +800,7 @@ async fn get_endpoints(
     token: Option<&Token>,
     name: &str,
     output: OutputFormat,
-) -> Result<()> {
+) -> Result<String> {
     if let Err(error) = validate_resource_id(name) {
         bail!("invalid stream name: {error}");
     }
@@ -811,16 +816,16 @@ async fn get_endpoints(
     let endpoints: StreamEndpoints =
         serde_json::from_str(&body).context("decoding stream endpoints")?;
     let human = render_endpoints(&endpoints);
-    emit(output, serde_json::to_value(&endpoints)?, human)
+    format_output(output, &serde_json::to_value(&endpoints)?, human)
 }
 
-async fn get_stream_sets(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<()> {
+async fn get_stream_sets(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
     let client = reqwest::Client::new();
     let body = get_body(&client, url, token, "/stream-sets", "stream sets").await?;
     let stream_sets: Vec<StreamSetResource> =
         serde_json::from_str(&body).context("decoding stream sets")?;
     let human = render_stream_sets(&stream_sets);
-    emit(output, serde_json::to_value(&stream_sets)?, human)
+    format_output(output, &serde_json::to_value(&stream_sets)?, human)
 }
 
 async fn get_stream_set(
@@ -828,7 +833,7 @@ async fn get_stream_set(
     token: Option<&Token>,
     owner: &str,
     output: OutputFormat,
-) -> Result<()> {
+) -> Result<String> {
     if let Err(error) = validate_resource_id(owner) {
         bail!("invalid stream-set owner: {error}");
     }
@@ -850,7 +855,7 @@ async fn get_stream_set(
         }
         OutputFormat::Json | OutputFormat::Yaml => String::new(),
     };
-    emit(output, serde_json::to_value(&stream_set)?, human)
+    format_output(output, &serde_json::to_value(&stream_set)?, human)
 }
 
 async fn delete_stream(
@@ -858,7 +863,7 @@ async fn delete_stream(
     token: Option<&Token>,
     name: &str,
     output: OutputFormat,
-) -> Result<()> {
+) -> Result<String> {
     if let Err(error) = validate_resource_id(name) {
         bail!("invalid stream name: {error}");
     }
@@ -897,9 +902,9 @@ async fn delete_stream(
         );
     }
 
-    emit(
+    format_output(
         output,
-        serde_json::json!({ "deleted": name }),
+        &serde_json::json!({ "deleted": name }),
         format!("deleted stream {name}"),
     )
 }
@@ -1885,7 +1890,7 @@ destinations:
                     .await
                     .unwrap(),
                 _ => unreachable!(),
-            }
+            };
             assert_eq!(
                 seen.lock().unwrap().as_deref(),
                 Some(format!("GET {path} Bearer cli-test-token").as_str())
