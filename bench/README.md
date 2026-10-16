@@ -442,8 +442,8 @@ waiting `WEAVE_NODE_TTL_SECS` (15) gives `node.offline`, and waiting
 tick, and another each time its conditions change.
 
 `host.docker.internal` resolves through the `extra_hosts: host-gateway` entry on
-the controller services. See the root README's "Webhooks" for the
-payload and the delivery guarantees.
+the controller services. See [`docs/webhooks.md`](../docs/webhooks.md) for
+the payload and the delivery guarantees.
 
 ## Host ports
 
@@ -463,7 +463,7 @@ payload and the delivery guarantees.
 
 ## Authentication
 
-The API surfaces require a bearer token (see the root README for the model).
+The API surfaces require a bearer token (see [`docs/security.md`](../docs/security.md)).
 Northbound takes one shared token. Southbound and the controller hold a key and
 take from each node a token derived from it for that node's id. The bench
 defaults to development values so `just bench up` stays a single command:
@@ -538,7 +538,7 @@ bench CA, so `just bench page` points the page at southbound's plaintext port.
 
 ## API compatibility
 
-Both contracts use flat routes (see the root README). There is no URL version
+Both contracts use flat routes (see [`docs/api.md`](../docs/api.md)). There is no URL version
 before a stable release, and version-prefixed aliases are not served.
 
 The adapters declare `protocol_version` when they register; a mismatch is

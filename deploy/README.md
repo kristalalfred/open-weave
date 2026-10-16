@@ -157,6 +157,33 @@ in the adapter container and set `SSL_CERT_FILE` to it.
 
 The node dials out to the control plane on 8443.
 
+## First stream
+
+`examples/stream.yaml` names `strom-node-1` and `strom-node-2`, so bring up two
+node kits with those ids, then:
+
+```sh
+export WEAVE_NORTHBOUND_URL=https://<control-plane-host>
+export WEAVE_NORTHBOUND_TOKEN=<the control plane's northbound token>
+weave apply -f examples/stream.yaml
+weave get endpoints cam1-to-studio
+```
+
+Send a test source to the `ingress` URL and play a destination URL:
+
+```sh
+ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 \
+  -f lavfi -i sine=frequency=1000:sample_rate=48000 \
+  -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 30 \
+  -c:a aac -f mpegts "srt://<ingress host>:<port>?mode=caller"
+ffplay "srt://<studio host>:<port>?mode=caller"
+```
+
+`weave get stream cam1-to-studio` reads `flowing` once media reaches every
+destination. Until then its DESTINATION table names each destination that is
+not flowing and why. A destination nothing pulls from reads `degraded` with
+`media_degraded`.
+
 ## Known limits
 
 - Routes are unversioned before a stable release. Payloads and errors can change

@@ -9,8 +9,8 @@ page's node token in the URL fragment, so neither reaches a server log:
 http://host:8000/#southbound=http://southbound:8081&token=<node token>
 ```
 
-`weave node-token <id>` prints the token for node `<id>` (see "Authentication"
-in the root README).
+`weave node-token <id>` prints the token for node `<id>` (see
+[`docs/security.md`](../../docs/security.md#node-tokens)).
 
 The page needs a secure context for the camera: serve it over `https`, or over
 `http` from `localhost` / `127.0.0.1`; on any other `http` origin the sender hop
@@ -57,7 +57,8 @@ or shape instead of guessing a constructor from sockets.
 
 The page shows manifests naming its node id; copy one, change the Strom node,
 and apply it. Southbound must allow the page's origin
-(`WEAVE_SOUTHBOUND_CORS_ORIGIN`, see the root README).
+(`WEAVE_SOUTHBOUND_CORS_ORIGIN`, see
+[`docs/security.md`](../../docs/security.md#browser-nodes)).
 
 `check.mjs` drives the page with Playwright and a fake camera. It waits until
 southbound accepts a registration from that page, then for the node to appear in

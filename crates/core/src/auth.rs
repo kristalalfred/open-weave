@@ -566,8 +566,8 @@ mod tests {
     }
 
     /// The MAC `printf %s strom-node-1.0 | openssl dgst -sha256 -hmac
-    /// bench-southbound-key-for-local-use-only -r` prints, which the README gives
-    /// as the way to mint a token without this crate.
+    /// bench-southbound-key-for-local-use-only -r` prints, which `docs/security.md`
+    /// gives as the way to mint a token without this crate.
     #[test]
     fn node_token_matches_the_openssl_one_liner() {
         assert_eq!(

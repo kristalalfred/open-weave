@@ -2,7 +2,7 @@
 
 open-weave is a control plane for live media contribution. An operator applies a
 stream manifest; the controller plans SRT/WHIP/WHEP/RIST hops across registered
-media nodes and each node's adapter builds them. `README.md` is the reference for
+media nodes and each node's adapter builds them. `docs/` is the reference for
 every contract; this file is the short version plus the things that are easy to
 get wrong.
 
@@ -117,7 +117,10 @@ Say which one a claim rests on.
 
 ## Docs
 
-`README.md`, `BACKLOG.md` and `backlog/` are written plainly: short sentences, no
-hype, no restated conclusions. Match that. State what the code does rather than
-why someone chose it, and keep new comments to the ones a reader could not get
-from the code itself.
+`README.md`, `docs/`, `BACKLOG.md` and `backlog/` are written plainly: short
+sentences, no hype, no restated conclusions. Match that. State what the code
+does rather than why someone chose it, and keep new comments to the ones a
+reader could not get from the code itself.
+
+`README.md` is the front page: what open-weave is, a quickstart, and links. It
+stays short. Contract detail goes in the matching page under `docs/`.
