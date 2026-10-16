@@ -2,16 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use reqwest::RequestBuilder;
 use reqwest::header::{ETAG, HeaderValue, IF_MATCH, IF_NONE_MATCH};
-use serde::Serialize;
+use serde::de::DeserializeOwned;
 use weave_core::auth::{self, MIN_NODE_KEY_LEN, NodeKey, NodeKeyError, Token};
 use weave_core::{
-    ApiError, NodeDescriptor, StatusResponse, StreamAccepted, StreamCondition,
-    StreamConditionStatus, StreamDefinition, StreamEndpoints, StreamPlan, StreamResource,
-    StreamSetAccepted, StreamSetApply, StreamSetResource, StreamStatus, validate_resource_id,
+    StreamConditionStatus, StreamDefinition, StreamSetApply, read, validate_resource_id,
 };
 
 #[derive(Parser)]
@@ -206,14 +204,10 @@ fn unauthorized_hint(token: Option<&Token>) -> &'static str {
 }
 
 fn error_detail(body: &str) -> String {
-    let Ok(error) = serde_json::from_str::<ApiError>(body) else {
+    let Ok(error) = serde_json::from_str::<read::ApiError>(body) else {
         return body.to_string();
     };
-    let code = serde_json::to_string(&error.code)
-        .unwrap_or_else(|_| "\"unknown\"".to_string())
-        .trim_matches('"')
-        .to_string();
-    let mut detail = format!("[{code}] {}", error.message);
+    let mut detail = format!("[{}] {}", error.code, error.message);
     for issue in error.details {
         detail.push_str(&format!(
             "\n{} [{}]: {}",
@@ -223,14 +217,59 @@ fn error_detail(body: &str) -> String {
     detail
 }
 
-fn format_output(output: OutputFormat, value: &serde_json::Value, human: String) -> Result<String> {
+fn refused(
+    context: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+    token: Option<&Token>,
+) -> anyhow::Error {
+    let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
+        unauthorized_hint(token)
+    } else {
+        ""
+    };
+    anyhow!("{context}: {status}: {}{hint}", error_detail(body))
+}
+
+async fn success_body(
+    response: reqwest::Response,
+    context: &str,
+    token: Option<&Token>,
+) -> Result<String> {
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(refused(context, status, &body, token));
+    }
+    Ok(body)
+}
+
+fn decode<T: DeserializeOwned>(body: &str, label: &str) -> Result<T> {
+    serde_json::from_str(body).with_context(|| format!("decoding {label}"))
+}
+
+fn format_output(output: OutputFormat, body: &str, human: String) -> Result<String> {
+    let value = || decode::<serde_json::Value>(body, "response");
     Ok(match output {
         OutputFormat::Human => human,
-        OutputFormat::Yaml => serde_norway::to_string(&value).context("encoding YAML output")?,
+        OutputFormat::Yaml => serde_norway::to_string(&value()?).context("encoding YAML output")?,
         OutputFormat::Json => {
-            serde_json::to_string_pretty(&value).context("encoding JSON output")?
+            serde_json::to_string_pretty(&value()?).context("encoding JSON output")?
         }
     })
+}
+
+fn render<T: DeserializeOwned>(
+    output: OutputFormat,
+    body: &str,
+    label: &str,
+    human: impl FnOnce(&T) -> String,
+) -> Result<String> {
+    let human = match output {
+        OutputFormat::Human => human(&decode(body, label)?),
+        OutputFormat::Json | OutputFormat::Yaml => String::new(),
+    };
+    format_output(output, body, human)
 }
 
 fn table(headers: &[&str], rows: Vec<Vec<String>>) -> String {
@@ -265,14 +304,7 @@ fn table(headers: &[&str], rows: Vec<Vec<String>>) -> String {
     lines.join("\n")
 }
 
-fn stream_statuses(status: &StatusResponse) -> &[StreamStatus] {
-    match status {
-        StatusResponse::Starting(_) => &[],
-        StatusResponse::Running(status) => &status.streams,
-    }
-}
-
-fn render_streams(streams: &[StreamResource], statuses: &[StreamStatus]) -> String {
+fn render_streams(streams: &[read::StreamResource], statuses: &[read::StreamStatus]) -> String {
     let mut streams = streams.iter().collect::<Vec<_>>();
     streams.sort_by(|left, right| left.spec.name.cmp(&right.spec.name));
     let rows = streams
@@ -284,7 +316,7 @@ fn render_streams(streams: &[StreamResource], statuses: &[StreamStatus]) -> Stri
                 statuses
                     .iter()
                     .find(|status| status.name == stream.spec.name)
-                    .map_or_else(|| "-".to_string(), |status| wire_name(&status.status)),
+                    .map_or_else(|| "-".to_string(), |status| status.status.to_string()),
                 stream.owner.clone().unwrap_or_else(|| "-".to_string()),
                 stream.spec.enabled.to_string(),
             ]
@@ -293,7 +325,7 @@ fn render_streams(streams: &[StreamResource], statuses: &[StreamStatus]) -> Stri
     table(&["NAME", "GENERATION", "STATUS", "OWNER", "ENABLED"], rows)
 }
 
-fn render_stream(stream: &StreamResource, statuses: &[StreamStatus]) -> String {
+fn render_stream(stream: &read::StreamResource, statuses: &[read::StreamStatus]) -> String {
     let mut sections = vec![render_streams(std::slice::from_ref(stream), statuses)];
     if let Some(status) = statuses
         .iter()
@@ -306,9 +338,9 @@ fn render_stream(stream: &StreamResource, statuses: &[StreamStatus]) -> String {
                 .iter()
                 .map(|condition| {
                     vec![
-                        wire_name(&condition.condition_type),
-                        wire_name(&condition.status),
-                        wire_name(&condition.reason),
+                        condition.condition_type.to_string(),
+                        condition.status.to_string(),
+                        condition.reason.to_string(),
                         condition.detail.clone(),
                     ]
                 })
@@ -322,7 +354,7 @@ fn render_stream(stream: &StreamResource, statuses: &[StreamStatus]) -> String {
                 .map(|destination| {
                     vec![
                         destination.id.clone(),
-                        wire_name(&destination.status),
+                        destination.status.to_string(),
                         destination
                             .endpoint
                             .as_ref()
@@ -336,11 +368,11 @@ fn render_stream(stream: &StreamResource, statuses: &[StreamStatus]) -> String {
     sections.join("\n\n")
 }
 
-fn failing_reasons(conditions: &[StreamCondition]) -> String {
+fn failing_reasons(conditions: &[read::StreamCondition]) -> String {
     let reasons = conditions
         .iter()
         .filter(|condition| condition.status == StreamConditionStatus::False)
-        .map(|condition| wire_name(&condition.reason))
+        .map(|condition| condition.reason.to_string())
         .collect::<Vec<_>>();
     if reasons.is_empty() {
         "-".to_string()
@@ -349,7 +381,7 @@ fn failing_reasons(conditions: &[StreamCondition]) -> String {
     }
 }
 
-fn render_nodes(nodes: &[NodeDescriptor]) -> String {
+fn render_nodes(nodes: &[read::NodeDescriptor]) -> String {
     let mut nodes = nodes.iter().collect::<Vec<_>>();
     nodes.sort_by(|left, right| left.id.cmp(&right.id));
     let rows = nodes
@@ -371,7 +403,7 @@ fn render_nodes(nodes: &[NodeDescriptor]) -> String {
                 .join(",");
             vec![
                 node.id.clone(),
-                wire_name(&node.status),
+                node.status.to_string(),
                 node.endpoint.clone(),
                 profiles,
                 networks,
@@ -381,18 +413,10 @@ fn render_nodes(nodes: &[NodeDescriptor]) -> String {
     table(&["ID", "STATUS", "ENDPOINT", "PROFILES", "NETWORKS"], rows)
 }
 
-fn wire_name(value: &impl Serialize) -> String {
-    match serde_json::to_value(value) {
-        Ok(serde_json::Value::String(name)) => name,
-        Ok(other) => other.to_string(),
-        Err(error) => format!("<{error}>"),
-    }
-}
-
-fn render_status(status: &StatusResponse) -> String {
+fn render_status(status: &read::StatusResponse) -> String {
     match status {
-        StatusResponse::Starting(_) => "STATUS\nstarting".to_string(),
-        StatusResponse::Running(status) => {
+        read::StatusResponse::Starting(_) => "STATUS\nstarting".to_string(),
+        read::StatusResponse::Running(status) => {
             let mut streams = status.streams.iter().collect::<Vec<_>>();
             streams.sort_by(|left, right| left.name.cmp(&right.name));
             let rows = streams
@@ -404,7 +428,7 @@ fn render_status(status: &StatusResponse) -> String {
                         stream
                             .observed_generation
                             .map_or_else(|| "-".to_string(), |value| value.to_string()),
-                        wire_name(&stream.status),
+                        stream.status.to_string(),
                         if stream.nodes.is_empty() {
                             "-".to_string()
                         } else {
@@ -415,7 +439,7 @@ fn render_status(status: &StatusResponse) -> String {
                 .collect();
             format!(
                 "STATUS: {}\nSUMMARY: {}\n\n{}",
-                wire_name(&status.status),
+                status.status,
                 status.summary,
                 table(&["NAME", "GENERATION", "OBSERVED", "STATUS", "NODES"], rows,)
             )
@@ -423,7 +447,7 @@ fn render_status(status: &StatusResponse) -> String {
     }
 }
 
-fn render_endpoints(endpoints: &StreamEndpoints) -> String {
+fn render_endpoints(endpoints: &read::StreamEndpoints) -> String {
     let mut rows = Vec::with_capacity(endpoints.destinations.len() + 1);
     rows.push(match &endpoints.ingress {
         Some(endpoint) => vec![
@@ -461,7 +485,7 @@ fn render_endpoints(endpoints: &StreamEndpoints) -> String {
     table(&["ROLE", "ID", "NODE", "URL"], rows)
 }
 
-fn render_stream_sets(stream_sets: &[StreamSetResource]) -> String {
+fn render_stream_sets(stream_sets: &[read::StreamSetResource]) -> String {
     let mut sets = stream_sets.iter().collect::<Vec<_>>();
     sets.sort_by(|left, right| left.owner.cmp(&right.owner));
     table(
@@ -472,7 +496,10 @@ fn render_stream_sets(stream_sets: &[StreamSetResource]) -> String {
     )
 }
 
-fn render_stream_set(stream_set: &StreamSetResource, statuses: &[StreamStatus]) -> String {
+fn render_stream_set(
+    stream_set: &read::StreamSetResource,
+    statuses: &[read::StreamStatus],
+) -> String {
     format!(
         "OWNER: {}\n\n{}",
         stream_set.owner,
@@ -480,14 +507,14 @@ fn render_stream_set(stream_set: &StreamSetResource, statuses: &[StreamStatus]) 
     )
 }
 
-fn render_stream_set_accepted(accepted: &StreamSetAccepted) -> String {
+fn render_stream_set_accepted(accepted: &read::StreamSetAccepted) -> String {
     let mut rows = accepted
         .streams
         .iter()
         .map(|stream| {
             vec![
                 stream.name.clone(),
-                wire_name(&stream.action),
+                stream.action.to_string(),
                 stream.generation.to_string(),
             ]
         })
@@ -506,12 +533,12 @@ fn render_stream_set_accepted(accepted: &StreamSetAccepted) -> String {
     )
 }
 
-fn render_plan(plan: &StreamPlan) -> String {
+fn render_plan(plan: &read::StreamPlan) -> String {
     table(
         &["NAME", "STATUS", "NODES", "REASON"],
         vec![vec![
             plan.name.clone(),
-            wire_name(&plan.status),
+            plan.status.to_string(),
             if plan.nodes.is_empty() {
                 "-".to_string()
             } else {
@@ -533,20 +560,23 @@ async fn get_body(
         .send()
         .await
         .with_context(|| format!("fetching {label}"))?;
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
-            unauthorized_hint(token)
-        } else {
-            ""
-        };
-        bail!(
-            "northbound {label} request failed: {status}: {}{hint}",
-            error_detail(&body)
-        );
-    }
-    Ok(body)
+    success_body(
+        response,
+        &format!("northbound {label} request failed"),
+        token,
+    )
+    .await
+}
+
+async fn fetch_status(
+    client: &reqwest::Client,
+    url: &str,
+    token: Option<&Token>,
+) -> Result<read::StatusResponse> {
+    decode(
+        &get_body(client, url, token, "/status", "status").await?,
+        "status",
+    )
 }
 
 fn parse_stream(yaml: &str) -> Result<StreamDefinition> {
@@ -583,7 +613,8 @@ async fn apply_stream(
         bail!("invalid stream name: {error}");
     }
     let client = reqwest::Client::new();
-    let existing = lookup_stream(&client, url, token, &stream.name).await?;
+    let path = format!("/streams/{}", stream.name);
+    let existing = lookup(&client, url, token, &path, "stream").await?;
 
     let request = authorized(client.post(api_url(url, "/streams")), token).json(&stream);
     let request = match existing {
@@ -594,32 +625,22 @@ async fn apply_stream(
         .send()
         .await
         .context("posting stream to northbound")?;
-
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
-            unauthorized_hint(token)
-        } else {
-            ""
-        };
-        bail!(
-            "northbound rejected stream: {status}: {}{hint}",
-            error_detail(&body)
-        );
-    }
-
-    let accepted: StreamAccepted =
-        serde_json::from_str(&body).context("decoding accepted stream")?;
-    let human = table(
-        &["NAME", "GENERATION", "CHANGED"],
-        vec![vec![
-            accepted.name.clone(),
-            accepted.generation.to_string(),
-            accepted.changed.to_string(),
-        ]],
-    );
-    format_output(output, &serde_json::to_value(&accepted)?, human)
+    let body = success_body(response, "northbound rejected stream", token).await?;
+    render(
+        output,
+        &body,
+        "accepted stream",
+        |accepted: &read::StreamAccepted| {
+            table(
+                &["NAME", "GENERATION", "CHANGED"],
+                vec![vec![
+                    accepted.name.clone(),
+                    accepted.generation.to_string(),
+                    accepted.changed.to_string(),
+                ]],
+            )
+        },
+    )
 }
 
 fn read_stream(file: &Path) -> Result<StreamDefinition> {
@@ -656,12 +677,9 @@ async fn apply_stream_set(
         bail!("invalid stream-set owner: {error}");
     }
     let client = reqwest::Client::new();
-    let existing = lookup_stream_set(&client, url, token, owner).await?;
-    let request = authorized(
-        client.put(api_url(url, &format!("/stream-sets/{owner}"))),
-        token,
-    )
-    .json(apply);
+    let path = format!("/stream-sets/{owner}");
+    let existing = lookup(&client, url, token, &path, "stream set").await?;
+    let request = authorized(client.put(api_url(url, &path)), token).json(apply);
     let request = match existing {
         Some(existing) => request.header(IF_MATCH, existing.etag),
         None => request.header(IF_NONE_MATCH, "*"),
@@ -670,25 +688,13 @@ async fn apply_stream_set(
         .send()
         .await
         .context("putting stream set to northbound")?;
-
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
-            unauthorized_hint(token)
-        } else {
-            ""
-        };
-        bail!(
-            "northbound rejected stream set: {status}: {}{hint}",
-            error_detail(&body)
-        );
-    }
-
-    let accepted: StreamSetAccepted =
-        serde_json::from_str(&body).context("decoding accepted stream set")?;
-    let human = render_stream_set_accepted(&accepted);
-    format_output(output, &serde_json::to_value(&accepted)?, human)
+    let body = success_body(response, "northbound rejected stream set", token).await?;
+    render(
+        output,
+        &body,
+        "accepted stream set",
+        render_stream_set_accepted,
+    )
 }
 
 async fn plan(
@@ -715,37 +721,21 @@ async fn plan_stream(
     .send()
     .await
     .context("planning stream through northbound")?;
-
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
-            unauthorized_hint(token)
-        } else {
-            ""
-        };
-        bail!(
-            "northbound rejected stream plan: {status}: {}{hint}",
-            error_detail(&body)
-        );
-    }
-    let plan: StreamPlan = serde_json::from_str(&body).context("decoding stream plan")?;
-    let human = render_plan(&plan);
-    format_output(output, &serde_json::to_value(&plan)?, human)
+    let body = success_body(response, "northbound rejected stream plan", token).await?;
+    render(output, &body, "stream plan", render_plan)
 }
 
 async fn get_streams(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
     let client = reqwest::Client::new();
     let body = get_body(&client, url, token, "/streams", "streams").await?;
-    let streams: Vec<StreamResource> = serde_json::from_str(&body).context("decoding streams")?;
     let human = match output {
         OutputFormat::Human => {
-            let status = fetch_status(&client, url, token).await?;
-            render_streams(&streams, stream_statuses(&status))
+            let streams: Vec<read::StreamResource> = decode(&body, "streams")?;
+            render_streams(&streams, fetch_status(&client, url, token).await?.streams())
         }
         OutputFormat::Json | OutputFormat::Yaml => String::new(),
     };
-    format_output(output, &serde_json::to_value(&streams)?, human)
+    format_output(output, &body, human)
 }
 
 async fn get_stream(
@@ -758,41 +748,35 @@ async fn get_stream(
         bail!("invalid stream name: {error}");
     }
     let client = reqwest::Client::new();
-    let Some(stream) = lookup_stream(&client, url, token, name).await? else {
+    let Some(found) = lookup(&client, url, token, &format!("/streams/{name}"), "stream").await?
+    else {
         bail!("no stream named {name}");
     };
     let human = match output {
         OutputFormat::Human => {
-            let status = fetch_status(&client, url, token).await?;
-            render_stream(&stream.resource, stream_statuses(&status))
+            let stream: read::StreamResource = decode(&found.body, "stream resource")?;
+            render_stream(&stream, fetch_status(&client, url, token).await?.streams())
         }
         OutputFormat::Json | OutputFormat::Yaml => String::new(),
     };
-    format_output(output, &serde_json::to_value(&stream.resource)?, human)
-}
-
-async fn fetch_status(
-    client: &reqwest::Client,
-    url: &str,
-    token: Option<&Token>,
-) -> Result<StatusResponse> {
-    let body = get_body(client, url, token, "/status", "status").await?;
-    serde_json::from_str(&body).context("decoding status")
+    format_output(output, &found.body, human)
 }
 
 async fn get_status(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
     let client = reqwest::Client::new();
-    let status = fetch_status(&client, url, token).await?;
-    let human = render_status(&status);
-    format_output(output, &serde_json::to_value(&status)?, human)
+    let body = get_body(&client, url, token, "/status", "status").await?;
+    render(output, &body, "status", render_status)
 }
 
 async fn get_nodes(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
     let client = reqwest::Client::new();
     let body = get_body(&client, url, token, "/nodes", "nodes").await?;
-    let nodes: Vec<NodeDescriptor> = serde_json::from_str(&body).context("decoding nodes")?;
-    let human = render_nodes(&nodes);
-    format_output(output, &serde_json::to_value(&nodes)?, human)
+    render(
+        output,
+        &body,
+        "nodes",
+        |nodes: &Vec<read::NodeDescriptor>| render_nodes(nodes),
+    )
 }
 
 async fn get_endpoints(
@@ -813,19 +797,18 @@ async fn get_endpoints(
         "stream endpoints",
     )
     .await?;
-    let endpoints: StreamEndpoints =
-        serde_json::from_str(&body).context("decoding stream endpoints")?;
-    let human = render_endpoints(&endpoints);
-    format_output(output, &serde_json::to_value(&endpoints)?, human)
+    render(output, &body, "stream endpoints", render_endpoints)
 }
 
 async fn get_stream_sets(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
     let client = reqwest::Client::new();
     let body = get_body(&client, url, token, "/stream-sets", "stream sets").await?;
-    let stream_sets: Vec<StreamSetResource> =
-        serde_json::from_str(&body).context("decoding stream sets")?;
-    let human = render_stream_sets(&stream_sets);
-    format_output(output, &serde_json::to_value(&stream_sets)?, human)
+    render(
+        output,
+        &body,
+        "stream sets",
+        |sets: &Vec<read::StreamSetResource>| render_stream_sets(sets),
+    )
 }
 
 async fn get_stream_set(
@@ -846,16 +829,17 @@ async fn get_stream_set(
         "stream set",
     )
     .await?;
-    let stream_set: StreamSetResource =
-        serde_json::from_str(&body).context("decoding stream set")?;
     let human = match output {
         OutputFormat::Human => {
-            let status = fetch_status(&client, url, token).await?;
-            render_stream_set(&stream_set, stream_statuses(&status))
+            let stream_set: read::StreamSetResource = decode(&body, "stream set")?;
+            render_stream_set(
+                &stream_set,
+                fetch_status(&client, url, token).await?.streams(),
+            )
         }
         OutputFormat::Json | OutputFormat::Yaml => String::new(),
     };
-    format_output(output, &serde_json::to_value(&stream_set)?, human)
+    format_output(output, &body, human)
 }
 
 async fn delete_stream(
@@ -868,17 +852,15 @@ async fn delete_stream(
         bail!("invalid stream name: {error}");
     }
     let client = reqwest::Client::new();
-    let Some(existing) = lookup_stream(&client, url, token, name).await? else {
+    let path = format!("/streams/{name}");
+    let Some(existing) = lookup(&client, url, token, &path, "stream").await? else {
         bail!("no stream named {name}");
     };
-    let response = authorized(
-        client.delete(api_url(url, &format!("/streams/{name}"))),
-        token,
-    )
-    .header(IF_MATCH, existing.etag)
-    .send()
-    .await
-    .context("deleting stream on northbound")?;
+    let response = authorized(client.delete(api_url(url, &path)), token)
+        .header(IF_MATCH, existing.etag)
+        .send()
+        .await
+        .context("deleting stream on northbound")?;
 
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
@@ -891,100 +873,45 @@ async fn delete_stream(
         bail!("no stream named {name}{detail}");
     }
     if !status.is_success() {
-        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
-            unauthorized_hint(token)
-        } else {
-            ""
-        };
-        bail!(
-            "northbound rejected delete: {status}: {}{hint}",
-            error_detail(&body)
-        );
+        return Err(refused("northbound rejected delete", status, &body, token));
     }
 
     format_output(
         output,
-        &serde_json::json!({ "deleted": name }),
+        &serde_json::json!({ "deleted": name }).to_string(),
         format!("deleted stream {name}"),
     )
 }
 
-struct StreamLookup {
-    resource: StreamResource,
+struct Found {
     etag: HeaderValue,
+    body: String,
 }
 
-struct StreamSetLookup {
-    etag: HeaderValue,
-}
-
-async fn lookup_stream(
+/// The resource at `path`, or `None` when northbound answers `404`.
+async fn lookup(
     client: &reqwest::Client,
     url: &str,
     token: Option<&Token>,
-    name: &str,
-) -> Result<Option<StreamLookup>> {
-    let response = authorized(client.get(api_url(url, &format!("/streams/{name}"))), token)
+    path: &str,
+    label: &str,
+) -> Result<Option<Found>> {
+    let response = authorized(client.get(api_url(url, path)), token)
         .send()
         .await
-        .context("fetching stream")?;
-
-    let status = response.status();
-    if status == reqwest::StatusCode::NOT_FOUND {
+        .with_context(|| format!("fetching {label}"))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
     let etag = response.headers().get(ETAG).cloned();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
-            unauthorized_hint(token)
-        } else {
-            ""
-        };
-        bail!(
-            "northbound stream request failed: {status}: {}{hint}",
-            error_detail(&body)
-        );
-    }
-    let etag = etag.context("northbound stream response is missing its ETag")?;
-    let resource = serde_json::from_str(&body).context("decoding stream resource")?;
-    Ok(Some(StreamLookup { resource, etag }))
-}
-
-async fn lookup_stream_set(
-    client: &reqwest::Client,
-    url: &str,
-    token: Option<&Token>,
-    owner: &str,
-) -> Result<Option<StreamSetLookup>> {
-    let response = authorized(
-        client.get(api_url(url, &format!("/stream-sets/{owner}"))),
+    let body = success_body(
+        response,
+        &format!("northbound {label} request failed"),
         token,
     )
-    .send()
-    .await
-    .context("fetching stream set")?;
-
-    let status = response.status();
-    if status == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    let etag = response.headers().get(ETAG).cloned();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
-            unauthorized_hint(token)
-        } else {
-            ""
-        };
-        bail!(
-            "northbound stream-set request failed: {status}: {}{hint}",
-            error_detail(&body)
-        );
-    }
-    let etag = etag.context("northbound stream-set response is missing its ETag")?;
-    serde_json::from_str::<StreamSetResource>(&body).context("decoding stream set")?;
-    Ok(Some(StreamSetLookup { etag }))
+    .await?;
+    let etag = etag.with_context(|| format!("northbound {label} response is missing its ETag"))?;
+    Ok(Some(Found { etag, body }))
 }
 
 fn api_url(base: &str, path: &str) -> String {
@@ -1002,8 +929,9 @@ mod tests {
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
     use weave_core::{
-        ApiErrorCode, SrtEndpoint, StreamAccepted, StreamDestination, StreamSetAction,
-        StreamSetMemberResult, StreamTransport, validate_stream,
+        ApiError, ApiErrorCode, SrtEndpoint, StreamAccepted, StreamDestination, StreamPlan,
+        StreamResource, StreamSetAccepted, StreamSetAction, StreamSetMemberResult,
+        StreamSetResource, StreamTransport, validate_stream,
     };
 
     #[test]
@@ -1251,33 +1179,41 @@ streams:
     }
 
     #[test]
-    fn json_and_yaml_outputs_preserve_the_typed_value() {
+    fn json_and_yaml_outputs_preserve_the_body() {
         let value = serde_json::json!({
             "generation": 3,
             "owner": "studio-a",
             "spec": { "name": "cam1-to-studio" }
         });
+        let body = value.to_string();
 
-        let json = format_output(OutputFormat::Json, &value, String::new()).unwrap();
+        let json = format_output(OutputFormat::Json, &body, String::new()).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&json).unwrap(), value);
 
-        let yaml = format_output(OutputFormat::Yaml, &value, String::new()).unwrap();
+        let yaml = format_output(OutputFormat::Yaml, &body, String::new()).unwrap();
         assert_eq!(serde_norway::from_str::<Value>(&yaml).unwrap(), value);
+    }
+
+    fn listed(generation: u64, owner: Option<&str>) -> read::StreamResource {
+        read::StreamResource {
+            generation,
+            owner: owner.map(str::to_string),
+            spec: read::StreamSpec {
+                name: "cam1-to-studio".to_string(),
+                enabled: true,
+            },
+        }
     }
 
     #[test]
     fn human_stream_and_endpoint_tables_are_stable() {
-        let streams = vec![StreamResource {
-            generation: 3,
-            owner: Some("studio-a".to_string()),
-            spec: sample_stream(),
-        }];
+        let streams = vec![listed(3, Some("studio-a"))];
         assert_eq!(
             render_streams(&streams, &[]),
             "NAME            GENERATION  STATUS  OWNER     ENABLED\ncam1-to-studio  3           -       studio-a  true"
         );
 
-        let endpoints: StreamEndpoints = serde_json::from_value(serde_json::json!({
+        let endpoints: read::StreamEndpoints = serde_json::from_value(serde_json::json!({
             "ingress": {
                 "node": "strom-node-1",
                 "host": "172.26.0.10",
@@ -1295,7 +1231,7 @@ streams:
 
     #[test]
     fn human_tables_name_states_as_the_api_does() {
-        let status: StatusResponse = serde_json::from_value(serde_json::json!({
+        let status: read::StatusResponse = serde_json::from_value(serde_json::json!({
             "status": "converging",
             "summary": "0/1 stream(s) flowing across 2 node(s)",
             "streams": [{
@@ -1328,7 +1264,7 @@ streams:
             ]
         );
 
-        let plan: StreamPlan = serde_json::from_value(serde_json::json!({
+        let plan: read::StreamPlan = serde_json::from_value(serde_json::json!({
             "name": "cam1-to-studio",
             "status": "unplaced",
             "nodes": [],
@@ -1354,10 +1290,11 @@ streams:
             ]
         );
 
-        let nodes: Vec<NodeDescriptor> = serde_json::from_value(serde_json::json!([{
+        let nodes: Vec<read::NodeDescriptor> = serde_json::from_value(serde_json::json!([{
             "id": "strom-node-1",
             "endpoint": "http://strom-node-1:8091",
             "status": "offline",
+            "capabilities": { "adapters": [], "hop_profiles": [] },
             "topology": { "attachments": [] }
         }]))
         .unwrap();
@@ -1372,7 +1309,7 @@ streams:
         );
     }
 
-    fn degraded_status() -> StatusResponse {
+    fn degraded_status() -> Value {
         let condition = |kind: &str, status: &str, reason: &str, detail: &str| {
             serde_json::json!({
                 "type": kind,
@@ -1389,7 +1326,7 @@ streams:
             "media_degraded",
             "media is not flowing across every branch",
         );
-        serde_json::from_value(serde_json::json!({
+        serde_json::json!({
             "status": "degraded",
             "summary": "0/1 stream(s) flowing across 2 node(s)",
             "streams": [{
@@ -1425,8 +1362,7 @@ streams:
                     }
                 ]
             }]
-        }))
-        .unwrap()
+        })
     }
 
     fn words(line: &str) -> Vec<&str> {
@@ -1435,20 +1371,16 @@ streams:
 
     #[test]
     fn human_stream_views_show_status_and_why() {
-        let status = degraded_status();
-        let stream = StreamResource {
-            generation: 3,
-            owner: None,
-            spec: sample_stream(),
-        };
+        let status: read::StatusResponse = serde_json::from_value(degraded_status()).unwrap();
+        let stream = listed(3, None);
 
-        let list = render_streams(std::slice::from_ref(&stream), stream_statuses(&status));
+        let list = render_streams(std::slice::from_ref(&stream), status.streams());
         assert_eq!(
             words(list.lines().last().unwrap()),
             ["cam1-to-studio", "3", "degraded", "-", "true"]
         );
 
-        let view = render_stream(&stream, stream_statuses(&status));
+        let view = render_stream(&stream, status.streams());
         let lines = view.lines().map(words).collect::<Vec<_>>();
         assert!(lines.contains(&vec![
             "media_flowing",
@@ -1473,14 +1405,10 @@ streams:
 
     #[test]
     fn a_stream_the_controller_has_not_reported_reads_no_status() {
-        let stream = StreamResource {
-            generation: 1,
-            owner: None,
-            spec: sample_stream(),
-        };
-        let starting: StatusResponse =
+        let stream = listed(1, None);
+        let starting: read::StatusResponse =
             serde_json::from_value(serde_json::json!({ "status": "starting" })).unwrap();
-        let view = render_stream(&stream, stream_statuses(&starting));
+        let view = render_stream(&stream, starting.streams());
         assert_eq!(
             view.lines().map(words).collect::<Vec<_>>(),
             [
@@ -1870,8 +1798,8 @@ destinations:
         ];
 
         for (path, body, command) in cases {
-            let (url, seen) = stub_get(StatusCode::OK, body).await;
-            match command {
+            let (url, seen) = stub_get(StatusCode::OK, body.clone()).await;
+            let printed = match command {
                 "nodes" => get_nodes(&url, Some(&token), OutputFormat::Json)
                     .await
                     .unwrap(),
@@ -1894,6 +1822,11 @@ destinations:
             assert_eq!(
                 seen.lock().unwrap().as_deref(),
                 Some(format!("GET {path} Bearer cli-test-token").as_str())
+            );
+            assert_eq!(
+                serde_json::from_str::<Value>(&printed).unwrap(),
+                body,
+                "-o json prints the body as returned"
             );
         }
     }
@@ -1953,6 +1886,156 @@ destinations:
             std::mem::take(&mut *seen.lock().unwrap()),
             ["/streams", "/streams/cam1-to-studio"]
         );
+    }
+
+    fn newer_stream() -> Value {
+        serde_json::json!({
+            "generation": 4,
+            "labels": { "site": "north" },
+            "spec": {
+                "name": "cam1-to-studio",
+                "enabled": true,
+                "priority": "high",
+                "source": { "srt": { "node": "strom-node-1" } },
+                "destinations": [{ "id": "studio", "rist": { "node": "strom-node-2" } }]
+            }
+        })
+    }
+
+    fn newer_status() -> Value {
+        let preempted = serde_json::json!({
+            "type": "media_flowing",
+            "status": "false",
+            "reason": "source_preempted",
+            "detail": "another source holds the slot",
+            "last_transition_time": "2026-10-16T10:00:00Z",
+            "severity": "warning"
+        });
+        serde_json::json!({
+            "status": "converging",
+            "summary": "0/1 stream(s) flowing across 2 node(s)",
+            "uptime_secs": 30,
+            "streams": [{
+                "name": "cam1-to-studio",
+                "generation": 4,
+                "observed_generation": 4,
+                "status": "preempted",
+                "nodes": ["strom-node-1", "strom-node-2"],
+                "conditions": [preempted.clone()],
+                "ingress": null,
+                "destinations": [{
+                    "id": "studio",
+                    "status": "preempted",
+                    "nodes": ["strom-node-1", "strom-node-2"],
+                    "conditions": [preempted],
+                    "endpoint": null
+                }]
+            }]
+        })
+    }
+
+    /// A northbound from a later release: every body carries a field, a value
+    /// or a union kind this CLI does not know.
+    async fn stub_newer_server() -> String {
+        async fn route(method: axum::http::Method, uri: axum::http::Uri) -> Response {
+            match (method.as_str(), uri.path()) {
+                ("GET", "/streams") => axum::Json(vec![newer_stream()]).into_response(),
+                ("GET", "/streams/cam1-to-studio") => (
+                    [(axum::http::header::ETAG, "\"revision-4\"")],
+                    axum::Json(newer_stream()),
+                )
+                    .into_response(),
+                ("GET", "/status") => axum::Json(newer_status()).into_response(),
+                ("POST", "/streams") => (
+                    StatusCode::ACCEPTED,
+                    [(axum::http::header::ETAG, "\"revision-5\"")],
+                    axum::Json(serde_json::json!({
+                        "status": "accepted",
+                        "name": "cam1-to-studio",
+                        "generation": 5,
+                        "changed": true,
+                        "warnings": []
+                    })),
+                )
+                    .into_response(),
+                ("DELETE", "/streams/cam1-to-studio") => StatusCode::NO_CONTENT.into_response(),
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, Router::new().fallback(route))
+                .await
+                .unwrap()
+        });
+        url
+    }
+
+    #[tokio::test]
+    async fn a_newer_servers_stream_is_read_printed_applied_and_deleted() {
+        let url = stub_newer_server().await;
+        let name = "cam1-to-studio";
+
+        let view = get_stream(&url, None, name, OutputFormat::Human)
+            .await
+            .unwrap();
+        let lines = view.lines().map(words).collect::<Vec<_>>();
+        assert!(
+            lines.contains(&vec!["cam1-to-studio", "4", "preempted", "-", "true"]),
+            "{view}"
+        );
+        assert!(
+            lines.contains(&vec![
+                "media_flowing",
+                "false",
+                "source_preempted",
+                "another",
+                "source",
+                "holds",
+                "the",
+                "slot"
+            ]),
+            "{view}"
+        );
+        assert!(
+            lines.contains(&vec!["studio", "preempted", "-", "source_preempted"]),
+            "{view}"
+        );
+
+        let list = get_streams(&url, None, OutputFormat::Human).await.unwrap();
+        assert_eq!(
+            words(list.lines().last().unwrap()),
+            ["cam1-to-studio", "4", "preempted", "-", "true"]
+        );
+
+        let json = get_stream(&url, None, name, OutputFormat::Json)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&json).unwrap(),
+            newer_stream()
+        );
+        let yaml = get_stream(&url, None, name, OutputFormat::Yaml)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_norway::from_str::<Value>(&yaml).unwrap(),
+            newer_stream()
+        );
+
+        let applied = apply_stream(&url, None, &sample_stream(), OutputFormat::Human)
+            .await
+            .unwrap();
+        assert_eq!(
+            words(applied.lines().last().unwrap()),
+            ["cam1-to-studio", "5", "true"]
+        );
+        let deleted = delete_stream(&url, None, name, OutputFormat::Human)
+            .await
+            .unwrap();
+        assert_eq!(deleted, "deleted stream cam1-to-studio");
     }
 
     #[tokio::test]
@@ -2150,14 +2233,13 @@ destinations:
 
     #[test]
     fn human_apply_set_output_lists_member_actions_and_prunes() {
-        let accepted = StreamSetAccepted {
-            status: weave_core::AcceptedState::Accepted,
+        let accepted = read::StreamSetAccepted {
             owner: "studio-a".to_string(),
             changed: true,
-            streams: vec![StreamSetMemberResult {
+            streams: vec![read::StreamSetMemberResult {
                 name: "cam1-to-studio".to_string(),
                 generation: 2,
-                action: StreamSetAction::Updated,
+                action: read::Open::Known(StreamSetAction::Updated),
             }],
             pruned: vec!["old-feed".to_string()],
         };
@@ -2247,20 +2329,30 @@ destinations:
     }
 
     #[tokio::test]
-    async fn lookup_decodes_the_resource_generation() {
+    async fn lookup_returns_the_etag_and_the_body_as_sent() {
         let resource = StreamResource {
             generation: 23,
             owner: None,
             spec: sample_stream(),
         };
-        let (url, _seen) = stub_resource(Some(resource), StatusCode::ACCEPTED).await;
+        let (url, _seen) = stub_resource(Some(resource.clone()), StatusCode::ACCEPTED).await;
 
-        let found = lookup_stream(&reqwest::Client::new(), &url, None, "cam1-to-studio")
-            .await
-            .unwrap()
-            .unwrap();
+        let found = lookup(
+            &reqwest::Client::new(),
+            &url,
+            None,
+            "/streams/cam1-to-studio",
+            "stream",
+        )
+        .await
+        .unwrap()
+        .unwrap();
 
-        assert_eq!(found.resource.generation, 23);
+        assert_eq!(found.etag, "\"revision-7\"");
+        assert_eq!(
+            serde_json::from_str::<Value>(&found.body).unwrap(),
+            serde_json::to_value(resource).unwrap()
+        );
     }
 
     #[tokio::test]

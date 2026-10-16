@@ -1,8 +1,9 @@
 //! Node and stream events the controller pushes to a configured receiver.
 //!
-//! The shape lives in core so a Rust consumer deserializes exactly what the
-//! controller serializes. Delivery — queueing, retries, auth — belongs to the
-//! controller; see `weave-controller`'s `webhook` module.
+//! The controller serializes these types. A Rust receiver decodes
+//! [`crate::read::Event`], which also takes the fields, event types and subjects
+//! a newer controller sends. Delivery, with its queueing, retries and auth,
+//! belongs to the controller; see `weave-controller`'s `webhook` module.
 
 use std::fmt;
 

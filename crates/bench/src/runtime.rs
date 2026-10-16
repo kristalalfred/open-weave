@@ -8,10 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::process::Command;
 use weave_core::auth::Token;
-use weave_core::{
-    EndpointAddr, NodeDescriptor, NodeStatus, PathStatus, StatusResponse, StreamDefinition,
-    StreamEndpoints, StreamResource, StreamTransport,
-};
+use weave_core::{NodeStatus, PathStatus, StreamDefinition, StreamTransport, read};
 use weave_strom::StromClient;
 
 use crate::media::{self, Probe, Watch};
@@ -154,8 +151,8 @@ impl Bench {
             );
             if response.status().is_success()
                 && matches!(
-                    response.json::<StatusResponse>().await?,
-                    StatusResponse::Running(_)
+                    response.json::<read::StatusResponse>().await?,
+                    read::StatusResponse::Running(_)
                 )
             {
                 break;
@@ -163,14 +160,15 @@ impl Bench {
             ensure!(Instant::now() < deadline, "controller did not become ready");
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
-        let streams: Vec<StreamResource> = self.get("/streams").await?;
+        let streams: Vec<read::StreamResource> = self.get("/streams").await?;
         ensure!(
             streams.is_empty(),
             "bench has streams; remove them before running disruptive scenarios"
         );
         loop {
-            let nodes: Vec<NodeDescriptor> = self.get("/nodes").await?;
-            self.report.event("preflight_nodes", &nodes)?;
+            let body: Value = self.get("/nodes").await?;
+            self.report.event("preflight_nodes", &body)?;
+            let nodes = Vec::<read::NodeDescriptor>::deserialize(&body)?;
             if (1..=4).all(|n| {
                 nodes.iter().any(|node| {
                     node.id == format!("strom-node-{n}") && node.status == NodeStatus::Ready
@@ -426,7 +424,7 @@ impl Bench {
         Ok(())
     }
 
-    async fn endpoints(&self, alias: &str) -> Result<StreamEndpoints> {
+    async fn endpoints(&self, alias: &str) -> Result<read::StreamEndpoints> {
         let name = self.name(alias)?;
         let deadline = Instant::now() + Duration::from_secs(90);
         loop {
@@ -572,17 +570,27 @@ impl Bench {
         let deadline = started + Duration::from_secs(seconds);
         let mut last = String::new();
         loop {
-            match self.get::<StatusResponse>("/status").await {
-                Ok(StatusResponse::Running(response)) => {
-                    if let Some(stream) = response.streams.iter().find(|s| s.name == name) {
-                        last = serde_json::to_string(stream)?;
-                        self.report.event("await_status", stream)?;
+            let answer = self.get::<Value>("/status").await.and_then(|body| {
+                let decoded = read::StatusResponse::deserialize(&body)?;
+                Ok((body, decoded))
+            });
+            match answer {
+                Ok((body, read::StatusResponse::Running(response))) => {
+                    if let Some((index, stream)) = response
+                        .streams
+                        .iter()
+                        .enumerate()
+                        .find(|(_, s)| s.name == name)
+                    {
+                        let sent = &body["streams"][index];
+                        last = sent.to_string();
+                        self.report.event("await_status", sent)?;
                         let selected = destination
                             .and_then(|id| stream.destinations.iter().find(|d| d.id == id));
                         let got = if destination.is_some() {
-                            selected.map(|d| d.status)
+                            selected.map(|d| &d.status)
                         } else {
-                            Some(stream.status)
+                            Some(&stream.status)
                         };
                         let got_nodes = selected.map_or(&stream.nodes, |d| &d.nodes);
                         let nodes_match = nodes.is_none_or(|expected| {
@@ -591,7 +599,7 @@ impl Bench {
                         });
                         let media = status != PathStatus::Flowing
                             || self.receiving(alias, destination, started);
-                        if got == Some(status)
+                        if got.is_some_and(|got| *got == status)
                             && stream.observed_generation == Some(stream.generation)
                             && nodes_match
                             && media
@@ -756,7 +764,7 @@ impl Bench {
             .context("missing stream ETag")?
             .to_str()?
             .to_string();
-        let resource: StreamResource = response.json().await?;
+        let resource: read::StreamResource = response.json().await?;
         Ok(Snapshot {
             stream: alias.to_string(),
             etag,
@@ -908,7 +916,7 @@ impl Bench {
     }
 }
 
-pub fn media_url(endpoint: &EndpointAddr, spec: &StreamTransport) -> Result<String> {
+pub fn media_url(endpoint: &read::EndpointAddr, spec: &StreamTransport) -> Result<String> {
     let StreamTransport::Srt(spec) = spec else {
         bail!("bench media tools currently require SRT external endpoints")
     };
