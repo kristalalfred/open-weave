@@ -15,7 +15,8 @@ destinations:
 ```
 
 `weave apply -f` that file, and `weave get stream cam1-to-studio` reads
-`flowing` once both nodes have registered and media reaches the studio.
+`flowing` once both nodes have registered, a sender feeds the source, and
+something pulls from the studio destination.
 
 ## Features
 
@@ -54,7 +55,8 @@ tracked in [`backlog/`](backlog/).
 ## Quickstart
 
 The bench runs the control plane, Postgres and four Strom nodes behind
-emulated routers. It needs Docker, `just`, a Rust toolchain and `jq`.
+emulated routers. It needs Docker with Compose v2, `just`, a Rust toolchain,
+`jq`, `curl` and `bash`.
 
 ```sh
 just bench up
