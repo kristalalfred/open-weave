@@ -66,8 +66,12 @@ southbound accepts a registration from that page, then for the node to appear in
 
 ```sh
 pnpm install
+pnpm exec playwright install --no-shell chromium
 node check.mjs --southbound http://127.0.0.1:8081 --token "$(weave node-token browser-1)" --serve 8000
 ```
+
+`pnpm install` fetches Playwright without a browser. The second line downloads
+the Chromium build `check.mjs` launches, into Playwright's cache.
 
 `--serve` hosts this directory on loopback only, so the page is opened from the
 machine running the script. Against a southbound behind TLS with a private CA,
@@ -88,5 +92,6 @@ source before it launches anything and refuses to run when they disagree. It
 also checks that hop status retains the ingress and every identified egress.
 `just browser-check` (`check.mjs --check-only`) runs those checks alone, needing
 only `node`: no browser, no southbound, no `pnpm install`; `just test` runs it
-too. Away from the repo — the bench mounts this directory alone — the Rust
-source is out of reach and the driver says so and carries on.
+too. The script reads `crates/core/src/lib.rs` two directories above its own.
+When that file is out of reach, it says so and carries on. The bench's browser
+containers mount the file at that path, so the comparison runs there too.
