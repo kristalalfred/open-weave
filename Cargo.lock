@@ -2605,6 +2605,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "clap",
  "http-body-util",
  "reqwest",
  "serde",
@@ -2621,6 +2622,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "clap",
  "http-body-util",
  "reqwest",
  "serde",

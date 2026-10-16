@@ -13,17 +13,49 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use clap::Parser;
 use serde_json::{Value, json};
 use weave_core::auth::{self, Guard, Token, require_bearer};
 use weave_core::logging::ErrorChain;
-use weave_core::upstream::{Answer, Controllers};
+use weave_core::upstream::{Answer, CONTROLLER_URL_VAR, Controllers, DEFAULT_CONTROLLER_URL};
 use weave_core::{
     ApiError, ApiErrorCode, ROUTE_NODES, ROUTE_STATUS, ROUTE_STREAM, ROUTE_STREAM_ENDPOINTS,
     ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS, ROUTE_STREAMS, StreamDefinition,
     StreamSetApply, ValidationIssue, resource_id_issue, validate_resource_id, validate_stream,
 };
 
-const DEFAULT_ADDR: &str = "127.0.0.1:9080";
+#[derive(Debug, Parser)]
+#[command(version, about, long_about = long_about())]
+struct Args {
+    /// Address to listen on.
+    #[arg(
+        long,
+        env = "WEAVE_NORTHBOUND_ADDR",
+        hide_env_values = true,
+        default_value = "127.0.0.1:9080"
+    )]
+    listen: String,
+    /// Controller base URLs, comma-separated.
+    #[arg(
+        long,
+        env = CONTROLLER_URL_VAR,
+        hide_env_values = true,
+        default_value = DEFAULT_CONTROLLER_URL
+    )]
+    controller_url: String,
+}
+
+fn long_about() -> String {
+    format!(
+        "{}\n\n\
+         Authentication is configured in the environment, not with flags:\n  \
+         {:<24}Bearer token operators present, which northbound presents to the controller. Required.\n  \
+         {:<24}Serve and proxy without authentication instead. Local development only.",
+        env!("CARGO_PKG_DESCRIPTION"),
+        auth::NORTHBOUND_TOKEN_VAR,
+        format!("{}=1", auth::AUTH_DISABLED_VAR),
+    )
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -46,8 +78,11 @@ impl AppState {
 async fn main() -> Result<()> {
     weave_core::logging::init();
 
-    let addr = std::env::var("WEAVE_NORTHBOUND_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
-    let controllers = Controllers::from_env()?;
+    let Args {
+        listen: addr,
+        controller_url,
+    } = Args::parse();
+    let controllers = Controllers::new(&controller_url)?;
     let controller_urls = controllers.urls().join(",");
 
     let guard = Guard::from_env(auth::NORTHBOUND_TOKEN_VAR)?;
@@ -394,6 +429,24 @@ mod tests {
     use weave_core::{RemoteAddr, SrtEndpoint, StreamDestination, StreamTransport};
 
     const TOKEN: &str = "northbound-test-token";
+
+    fn env_values_shown(command: &clap::Command) -> Vec<String> {
+        command
+            .get_arguments()
+            .filter(|arg| arg.get_env().is_some() && !arg.is_hide_env_values_set())
+            .map(|arg| arg.get_id().to_string())
+            .chain(command.get_subcommands().flat_map(env_values_shown))
+            .collect()
+    }
+
+    #[test]
+    fn help_hides_every_env_value() {
+        let shown = env_values_shown(&<Args as clap::CommandFactory>::command());
+        assert!(
+            shown.is_empty(),
+            "--help prints the environment value of {shown:?}"
+        );
+    }
 
     #[derive(Clone, Default)]
     struct Captured {

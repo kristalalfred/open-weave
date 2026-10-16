@@ -14,21 +14,57 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use clap::Parser;
 use serde_json::{Value, json};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use weave_core::auth::{self, NodeCaller, NodeGuard, refuse_other_node, require_node_token};
-use weave_core::upstream::{Answer, Controllers};
+use weave_core::upstream::{Answer, CONTROLLER_URL_VAR, Controllers, DEFAULT_CONTROLLER_URL};
 use weave_core::{
     ApiError, ApiErrorCode, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
     ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, resource_id_issue, validate_resource_id,
 };
 
-const DEFAULT_ADDR: &str = "127.0.0.1:8081";
-
-/// Origin a browser-hosted node may call the adapter contract from. Unset means
-/// no CORS headers at all, which is right for every adapter that is not a web
-/// page. `*` allows any origin, for development.
 const CORS_ORIGIN_VAR: &str = "WEAVE_SOUTHBOUND_CORS_ORIGIN";
+
+#[derive(Debug, Parser)]
+#[command(version, about, long_about = long_about())]
+struct Args {
+    /// Address to listen on.
+    #[arg(
+        long,
+        env = "WEAVE_SOUTHBOUND_ADDR",
+        hide_env_values = true,
+        default_value = "127.0.0.1:8081"
+    )]
+    listen: String,
+    /// Controller base URLs, comma-separated.
+    #[arg(
+        long,
+        env = CONTROLLER_URL_VAR,
+        hide_env_values = true,
+        default_value = DEFAULT_CONTROLLER_URL
+    )]
+    controller_url: String,
+    /// Origin a browser-hosted node may call the adapter contract from, or `*`
+    /// for any origin, for development. Unset sends no CORS headers.
+    #[arg(long, env = CORS_ORIGIN_VAR, hide_env_values = true)]
+    cors_origin: Option<String>,
+}
+
+fn long_about() -> String {
+    format!(
+        "{}\n\n\
+         Authentication is configured in the environment, not with flags:\n  \
+         {:<29}Key node tokens are derived from, at least {} characters. Required.\n  \
+         {:<29}Lowest token epoch accepted per node, as comma-separated <node id>=<epoch> pairs.\n  \
+         {:<29}Serve and proxy without authentication instead. Local development only.",
+        env!("CARGO_PKG_DESCRIPTION"),
+        auth::SOUTHBOUND_KEY_VAR,
+        auth::MIN_NODE_KEY_LEN,
+        auth::SOUTHBOUND_MIN_EPOCHS_VAR,
+        format!("{}=1", auth::AUTH_DISABLED_VAR),
+    )
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -47,8 +83,12 @@ impl AppState {
 async fn main() -> Result<()> {
     weave_core::logging::init();
 
-    let addr = std::env::var("WEAVE_SOUTHBOUND_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
-    let controllers = Controllers::from_env()?;
+    let Args {
+        listen: addr,
+        controller_url,
+        cors_origin,
+    } = Args::parse();
+    let controllers = Controllers::new(&controller_url)?;
     let controller_urls = controllers.urls().join(",");
 
     let guard = NodeGuard::from_env(auth::SOUTHBOUND_KEY_VAR)?;
@@ -58,8 +98,8 @@ async fn main() -> Result<()> {
             auth::AUTH_DISABLED_VAR
         );
     }
-    let cors = match std::env::var(CORS_ORIGIN_VAR) {
-        Ok(origin) if !origin.trim().is_empty() => {
+    let cors = match cors_origin {
+        Some(origin) if !origin.trim().is_empty() => {
             tracing::info!(origin = %origin, "allowing browser nodes from this origin");
             Some(cors_layer(origin.trim())?)
         }
@@ -292,6 +332,24 @@ mod tests {
     use weave_core::auth::NodeKey;
 
     const KEY: &str = "southbound-test-key-0123456789abcdef";
+
+    fn env_values_shown(command: &clap::Command) -> Vec<String> {
+        command
+            .get_arguments()
+            .filter(|arg| arg.get_env().is_some() && !arg.is_hide_env_values_set())
+            .map(|arg| arg.get_id().to_string())
+            .chain(command.get_subcommands().flat_map(env_values_shown))
+            .collect()
+    }
+
+    #[test]
+    fn help_hides_every_env_value() {
+        let shown = env_values_shown(&<Args as clap::CommandFactory>::command());
+        assert!(
+            shown.is_empty(),
+            "--help prints the environment value of {shown:?}"
+        );
+    }
 
     #[derive(Clone, Default)]
     struct Captured {

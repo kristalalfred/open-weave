@@ -91,16 +91,6 @@ pub struct Controllers {
 }
 
 impl Controllers {
-    /// The controllers [`CONTROLLER_URL_VAR`] lists, or
-    /// [`DEFAULT_CONTROLLER_URL`] when it is unset.
-    pub fn from_env() -> Result<Self, ControllersError> {
-        Self::new(
-            std::env::var(CONTROLLER_URL_VAR)
-                .as_deref()
-                .unwrap_or(DEFAULT_CONTROLLER_URL),
-        )
-    }
-
     pub fn new(list: &str) -> Result<Self, ControllersError> {
         Self::with_request_timeout(list, REQUEST_TIMEOUT)
     }
