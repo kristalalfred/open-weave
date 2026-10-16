@@ -329,6 +329,20 @@ impl ApiError {
     }
 }
 
+/// The body every service answers `/health` with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Health {
+    status: &'static str,
+    version: &'static str,
+}
+
+impl Health {
+    pub const OK: Self = Self {
+        status: "ok",
+        version: env!("CARGO_PKG_VERSION"),
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

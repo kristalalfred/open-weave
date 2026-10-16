@@ -43,7 +43,6 @@ use axum::{
 };
 use clap::Parser;
 use serde::Serialize;
-use serde_json::{Value, json};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
@@ -54,7 +53,7 @@ use weave_core::auth::{
 use weave_core::logging::ErrorChain;
 use weave_core::webhook::{EventType, NodeSummary, StreamSummary, Subject};
 use weave_core::{
-    AcceptedState, ApiError, ApiErrorCode, DesiredHop, EndpointDescriptor, NodeAccepted,
+    AcceptedState, ApiError, ApiErrorCode, DesiredHop, EndpointDescriptor, Health, NodeAccepted,
     NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus, ObservedState, PROTOCOL_VERSION,
     PathStatus, PlanStatus, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
     ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, ROUTE_STATUS, ROUTE_STREAM,
@@ -1304,8 +1303,8 @@ fn spawn_api_server(listener: tokio::net::TcpListener, app: Router) -> JoinHandl
     })
 }
 
-async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok" }))
+async fn health() -> Json<Health> {
+    Json(Health::OK)
 }
 
 async fn api_route_not_found() -> Response {
@@ -3037,6 +3036,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
+    use serde_json::{Value, json};
     use tower::ServiceExt;
     use weave_core::{
         HopEndpointClass, HopProfile, HopStatus, NetworkAttachment, NetworkListeners,
@@ -5671,6 +5671,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn health_names_the_version_on_a_leader_and_a_standby() {
+        let (state, _mem) = mem_state();
+        for app in [open_router(state), leadership_router(Leadership::default())] {
+            assert_eq!(
+                get_ok(&app, "/health").await,
+                json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") })
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn a_standby_answers_not_leader_on_every_api_route() {
         let app = leadership_router(Leadership::default());
         for (method, uri) in [
@@ -6970,6 +6981,7 @@ mod node_auth_tests {
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
+    use serde_json::{Value, json};
     use tower::ServiceExt;
     use weave_core::auth::{MinEpochs, NodeKey, Token};
 
@@ -7403,6 +7415,7 @@ mod key_exposure_tests {
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
+    use serde_json::Value;
     use tower::ServiceExt;
     use weave_core::{
         HopEndpointClass, HopProfile, NetworkAttachment, NetworkListeners, NodeCapabilities,

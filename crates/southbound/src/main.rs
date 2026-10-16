@@ -15,12 +15,12 @@ use axum::{
     routing::{get, post},
 };
 use clap::Parser;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use weave_core::auth::{self, NodeCaller, NodeGuard, refuse_other_node, require_node_token};
 use weave_core::upstream::{Answer, CONTROLLER_URL_VAR, Controllers, DEFAULT_CONTROLLER_URL};
 use weave_core::{
-    ApiError, ApiErrorCode, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
+    ApiError, ApiErrorCode, Health, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
     ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, resource_id_issue, validate_resource_id,
 };
 
@@ -170,8 +170,8 @@ fn cors_layer(origin: &str) -> Result<CorsLayer> {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]))
 }
 
-async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok" }))
+async fn health() -> Json<Health> {
+    Json(Health::OK)
 }
 
 async fn api_route_not_found() -> Response {
@@ -327,6 +327,7 @@ mod tests {
     use axum::extract::State as AxState;
     use axum::http::Request;
     use http_body_util::BodyExt;
+    use serde_json::json;
     use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
     use weave_core::auth::NodeKey;
@@ -900,7 +901,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn health_is_reachable_without_a_token() {
+    async fn health_answers_its_version_without_a_token() {
         let (url, _captured) = stub_controller(StatusCode::OK).await;
         let response = guarded_app(url)
             .oneshot(
@@ -912,6 +913,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(response).await,
+            json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") })
+        );
     }
 
     /// Registering a node id and pulling that node's topology and allocated ports

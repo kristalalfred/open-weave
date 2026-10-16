@@ -17,11 +17,11 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 
 pub use api::{
-    AcceptedState, ApiError, ApiErrorCode, NodeAccepted, PlanStatus, RunningStatus, StartingState,
-    StartingStatus, StatusResponse, StreamAccepted, StreamCondition, StreamConditionReason,
-    StreamConditionStatus, StreamConditionType, StreamDestinationStatus, StreamPlan,
-    StreamResource, StreamSetAccepted, StreamSetAction, StreamSetApply, StreamSetMemberResult,
-    StreamSetResource, StreamStatus,
+    AcceptedState, ApiError, ApiErrorCode, Health, NodeAccepted, PlanStatus, RunningStatus,
+    StartingState, StartingStatus, StatusResponse, StreamAccepted, StreamCondition,
+    StreamConditionReason, StreamConditionStatus, StreamConditionType, StreamDestinationStatus,
+    StreamPlan, StreamResource, StreamSetAccepted, StreamSetAction, StreamSetApply,
+    StreamSetMemberResult, StreamSetResource, StreamStatus,
 };
 pub use media::{
     AudioCodec, AudioConstraint, AudioFormat, ChromaSubsampling, Container, FormatConstraint,

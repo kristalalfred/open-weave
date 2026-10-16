@@ -14,14 +14,14 @@ use axum::{
     routing::get,
 };
 use clap::Parser;
-use serde_json::{Value, json};
 use weave_core::auth::{self, Guard, Token, require_bearer};
 use weave_core::logging::ErrorChain;
 use weave_core::upstream::{Answer, CONTROLLER_URL_VAR, Controllers, DEFAULT_CONTROLLER_URL};
 use weave_core::{
-    ApiError, ApiErrorCode, ROUTE_NODES, ROUTE_STATUS, ROUTE_STREAM, ROUTE_STREAM_ENDPOINTS,
-    ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS, ROUTE_STREAMS, StreamDefinition,
-    StreamSetApply, ValidationIssue, resource_id_issue, validate_resource_id, validate_stream,
+    ApiError, ApiErrorCode, Health, ROUTE_NODES, ROUTE_STATUS, ROUTE_STREAM,
+    ROUTE_STREAM_ENDPOINTS, ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS, ROUTE_STREAMS,
+    StreamDefinition, StreamSetApply, ValidationIssue, resource_id_issue, validate_resource_id,
+    validate_stream,
 };
 
 #[derive(Debug, Parser)]
@@ -129,8 +129,8 @@ fn router(state: AppState, guard: Guard) -> Router {
         .with_state(state)
 }
 
-async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok" }))
+async fn health() -> Json<Health> {
+    Json(Health::OK)
 }
 
 async fn api_route_not_found() -> Response {
@@ -424,6 +424,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
+    use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
     use weave_core::{RemoteAddr, SrtEndpoint, StreamDestination, StreamTransport};
@@ -1296,7 +1297,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn health_is_reachable_without_a_token() {
+    async fn health_answers_its_version_without_a_token() {
         let (url, _captured) = stub_controller(StatusCode::OK).await;
         let response = guarded_app(url)
             .oneshot(
@@ -1308,6 +1309,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(response).await,
+            json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") })
+        );
     }
 
     /// Missing and wrong tokens are both rejected, on read and write, with a

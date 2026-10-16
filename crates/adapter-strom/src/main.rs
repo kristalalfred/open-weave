@@ -1096,8 +1096,8 @@ fn push_unique(values: &mut Vec<String>, value: &str) {
     values.push(value.to_string());
 }
 
-async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok" }))
+async fn health() -> Json<weave_core::Health> {
+    Json(weave_core::Health::OK)
 }
 
 #[cfg(test)]
