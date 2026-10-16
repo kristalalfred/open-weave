@@ -40,8 +40,33 @@ use provision::{
 )]
 struct Args {
     /// Path to the adapter config file (YAML).
-    #[arg(long, env = "WEAVE_NODE_CONFIG")]
+    #[arg(long, env = "WEAVE_NODE_CONFIG", hide_env_values = true)]
     config: PathBuf,
+}
+
+#[cfg(test)]
+mod args_tests {
+    use clap::CommandFactory;
+
+    use super::Args;
+
+    fn env_values_shown(command: &clap::Command) -> Vec<String> {
+        command
+            .get_arguments()
+            .filter(|arg| arg.get_env().is_some() && !arg.is_hide_env_values_set())
+            .map(|arg| arg.get_id().to_string())
+            .chain(command.get_subcommands().flat_map(env_values_shown))
+            .collect()
+    }
+
+    #[test]
+    fn help_hides_every_env_value() {
+        let shown = env_values_shown(&Args::command());
+        assert!(
+            shown.is_empty(),
+            "--help prints the environment value of {shown:?}"
+        );
+    }
 }
 
 #[tokio::main]

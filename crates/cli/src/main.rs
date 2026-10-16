@@ -21,14 +21,13 @@ struct Cli {
     #[arg(
         long,
         env = "WEAVE_NORTHBOUND_URL",
+        hide_env_values = true,
         default_value = "http://127.0.0.1:9080",
         global = true
     )]
     url: String,
     /// Bearer token presented to the northbound API. Required unless the server
     /// runs with WEAVE_AUTH_DISABLED=1.
-    // `hide_env_values` keeps the token value itself out of `--help` output,
-    // which clap would otherwise print alongside the variable name.
     #[arg(
         long,
         env = auth::NORTHBOUND_TOKEN_VAR,
@@ -1029,6 +1028,24 @@ mod tests {
         );
         assert!(
             Cli::try_parse_from(["weave", "node-token", "strom-node-1", "--epoch", "2"]).is_ok()
+        );
+    }
+
+    fn env_values_shown(command: &clap::Command) -> Vec<String> {
+        command
+            .get_arguments()
+            .filter(|arg| arg.get_env().is_some() && !arg.is_hide_env_values_set())
+            .map(|arg| arg.get_id().to_string())
+            .chain(command.get_subcommands().flat_map(env_values_shown))
+            .collect()
+    }
+
+    #[test]
+    fn help_hides_every_env_value() {
+        let shown = env_values_shown(&<Cli as clap::CommandFactory>::command());
+        assert!(
+            shown.is_empty(),
+            "--help prints the environment value of {shown:?}"
         );
     }
 

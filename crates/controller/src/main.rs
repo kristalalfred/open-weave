@@ -81,36 +81,67 @@ use store::{
 #[derive(Debug, Parser)]
 #[command(name = "weave-controller", version, about = "open-weave reconciler")]
 struct Args {
-    #[arg(long, env = "WEAVE_CONTROLLER_ADDR", default_value = "127.0.0.1:8082")]
+    #[arg(
+        long,
+        env = "WEAVE_CONTROLLER_ADDR",
+        hide_env_values = true,
+        default_value = "127.0.0.1:8082"
+    )]
     listen: String,
-    #[arg(long, env = "WEAVE_RECONCILE_INTERVAL_SECS", default_value_t = 5)]
+    #[arg(
+        long,
+        env = "WEAVE_RECONCILE_INTERVAL_SECS",
+        hide_env_values = true,
+        default_value_t = 5
+    )]
     interval_secs: u64,
     /// A node is marked `Offline` once this many seconds elapse without a
     /// heartbeat. Its desired hops are still computed and served so a returning
     /// adapter resumes on the same deterministic ports.
-    #[arg(long, env = "WEAVE_NODE_TTL_SECS", default_value_t = 15)]
+    #[arg(
+        long,
+        env = "WEAVE_NODE_TTL_SECS",
+        hide_env_values = true,
+        default_value_t = 15
+    )]
     node_ttl_secs: u64,
     /// An offline node is removed, from memory and from the store, once this
     /// many seconds elapse without a heartbeat. A node a stored stream names is
     /// kept.
-    #[arg(long, env = "WEAVE_NODE_FORGET_SECS", default_value_t = 300)]
+    #[arg(
+        long,
+        env = "WEAVE_NODE_FORGET_SECS",
+        hide_env_values = true,
+        default_value_t = 300
+    )]
     node_forget_secs: u64,
     /// Postgres connection URL. When unset the controller runs with an
     /// in-memory store and does not persist state across restarts.
-    #[arg(long, env = "DATABASE_URL")]
+    #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     database_url: Option<String>,
     /// With `DATABASE_URL`, how long the controller lease lasts without a
     /// renewal. A standby takes over at most this long after the leader stops.
-    #[arg(long, env = "WEAVE_LEASE_TTL_SECS", default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..))]
+    #[arg(
+        long,
+        env = "WEAVE_LEASE_TTL_SECS",
+        hide_env_values = true,
+        default_value_t = 10,
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
     lease_ttl_secs: u64,
     /// Absolute URL that receives node and stream events. Webhooks are off when unset.
-    #[arg(long, env = "WEAVE_WEBHOOK_URL")]
+    #[arg(long, env = "WEAVE_WEBHOOK_URL", hide_env_values = true)]
     webhook_url: Option<String>,
     /// Presented to the receiver as `Authorization: Bearer <token>`.
-    #[arg(long, env = "WEAVE_WEBHOOK_TOKEN")]
+    #[arg(long, env = "WEAVE_WEBHOOK_TOKEN", hide_env_values = true)]
     webhook_token: Option<String>,
     /// Event types to deliver, comma-separated. Defaults to all of them.
-    #[arg(long, env = "WEAVE_WEBHOOK_EVENTS", value_delimiter = ',')]
+    #[arg(
+        long,
+        env = "WEAVE_WEBHOOK_EVENTS",
+        hide_env_values = true,
+        value_delimiter = ','
+    )]
     webhook_events: Vec<String>,
 }
 
@@ -7633,5 +7664,30 @@ mod key_exposure_tests {
     #[tokio::test]
     async fn two_path_keys_reach_desired_hops_and_no_other_route() {
         keys_reach_desired_hops_and_no_other_route(2).await;
+    }
+}
+
+#[cfg(test)]
+mod args_tests {
+    use clap::CommandFactory;
+
+    use super::Args;
+
+    fn env_values_shown(command: &clap::Command) -> Vec<String> {
+        command
+            .get_arguments()
+            .filter(|arg| arg.get_env().is_some() && !arg.is_hide_env_values_set())
+            .map(|arg| arg.get_id().to_string())
+            .chain(command.get_subcommands().flat_map(env_values_shown))
+            .collect()
+    }
+
+    #[test]
+    fn help_hides_every_env_value() {
+        let shown = env_values_shown(&Args::command());
+        assert!(
+            shown.is_empty(),
+            "--help prints the environment value of {shown:?}"
+        );
     }
 }

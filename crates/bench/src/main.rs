@@ -25,6 +25,7 @@ struct Cli {
     #[arg(
         long,
         env = "WEAVE_NORTHBOUND_URL",
+        hide_env_values = true,
         default_value = "https://localhost:29443",
         global = true
     )]
@@ -308,4 +309,29 @@ async fn terminate() {
     }
     #[cfg(not(unix))]
     std::future::pending::<()>().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::Cli;
+
+    fn env_values_shown(command: &clap::Command) -> Vec<String> {
+        command
+            .get_arguments()
+            .filter(|arg| arg.get_env().is_some() && !arg.is_hide_env_values_set())
+            .map(|arg| arg.get_id().to_string())
+            .chain(command.get_subcommands().flat_map(env_values_shown))
+            .collect()
+    }
+
+    #[test]
+    fn help_hides_every_env_value() {
+        let shown = env_values_shown(&Cli::command());
+        assert!(
+            shown.is_empty(),
+            "--help prints the environment value of {shown:?}"
+        );
+    }
 }
