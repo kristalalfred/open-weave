@@ -1,423 +1,49 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
+  "title": "NodeRegistration",
+  "type": "object",
   "properties": {
-    "endpoints": {
-      "default": [],
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "source",
-              "destination",
-              "bidirectional",
-              "flow",
-              "gateway",
-              "unknown"
-            ],
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          },
-          "metadata": {
-            "default": null
-          },
-          "node_id": {
-            "maxLength": 63,
-            "minLength": 1,
-            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "transports": {
-            "default": [],
-            "description": "Transport labels an adapter recognised on this endpoint, such as\n `webrtc` or `ndi`. Guesses read off the underlying system, not offers.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "kind"
-        ],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "hop_status": {
-      "default": [],
-      "items": {
-        "additionalProperties": false,
-        "description": "Node-reported realisation status for one desired hop.",
-        "properties": {
-          "egresses": {
-            "default": [],
-            "items": {
-              "additionalProperties": false,
-              "description": "Observed status for one identified egress branch.",
-              "properties": {
-                "branch_id": {
-                  "type": "string"
-                },
-                "condition": {
-                  "default": "idle",
-                  "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                  "oneOf": [
-                    {
-                      "const": "idle",
-                      "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                      "type": "string"
-                    },
-                    {
-                      "const": "connecting",
-                      "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                      "type": "string"
-                    },
-                    {
-                      "const": "connected",
-                      "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                      "type": "string"
-                    },
-                    {
-                      "const": "flowing",
-                      "description": "Connection up and media flowing.",
-                      "type": "string"
-                    },
-                    {
-                      "const": "stalled",
-                      "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                      "type": "string"
-                    }
-                  ]
-                },
-                "resolved": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "host": {
-                      "type": "string"
-                    },
-                    "port": {
-                      "format": "uint16",
-                      "maximum": 65535,
-                      "minimum": 0,
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "host",
-                    "port"
-                  ],
-                  "type": [
-                    "object",
-                    "null"
-                  ]
-                },
-                "stats": {
-                  "additionalProperties": false,
-                  "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
-                  "properties": {
-                    "connections": {
-                      "default": 0,
-                      "format": "uint",
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "packets_received_lost": {
-                      "default": 0,
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "packets_received_retransmitted": {
-                      "default": 0,
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "packets_retransmitted": {
-                      "default": 0,
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "packets_sent_lost": {
-                      "default": 0,
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "rate_mbps": {
-                      "default": 0.0,
-                      "format": "double",
-                      "type": "number"
-                    }
-                  },
-                  "type": [
-                    "object",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "branch_id"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "id": {
-            "type": "string"
-          },
-          "ingress": {
-            "additionalProperties": false,
-            "description": "Observed condition, address, and statistics for one socket.",
-            "properties": {
-              "condition": {
-                "default": "idle",
-                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                "oneOf": [
-                  {
-                    "const": "idle",
-                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "connecting",
-                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "connected",
-                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "flowing",
-                    "description": "Connection up and media flowing.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "stalled",
-                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                    "type": "string"
-                  }
-                ]
-              },
-              "resolved": {
-                "additionalProperties": false,
-                "properties": {
-                  "host": {
-                    "type": "string"
-                  },
-                  "port": {
-                    "format": "uint16",
-                    "maximum": 65535,
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "host",
-                  "port"
-                ],
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "stats": {
-                "additionalProperties": false,
-                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
-                "properties": {
-                  "connections": {
-                    "default": 0,
-                    "format": "uint",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "packets_received_lost": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_received_retransmitted": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_retransmitted": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_sent_lost": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "rate_mbps": {
-                    "default": 0.0,
-                    "format": "double",
-                    "type": "number"
-                  }
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              }
-            },
-            "type": "object"
-          },
-          "merge_ingress": {
-            "additionalProperties": false,
-            "description": "Observed condition, address, and statistics for one socket.",
-            "properties": {
-              "condition": {
-                "default": "idle",
-                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                "oneOf": [
-                  {
-                    "const": "idle",
-                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "connecting",
-                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "connected",
-                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "flowing",
-                    "description": "Connection up and media flowing.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "stalled",
-                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                    "type": "string"
-                  }
-                ]
-              },
-              "resolved": {
-                "additionalProperties": false,
-                "properties": {
-                  "host": {
-                    "type": "string"
-                  },
-                  "port": {
-                    "format": "uint16",
-                    "maximum": 65535,
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "host",
-                  "port"
-                ],
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "stats": {
-                "additionalProperties": false,
-                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
-                "properties": {
-                  "connections": {
-                    "default": 0,
-                    "format": "uint",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "packets_received_lost": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_received_retransmitted": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_retransmitted": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_sent_lost": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "rate_mbps": {
-                    "default": 0.0,
-                    "format": "double",
-                    "type": "number"
-                  }
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              }
-            },
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "node_id": {
-            "type": "string"
-          },
-          "state": {
-            "description": "Control-plane lifecycle of a hop's provisioning. Runtime link health is\n reported separately per socket via [`LinkCondition`].",
-            "enum": [
-              "pending",
-              "provisioned",
-              "failed"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "node_id",
-          "state",
-          "ingress"
-        ],
-        "type": "object"
-      },
-      "type": "array"
+    "protocol_version": {
+      "description": "Southbound protocol version the registering adapter speaks. Absent means\n an adapter predating the handshake, which reads as `0` and is rejected —\n see [`protocol_compatible`].",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 0
     },
     "node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63,
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "ready",
+            "degraded",
+            "offline"
+          ]
+        },
         "capabilities": {
-          "additionalProperties": false,
-          "default": {
-            "adapters": [],
-            "hop_profiles": []
-          },
+          "type": "object",
           "properties": {
             "adapters": {
-              "default": [],
+              "type": "array",
               "items": {
-                "additionalProperties": false,
+                "type": "object",
                 "properties": {
+                  "name": {
+                    "type": "string"
+                  },
                   "kind": {
+                    "type": "string",
                     "enum": [
                       "strom",
                       "nmos",
@@ -426,583 +52,957 @@
                       "mcm",
                       "vendor",
                       "custom"
-                    ],
-                    "type": "string"
-                  },
-                  "name": {
-                    "type": "string"
+                    ]
                   }
                 },
+                "additionalProperties": false,
                 "required": [
                   "name",
                   "kind"
-                ],
-                "type": "object"
+                ]
               },
-              "type": "array"
+              "default": []
             },
             "hop_profiles": {
-              "default": [],
+              "type": "array",
               "items": {
-                "additionalProperties": false,
+                "type": "object",
                 "properties": {
-                  "accepts": {
-                    "additionalProperties": false,
-                    "description": "The media this profile's ingress takes. Absent takes anything. A\n source `format` it does not accept is reported as a format mismatch.",
-                    "properties": {
-                      "audio": {
-                        "additionalProperties": false,
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                  },
+                  "ingress": {
+                    "anyOf": [
+                      {
+                        "type": "object",
                         "properties": {
-                          "channels": {
-                            "items": {
-                              "format": "uint8",
-                              "maximum": 255,
-                              "minimum": 0,
-                              "type": "integer"
-                            },
-                            "minItems": 1,
-                            "type": [
-                              "array",
-                              "null"
+                          "transport": {
+                            "description": "A transport that carries media between two nodes.",
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "srt"
+                                ]
+                              },
+                              {
+                                "description": "WebRTC ingest. The `Connect` end pushes media to the `Listen` end's\n signalling URL.",
+                                "type": "string",
+                                "const": "whip"
+                              },
+                              {
+                                "description": "WebRTC playback. The `Connect` end pulls media from the `Listen` end's\n signalling URL.",
+                                "type": "string",
+                                "const": "whep"
+                              },
+                              {
+                                "description": "RIST simple profile. The `Connect` end pushes to the `Listen` end.",
+                                "type": "string",
+                                "const": "rist"
+                              }
                             ]
                           },
-                          "codec": {
+                          "roles": {
+                            "type": "array",
                             "items": {
+                              "description": "Which end of a link a socket is: `Listen` hosts and `Connect` dials.",
+                              "type": "string",
                               "enum": [
-                                "aac",
-                                "opus",
-                                "mp2",
-                                "pcm_s16",
-                                "pcm_s24"
-                              ],
-                              "type": "string"
+                                "listen",
+                                "connect"
+                              ]
                             },
-                            "minItems": 1,
-                            "type": [
-                              "array",
-                              "null"
-                            ]
-                          },
-                          "sample_rate": {
-                            "items": {
-                              "format": "uint32",
-                              "minimum": 0,
-                              "type": "integer"
-                            },
-                            "minItems": 1,
-                            "type": [
-                              "array",
-                              "null"
-                            ]
+                            "minItems": 1
                           }
                         },
-                        "type": [
-                          "object",
-                          "null"
+                        "additionalProperties": false,
+                        "required": [
+                          "transport",
+                          "roles"
                         ]
                       },
-                      "container": {
-                        "items": {
-                          "enum": [
-                            "mpeg_ts",
-                            "rtp"
-                          ],
-                          "type": "string"
+                      {
+                        "type": "object",
+                        "properties": {
+                          "device": {
+                            "description": "The node's own capture or display device, where media starts or ends.",
+                            "type": "string",
+                            "enum": [
+                              "capture",
+                              "display"
+                            ]
+                          },
+                          "tracks": {
+                            "description": "The tracks a capture device sends. Absent means unknown.",
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "description": "A kind of media track a capture device sends.",
+                              "type": "string",
+                              "enum": [
+                                "audio",
+                                "video"
+                              ]
+                            }
+                          }
                         },
-                        "minItems": 1,
+                        "additionalProperties": false,
+                        "required": [
+                          "device"
+                        ]
+                      }
+                    ]
+                  },
+                  "egress": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "transport": {
+                            "description": "A transport that carries media between two nodes.",
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "srt"
+                                ]
+                              },
+                              {
+                                "description": "WebRTC ingest. The `Connect` end pushes media to the `Listen` end's\n signalling URL.",
+                                "type": "string",
+                                "const": "whip"
+                              },
+                              {
+                                "description": "WebRTC playback. The `Connect` end pulls media from the `Listen` end's\n signalling URL.",
+                                "type": "string",
+                                "const": "whep"
+                              },
+                              {
+                                "description": "RIST simple profile. The `Connect` end pushes to the `Listen` end.",
+                                "type": "string",
+                                "const": "rist"
+                              }
+                            ]
+                          },
+                          "roles": {
+                            "type": "array",
+                            "items": {
+                              "description": "Which end of a link a socket is: `Listen` hosts and `Connect` dials.",
+                              "type": "string",
+                              "enum": [
+                                "listen",
+                                "connect"
+                              ]
+                            },
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "transport",
+                          "roles"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "device": {
+                            "description": "The node's own capture or display device, where media starts or ends.",
+                            "type": "string",
+                            "enum": [
+                              "capture",
+                              "display"
+                            ]
+                          },
+                          "tracks": {
+                            "description": "The tracks a capture device sends. Absent means unknown.",
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "description": "A kind of media track a capture device sends.",
+                              "type": "string",
+                              "enum": [
+                                "audio",
+                                "video"
+                              ]
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "device"
+                        ]
+                      }
+                    ]
+                  },
+                  "max_egresses": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "uint",
+                    "minimum": 1
+                  },
+                  "merge": {
+                    "description": "The hop can take a second ingress of the `ingress` class carrying another\n copy of the same media, and merge the two.",
+                    "type": "boolean"
+                  },
+                  "accepts": {
+                    "description": "The media this profile's ingress takes. Absent takes anything. A\n source `format` it does not accept is reported as a format mismatch.",
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "container": {
                         "type": [
                           "array",
                           "null"
-                        ]
+                        ],
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "mpeg_ts",
+                            "rtp"
+                          ]
+                        },
+                        "minItems": 1
                       },
                       "video": {
-                        "additionalProperties": false,
+                        "type": [
+                          "object",
+                          "null"
+                        ],
                         "properties": {
-                          "chroma_subsampling": {
-                            "items": {
-                              "enum": [
-                                "yuv420",
-                                "yuv422",
-                                "yuv444"
-                              ],
-                              "type": "string"
-                            },
-                            "minItems": 1,
+                          "codec": {
                             "type": [
                               "array",
                               "null"
-                            ]
-                          },
-                          "codec": {
+                            ],
                             "items": {
+                              "type": "string",
                               "enum": [
                                 "h264",
                                 "h265",
                                 "av1",
                                 "vp8",
                                 "vp9"
-                              ],
-                              "type": "string"
+                              ]
                             },
-                            "minItems": 1,
+                            "minItems": 1
+                          },
+                          "width": {
                             "type": [
                               "array",
                               "null"
-                            ]
+                            ],
+                            "items": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 0
+                            },
+                            "minItems": 1
+                          },
+                          "height": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 0
+                            },
+                            "minItems": 1
                           },
                           "framerate": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
                             "items": {
-                              "additionalProperties": false,
                               "description": "Frames per second as a rational, because broadcast rates are not integers:\n 29.97 is exactly 30000/1001 and rounding it loses the distinction from 30.",
+                              "type": "object",
                               "properties": {
-                                "denominator": {
-                                  "format": "uint32",
-                                  "minimum": 0,
-                                  "type": "integer"
-                                },
                                 "numerator": {
+                                  "type": "integer",
                                   "format": "uint32",
-                                  "minimum": 0,
-                                  "type": "integer"
+                                  "minimum": 0
+                                },
+                                "denominator": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 0
                                 }
                               },
+                              "additionalProperties": false,
                               "required": [
                                 "numerator",
                                 "denominator"
-                              ],
-                              "type": "object"
+                              ]
                             },
-                            "minItems": 1,
-                            "type": [
-                              "array",
-                              "null"
-                            ]
+                            "minItems": 1
                           },
-                          "height": {
-                            "items": {
-                              "format": "uint32",
-                              "minimum": 0,
-                              "type": "integer"
-                            },
-                            "minItems": 1,
+                          "chroma_subsampling": {
                             "type": [
                               "array",
                               "null"
-                            ]
-                          },
-                          "width": {
+                            ],
                             "items": {
-                              "format": "uint32",
-                              "minimum": 0,
-                              "type": "integer"
+                              "type": "string",
+                              "enum": [
+                                "yuv420",
+                                "yuv422",
+                                "yuv444"
+                              ]
                             },
-                            "minItems": 1,
-                            "type": [
-                              "array",
-                              "null"
-                            ]
+                            "minItems": 1
                           }
                         },
+                        "additionalProperties": false
+                      },
+                      "audio": {
                         "type": [
                           "object",
                           "null"
-                        ]
+                        ],
+                        "properties": {
+                          "codec": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "aac",
+                                "opus",
+                                "mp2",
+                                "pcm_s16",
+                                "pcm_s24"
+                              ]
+                            },
+                            "minItems": 1
+                          },
+                          "sample_rate": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 0
+                            },
+                            "minItems": 1
+                          },
+                          "channels": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "integer",
+                              "format": "uint8",
+                              "minimum": 0,
+                              "maximum": 255
+                            },
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false
                       }
                     },
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "egress": {
-                    "anyOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "roles": {
-                            "items": {
-                              "description": "Which end of a link a socket is: `Listen` hosts and `Connect` dials.",
-                              "enum": [
-                                "listen",
-                                "connect"
-                              ],
-                              "type": "string"
-                            },
-                            "minItems": 1,
-                            "type": "array"
-                          },
-                          "transport": {
-                            "description": "A transport that carries media between two nodes.",
-                            "oneOf": [
-                              {
-                                "enum": [
-                                  "srt"
-                                ],
-                                "type": "string"
-                              },
-                              {
-                                "const": "whip",
-                                "description": "WebRTC ingest. The `Connect` end pushes media to the `Listen` end's\n signalling URL.",
-                                "type": "string"
-                              },
-                              {
-                                "const": "whep",
-                                "description": "WebRTC playback. The `Connect` end pulls media from the `Listen` end's\n signalling URL.",
-                                "type": "string"
-                              },
-                              {
-                                "const": "rist",
-                                "description": "RIST simple profile. The `Connect` end pushes to the `Listen` end.",
-                                "type": "string"
-                              }
-                            ]
-                          }
-                        },
-                        "required": [
-                          "transport",
-                          "roles"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "device": {
-                            "description": "The node's own capture or display device, where media starts or ends.",
-                            "enum": [
-                              "capture",
-                              "display"
-                            ],
-                            "type": "string"
-                          },
-                          "tracks": {
-                            "description": "The tracks a capture device sends. Absent means unknown.",
-                            "items": {
-                              "description": "A kind of media track a capture device sends.",
-                              "enum": [
-                                "audio",
-                                "video"
-                              ],
-                              "type": "string"
-                            },
-                            "type": [
-                              "array",
-                              "null"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "device"
-                        ],
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "id": {
-                    "maxLength": 63,
-                    "minLength": 1,
-                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-                    "type": "string"
-                  },
-                  "ingress": {
-                    "anyOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "roles": {
-                            "items": {
-                              "description": "Which end of a link a socket is: `Listen` hosts and `Connect` dials.",
-                              "enum": [
-                                "listen",
-                                "connect"
-                              ],
-                              "type": "string"
-                            },
-                            "minItems": 1,
-                            "type": "array"
-                          },
-                          "transport": {
-                            "description": "A transport that carries media between two nodes.",
-                            "oneOf": [
-                              {
-                                "enum": [
-                                  "srt"
-                                ],
-                                "type": "string"
-                              },
-                              {
-                                "const": "whip",
-                                "description": "WebRTC ingest. The `Connect` end pushes media to the `Listen` end's\n signalling URL.",
-                                "type": "string"
-                              },
-                              {
-                                "const": "whep",
-                                "description": "WebRTC playback. The `Connect` end pulls media from the `Listen` end's\n signalling URL.",
-                                "type": "string"
-                              },
-                              {
-                                "const": "rist",
-                                "description": "RIST simple profile. The `Connect` end pushes to the `Listen` end.",
-                                "type": "string"
-                              }
-                            ]
-                          }
-                        },
-                        "required": [
-                          "transport",
-                          "roles"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "device": {
-                            "description": "The node's own capture or display device, where media starts or ends.",
-                            "enum": [
-                              "capture",
-                              "display"
-                            ],
-                            "type": "string"
-                          },
-                          "tracks": {
-                            "description": "The tracks a capture device sends. Absent means unknown.",
-                            "items": {
-                              "description": "A kind of media track a capture device sends.",
-                              "enum": [
-                                "audio",
-                                "video"
-                              ],
-                              "type": "string"
-                            },
-                            "type": [
-                              "array",
-                              "null"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "device"
-                        ],
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "max_egresses": {
-                    "format": "uint",
-                    "minimum": 1,
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  },
-                  "merge": {
-                    "description": "The hop can take a second ingress of the `ingress` class carrying another\n copy of the same media, and merge the two.",
-                    "type": "boolean"
+                    "additionalProperties": false
                   }
                 },
+                "additionalProperties": false,
                 "required": [
                   "id",
                   "ingress",
                   "egress"
-                ],
-                "type": "object"
+                ]
               },
-              "type": "array"
+              "default": []
             }
           },
-          "type": "object"
-        },
-        "endpoint": {
-          "type": "string"
-        },
-        "id": {
-          "maxLength": 63,
-          "minLength": 1,
-          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-          "type": "string"
-        },
-        "status": {
-          "enum": [
-            "unknown",
-            "ready",
-            "degraded",
-            "offline"
-          ],
-          "type": "string"
+          "additionalProperties": false,
+          "default": {
+            "adapters": [],
+            "hop_profiles": []
+          }
         },
         "topology": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "attachments": {
-              "default": [],
+              "type": "array",
               "items": {
-                "additionalProperties": false,
+                "type": "object",
                 "properties": {
-                  "dial": {
-                    "default": false,
-                    "type": "boolean"
-                  },
                   "id": {
-                    "maxLength": 63,
+                    "type": "string",
                     "minLength": 1,
-                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-                    "type": "string"
+                    "maxLength": 63,
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                  },
+                  "network": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                  },
+                  "dial": {
+                    "type": "boolean",
+                    "default": false
                   },
                   "listeners": {
-                    "additionalProperties": false,
-                    "default": {},
+                    "type": "object",
                     "properties": {
-                      "rist": {
-                        "additionalProperties": false,
-                        "description": "Each RIST link takes an even port from `port_range` and the one after it.",
-                        "properties": {
-                          "host": {
-                            "type": "string"
-                          },
-                          "port_range": {
-                            "additionalProperties": false,
-                            "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
-                            "properties": {
-                              "end": {
-                                "format": "uint16",
-                                "maximum": 65535,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "start": {
-                                "format": "uint16",
-                                "maximum": 65535,
-                                "minimum": 0,
-                                "type": "integer"
-                              }
-                            },
-                            "required": [
-                              "start",
-                              "end"
-                            ],
-                            "type": "object"
-                          }
-                        },
-                        "required": [
-                          "host",
-                          "port_range"
-                        ],
-                        "type": [
-                          "object",
-                          "null"
-                        ]
-                      },
                       "srt": {
-                        "additionalProperties": false,
+                        "type": [
+                          "object",
+                          "null"
+                        ],
                         "properties": {
                           "host": {
                             "type": "string"
                           },
                           "port_range": {
-                            "additionalProperties": false,
                             "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
+                            "type": "object",
                             "properties": {
-                              "end": {
-                                "format": "uint16",
-                                "maximum": 65535,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
                               "start": {
+                                "type": "integer",
                                 "format": "uint16",
-                                "maximum": 65535,
                                 "minimum": 0,
-                                "type": "integer"
+                                "maximum": 65535
+                              },
+                              "end": {
+                                "type": "integer",
+                                "format": "uint16",
+                                "minimum": 0,
+                                "maximum": 65535
                               }
                             },
+                            "additionalProperties": false,
                             "required": [
                               "start",
                               "end"
-                            ],
-                            "type": "object"
+                            ]
                           }
                         },
+                        "additionalProperties": false,
                         "required": [
                           "host",
                           "port_range"
-                        ],
-                        "type": [
-                          "object",
-                          "null"
-                        ]
-                      },
-                      "whep": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "base_url": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "base_url"
-                        ],
-                        "type": [
-                          "object",
-                          "null"
                         ]
                       },
                       "whip": {
-                        "additionalProperties": false,
+                        "type": [
+                          "object",
+                          "null"
+                        ],
                         "properties": {
                           "base_url": {
                             "type": "string"
                           }
                         },
+                        "additionalProperties": false,
                         "required": [
                           "base_url"
-                        ],
+                        ]
+                      },
+                      "whep": {
                         "type": [
                           "object",
                           "null"
+                        ],
+                        "properties": {
+                          "base_url": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "base_url"
+                        ]
+                      },
+                      "rist": {
+                        "description": "Each RIST link takes an even port from `port_range` and the one after it.",
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "properties": {
+                          "host": {
+                            "type": "string"
+                          },
+                          "port_range": {
+                            "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
+                            "type": "object",
+                            "properties": {
+                              "start": {
+                                "type": "integer",
+                                "format": "uint16",
+                                "minimum": 0,
+                                "maximum": 65535
+                              },
+                              "end": {
+                                "type": "integer",
+                                "format": "uint16",
+                                "minimum": 0,
+                                "maximum": 65535
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "start",
+                              "end"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "host",
+                          "port_range"
                         ]
                       }
                     },
-                    "type": "object"
-                  },
-                  "network": {
-                    "maxLength": 63,
-                    "minLength": 1,
-                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-                    "type": "string"
+                    "additionalProperties": false,
+                    "default": {}
                   }
                 },
+                "additionalProperties": false,
                 "required": [
                   "id",
                   "network"
-                ],
-                "type": "object"
+                ]
               },
-              "type": "array"
+              "default": []
             }
           },
-          "type": "object"
+          "additionalProperties": false
         }
       },
+      "additionalProperties": false,
       "required": [
         "id",
         "endpoint",
         "status",
         "topology"
-      ],
-      "type": "object"
+      ]
     },
-    "protocol_version": {
-      "default": 0,
-      "description": "Southbound protocol version the registering adapter speaks. Absent means\n an adapter predating the handshake, which reads as `0` and is rejected —\n see [`protocol_compatible`].",
-      "format": "uint32",
-      "minimum": 0,
-      "type": "integer"
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "source",
+              "destination",
+              "bidirectional",
+              "flow",
+              "gateway",
+              "unknown"
+            ]
+          },
+          "transports": {
+            "description": "Transport labels an adapter recognised on this endpoint, such as\n `webrtc` or `ndi`. Guesses read off the underlying system, not offers.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "metadata": {
+            "default": null
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "kind"
+        ]
+      },
+      "default": []
+    },
+    "hop_status": {
+      "type": "array",
+      "items": {
+        "description": "Node-reported realisation status for one desired hop.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "state": {
+            "description": "Control-plane lifecycle of a hop's provisioning. Runtime link health is\n reported separately per socket via [`LinkCondition`].",
+            "type": "string",
+            "enum": [
+              "pending",
+              "provisioned",
+              "failed"
+            ]
+          },
+          "ingress": {
+            "description": "Observed condition, address, and statistics for one socket.",
+            "type": "object",
+            "properties": {
+              "condition": {
+                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
+                "oneOf": [
+                  {
+                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
+                    "type": "string",
+                    "const": "idle"
+                  },
+                  {
+                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
+                    "type": "string",
+                    "const": "connecting"
+                  },
+                  {
+                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
+                    "type": "string",
+                    "const": "connected"
+                  },
+                  {
+                    "description": "Connection up and media flowing.",
+                    "type": "string",
+                    "const": "flowing"
+                  },
+                  {
+                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
+                    "type": "string",
+                    "const": "stalled"
+                  }
+                ],
+                "default": "idle"
+              },
+              "resolved": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "format": "uint16",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "host",
+                  "port"
+                ]
+              },
+              "stats": {
+                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "connections": {
+                    "type": "integer",
+                    "format": "uint",
+                    "minimum": 0,
+                    "default": 0
+                  },
+                  "rate_mbps": {
+                    "type": "number",
+                    "format": "double",
+                    "default": 0.0
+                  },
+                  "packets_sent_lost": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_retransmitted": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_received_lost": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_received_retransmitted": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "merge_ingress": {
+            "description": "Observed condition, address, and statistics for one socket.",
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "condition": {
+                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
+                "oneOf": [
+                  {
+                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
+                    "type": "string",
+                    "const": "idle"
+                  },
+                  {
+                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
+                    "type": "string",
+                    "const": "connecting"
+                  },
+                  {
+                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
+                    "type": "string",
+                    "const": "connected"
+                  },
+                  {
+                    "description": "Connection up and media flowing.",
+                    "type": "string",
+                    "const": "flowing"
+                  },
+                  {
+                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
+                    "type": "string",
+                    "const": "stalled"
+                  }
+                ],
+                "default": "idle"
+              },
+              "resolved": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "format": "uint16",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "host",
+                  "port"
+                ]
+              },
+              "stats": {
+                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "connections": {
+                    "type": "integer",
+                    "format": "uint",
+                    "minimum": 0,
+                    "default": 0
+                  },
+                  "rate_mbps": {
+                    "type": "number",
+                    "format": "double",
+                    "default": 0.0
+                  },
+                  "packets_sent_lost": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_retransmitted": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_received_lost": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_received_retransmitted": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "egresses": {
+            "type": "array",
+            "items": {
+              "description": "Observed status for one identified egress branch.",
+              "type": "object",
+              "properties": {
+                "branch_id": {
+                  "type": "string"
+                },
+                "condition": {
+                  "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
+                  "oneOf": [
+                    {
+                      "description": "No connection; the socket is a listener patiently waiting. Healthy.",
+                      "type": "string",
+                      "const": "idle"
+                    },
+                    {
+                      "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
+                      "type": "string",
+                      "const": "connecting"
+                    },
+                    {
+                      "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
+                      "type": "string",
+                      "const": "connected"
+                    },
+                    {
+                      "description": "Connection up and media flowing.",
+                      "type": "string",
+                      "const": "flowing"
+                    },
+                    {
+                      "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
+                      "type": "string",
+                      "const": "stalled"
+                    }
+                  ],
+                  "default": "idle"
+                },
+                "resolved": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "host": {
+                      "type": "string"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "format": "uint16",
+                      "minimum": 0,
+                      "maximum": 65535
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "host",
+                    "port"
+                  ]
+                },
+                "stats": {
+                  "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "connections": {
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 0
+                    },
+                    "rate_mbps": {
+                      "type": "number",
+                      "format": "double",
+                      "default": 0.0
+                    },
+                    "packets_sent_lost": {
+                      "type": "integer",
+                      "format": "int64",
+                      "default": 0
+                    },
+                    "packets_retransmitted": {
+                      "type": "integer",
+                      "format": "int64",
+                      "default": 0
+                    },
+                    "packets_received_lost": {
+                      "type": "integer",
+                      "format": "int64",
+                      "default": 0
+                    },
+                    "packets_received_retransmitted": {
+                      "type": "integer",
+                      "format": "int64",
+                      "default": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "branch_id"
+              ]
+            },
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "node_id",
+          "state",
+          "ingress"
+        ]
+      },
+      "default": []
     }
   },
+  "additionalProperties": false,
   "required": [
     "node"
-  ],
-  "title": "NodeRegistration",
-  "type": "object"
+  ]
 }

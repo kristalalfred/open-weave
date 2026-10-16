@@ -1,75 +1,77 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StreamSetAccepted",
+  "type": "object",
   "properties": {
-    "changed": {
-      "type": "boolean"
-    },
-    "owner": {
-      "maxLength": 63,
-      "minLength": 1,
-      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-      "type": "string"
-    },
-    "pruned": {
-      "items": {
-        "maxLength": 63,
-        "minLength": 1,
-        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-        "type": "string"
-      },
-      "type": "array"
-    },
     "status": {
       "anyOf": [
         {
+          "type": "string",
           "enum": [
             "accepted"
-          ],
-          "type": "string"
+          ]
         },
         {
           "type": "string"
         }
       ]
     },
+    "owner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "changed": {
+      "type": "boolean"
+    },
     "streams": {
+      "type": "array",
       "items": {
+        "type": "object",
         "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 1
+          },
           "action": {
             "anyOf": [
               {
+                "type": "string",
                 "enum": [
                   "created",
                   "updated",
                   "unchanged"
-                ],
-                "type": "string"
+                ]
               },
               {
                 "type": "string"
               }
             ]
-          },
-          "generation": {
-            "format": "uint64",
-            "minimum": 1,
-            "type": "integer"
-          },
-          "name": {
-            "maxLength": 63,
-            "minLength": 1,
-            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-            "type": "string"
           }
         },
         "required": [
           "name",
           "generation",
           "action"
-        ],
-        "type": "object"
-      },
-      "type": "array"
+        ]
+      }
+    },
+    "pruned": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 63,
+        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+      }
     }
   },
   "required": [
@@ -78,7 +80,5 @@
     "changed",
     "streams",
     "pruned"
-  ],
-  "title": "StreamSetAccepted",
-  "type": "object"
+  ]
 }

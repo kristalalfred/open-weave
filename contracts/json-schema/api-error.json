@@ -1,9 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ApiError",
+  "type": "object",
   "properties": {
     "code": {
       "anyOf": [
         {
+          "type": "string",
           "enum": [
             "invalid_request",
             "invalid_json",
@@ -26,21 +29,25 @@
             "encoding_failed",
             "not_leader",
             "controller_timeout"
-          ],
-          "type": "string"
+          ]
         },
         {
           "type": "string"
         }
       ]
     },
+    "message": {
+      "type": "string"
+    },
     "details": {
+      "type": "array",
       "items": {
+        "type": "object",
         "properties": {
-          "code": {
+          "field": {
             "type": "string"
           },
-          "field": {
+          "code": {
             "type": "string"
           },
           "message": {
@@ -51,19 +58,12 @@
           "field",
           "code",
           "message"
-        ],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "message": {
-      "type": "string"
+        ]
+      }
     }
   },
   "required": [
     "code",
     "message"
-  ],
-  "title": "ApiError",
-  "type": "object"
+  ]
 }

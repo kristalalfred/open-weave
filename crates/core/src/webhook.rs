@@ -231,14 +231,8 @@ mod tests {
         );
 
         let body = serde_json::to_value(&summary).unwrap();
-        let fields: Vec<&str> = body
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
         assert_eq!(
-            fields,
+            keys(&body),
             ["capabilities", "endpoint", "id", "status", "topology"]
         );
     }
@@ -279,12 +273,14 @@ mod tests {
     }
 
     fn keys(value: &serde_json::Value) -> Vec<&str> {
-        value
+        let mut keys: Vec<&str> = value
             .as_object()
             .unwrap()
             .keys()
             .map(String::as_str)
-            .collect()
+            .collect();
+        keys.sort_unstable();
+        keys
     }
 
     #[test]

@@ -1,455 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StreamPlan",
+  "type": "object",
   "properties": {
-    "endpoints": {
-      "properties": {
-        "destinations": {
-          "items": {
-            "properties": {
-              "endpoint": {
-                "properties": {
-                  "host": {
-                    "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "node": {
-                    "type": "string"
-                  },
-                  "port": {
-                    "format": "uint16",
-                    "maximum": 65535,
-                    "minimum": 0,
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  },
-                  "url": {
-                    "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "node",
-                  "url"
-                ],
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "id": {
-                "maxLength": 63,
-                "minLength": 1,
-                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "endpoint"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        },
-        "ingress": {
-          "properties": {
-            "host": {
-              "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "node": {
-              "type": "string"
-            },
-            "port": {
-              "format": "uint16",
-              "maximum": 65535,
-              "minimum": 0,
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "url": {
-              "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
-              "type": "string"
-            }
-          },
-          "required": [
-            "node",
-            "url"
-          ],
-          "type": [
-            "object",
-            "null"
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "placed",
+            "unplaced"
           ]
+        },
+        {
+          "type": "string"
         }
-      },
-      "required": [
-        "ingress",
-        "destinations"
-      ],
-      "type": [
-        "object",
-        "null"
       ]
     },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 63,
+        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+      }
+    },
     "hops": {
+      "type": "array",
       "items": {
         "description": "One provisioning unit placed on a single node: one ingress socket fanned out\n to one or more egress sockets (a sender tees to every destination).",
+        "type": "object",
         "properties": {
-          "egresses": {
-            "items": {
-              "description": "One identified output branch of a desired hop.",
-              "properties": {
-                "branch_id": {
-                  "type": "string"
-                },
-                "endpoint_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "host": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "params": {
-                  "properties": {
-                    "latency": {
-                      "format": "uint32",
-                      "minimum": 0,
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    },
-                    "passphrase": {
-                      "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
-                      "maxLength": 80,
-                      "minLength": 10,
-                      "pattern": "^[ -~]*$",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "pbkeylen": {
-                      "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
-                      "enum": [
-                        16,
-                        24,
-                        32
-                      ],
-                      "format": "uint8",
-                      "maximum": 255,
-                      "minimum": 0,
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    }
-                  },
-                  "type": [
-                    "object",
-                    "null"
-                  ]
-                },
-                "port": {
-                  "format": "uint16",
-                  "maximum": 65535,
-                  "minimum": 0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                },
-                "role": {
-                  "anyOf": [
-                    {
-                      "enum": [
-                        "listen",
-                        "connect",
-                        "capture",
-                        "display"
-                      ],
-                      "type": "string"
-                    },
-                    {
-                      "type": "string"
-                    }
-                  ]
-                },
-                "transport": {
-                  "anyOf": [
-                    {
-                      "enum": [
-                        "srt",
-                        "whip",
-                        "whep",
-                        "rist",
-                        "device"
-                      ],
-                      "type": "string"
-                    },
-                    {
-                      "type": "string"
-                    }
-                  ]
-                },
-                "url": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "branch_id",
-                "transport",
-                "role"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
           "id": {
             "type": "string"
-          },
-          "ingress": {
-            "description": "Flat wire form of a [`SocketSpec`]: a `transport` and `role` naming the\n variant, plus the fields that variant carries.",
-            "properties": {
-              "endpoint_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "host": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "params": {
-                "properties": {
-                  "latency": {
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  },
-                  "passphrase": {
-                    "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
-                    "maxLength": 80,
-                    "minLength": 10,
-                    "pattern": "^[ -~]*$",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "pbkeylen": {
-                    "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
-                    "enum": [
-                      16,
-                      24,
-                      32
-                    ],
-                    "format": "uint8",
-                    "maximum": 255,
-                    "minimum": 0,
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  }
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "port": {
-                "format": "uint16",
-                "maximum": 65535,
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "role": {
-                "anyOf": [
-                  {
-                    "enum": [
-                      "listen",
-                      "connect",
-                      "capture",
-                      "display"
-                    ],
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
-              },
-              "transport": {
-                "anyOf": [
-                  {
-                    "enum": [
-                      "srt",
-                      "whip",
-                      "whep",
-                      "rist",
-                      "device"
-                    ],
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
-              },
-              "url": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            },
-            "required": [
-              "transport",
-              "role"
-            ],
-            "type": "object"
-          },
-          "merge_ingress": {
-            "description": "A second ingress carrying another copy of the same media over a disjoint\n path, for the hop to merge with `ingress`. Only a receiver whose profile\n merges has one.",
-            "properties": {
-              "endpoint_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "host": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "params": {
-                "properties": {
-                  "latency": {
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  },
-                  "passphrase": {
-                    "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
-                    "maxLength": 80,
-                    "minLength": 10,
-                    "pattern": "^[ -~]*$",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "pbkeylen": {
-                    "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
-                    "enum": [
-                      16,
-                      24,
-                      32
-                    ],
-                    "format": "uint8",
-                    "maximum": 255,
-                    "minimum": 0,
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  }
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "port": {
-                "format": "uint16",
-                "maximum": 65535,
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "role": {
-                "anyOf": [
-                  {
-                    "enum": [
-                      "listen",
-                      "connect",
-                      "capture",
-                      "display"
-                    ],
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
-              },
-              "transport": {
-                "anyOf": [
-                  {
-                    "enum": [
-                      "srt",
-                      "whip",
-                      "whep",
-                      "rist",
-                      "device"
-                    ],
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
-              },
-              "url": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            },
-            "required": [
-              "transport",
-              "role"
-            ],
-            "type": [
-              "object",
-              "null"
-            ]
           },
           "node_id": {
             "type": "string"
@@ -460,39 +51,382 @@
           "role": {
             "anyOf": [
               {
+                "type": "string",
                 "enum": [
                   "sender",
                   "bridge",
                   "receiver"
-                ],
-                "type": "string"
+                ]
               },
               {
                 "type": "string"
               }
             ]
           },
+          "ingress": {
+            "description": "Flat wire form of a [`SocketSpec`]: a `transport` and `role` naming the\n variant, plus the fields that variant carries.",
+            "type": "object",
+            "properties": {
+              "transport": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "srt",
+                      "whip",
+                      "whep",
+                      "rist",
+                      "device"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "listen",
+                      "connect",
+                      "capture",
+                      "display"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "port": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint16",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "params": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "latency": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "uint32",
+                    "minimum": 0
+                  },
+                  "passphrase": {
+                    "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 10,
+                    "maxLength": 80,
+                    "pattern": "^[ -~]*$"
+                  },
+                  "pbkeylen": {
+                    "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "uint8",
+                    "minimum": 0,
+                    "maximum": 255,
+                    "enum": [
+                      16,
+                      24,
+                      32
+                    ]
+                  }
+                }
+              }
+            },
+            "required": [
+              "transport",
+              "role"
+            ]
+          },
+          "merge_ingress": {
+            "description": "A second ingress carrying another copy of the same media over a disjoint\n path, for the hop to merge with `ingress`. Only a receiver whose profile\n merges has one.",
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "transport": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "srt",
+                      "whip",
+                      "whep",
+                      "rist",
+                      "device"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "listen",
+                      "connect",
+                      "capture",
+                      "display"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "port": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint16",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "params": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "latency": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "uint32",
+                    "minimum": 0
+                  },
+                  "passphrase": {
+                    "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 10,
+                    "maxLength": 80,
+                    "pattern": "^[ -~]*$"
+                  },
+                  "pbkeylen": {
+                    "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "uint8",
+                    "minimum": 0,
+                    "maximum": 255,
+                    "enum": [
+                      16,
+                      24,
+                      32
+                    ]
+                  }
+                }
+              }
+            },
+            "required": [
+              "transport",
+              "role"
+            ]
+          },
+          "egresses": {
+            "type": "array",
+            "items": {
+              "description": "One identified output branch of a desired hop.",
+              "type": "object",
+              "properties": {
+                "branch_id": {
+                  "type": "string"
+                },
+                "transport": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "srt",
+                        "whip",
+                        "whep",
+                        "rist",
+                        "device"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "role": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "listen",
+                        "connect",
+                        "capture",
+                        "display"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "host": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "port": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint16",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endpoint_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "params": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "latency": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint32",
+                      "minimum": 0
+                    },
+                    "passphrase": {
+                      "description": "Encrypts the socket. Both ends of a link carry the same passphrase.",
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "minLength": 10,
+                      "maxLength": 80,
+                      "pattern": "^[ -~]*$"
+                    },
+                    "pbkeylen": {
+                      "description": "AES key length in bytes, 16, 24 or 32, used with `passphrase`.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint8",
+                      "minimum": 0,
+                      "maximum": 255,
+                      "enum": [
+                        16,
+                        24,
+                        32
+                      ]
+                    }
+                  }
+                }
+              },
+              "required": [
+                "branch_id",
+                "transport",
+                "role"
+              ]
+            }
+          },
           "tracks": {
             "description": "The tracks the stream's source sends, copied onto every hop of its path:\n a capture device's declared tracks, or those an outside WHIP sender's\n declared `format` carries. Absent when the source declares neither.",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "anyOf": [
                 {
                   "description": "A kind of media track a capture device sends.",
+                  "type": "string",
                   "enum": [
                     "audio",
                     "video"
-                  ],
-                  "type": "string"
+                  ]
                 },
                 {
                   "type": "string"
                 }
               ]
-            },
-            "type": [
-              "array",
-              "null"
-            ]
+            }
           }
         },
         "required": [
@@ -502,45 +436,113 @@
           "role",
           "ingress",
           "egresses"
-        ],
-        "type": "object"
-      },
-      "type": "array"
+        ]
+      }
     },
-    "name": {
-      "maxLength": 63,
-      "minLength": 1,
-      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-      "type": "string"
-    },
-    "nodes": {
-      "items": {
-        "maxLength": 63,
-        "minLength": 1,
-        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-        "type": "string"
+    "endpoints": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "ingress": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "node": {
+              "type": "string"
+            },
+            "host": {
+              "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "port": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint16",
+              "minimum": 0,
+              "maximum": 65535
+            },
+            "url": {
+              "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "node",
+            "url"
+          ]
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63,
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+              },
+              "endpoint": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "node": {
+                    "type": "string"
+                  },
+                  "host": {
+                    "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "port": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "uint16",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "url": {
+                    "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "node",
+                  "url"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "endpoint"
+            ]
+          }
+        }
       },
-      "type": "array"
+      "required": [
+        "ingress",
+        "destinations"
+      ]
     },
     "reason": {
       "type": [
         "string",
         "null"
-      ]
-    },
-    "status": {
-      "anyOf": [
-        {
-          "enum": [
-            "disabled",
-            "placed",
-            "unplaced"
-          ],
-          "type": "string"
-        },
-        {
-          "type": "string"
-        }
       ]
     }
   },
@@ -549,7 +551,5 @@
     "status",
     "nodes",
     "hops"
-  ],
-  "title": "StreamPlan",
-  "type": "object"
+  ]
 }

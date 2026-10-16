@@ -776,15 +776,14 @@ mod tests {
         assert_eq!(south["openapi"], "3.1.0");
         assert_eq!(north["security"][0]["bearerAuth"], json!([]));
         assert_eq!(south["security"][0]["bearerAuth"], json!([]));
-        assert_eq!(
-            north["paths"]["/streams/{name}"]
-                .as_object()
-                .unwrap()
-                .keys()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-            ["delete", "get"]
-        );
+        let mut stream_methods: Vec<&str> = north["paths"]["/streams/{name}"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        stream_methods.sort_unstable();
+        assert_eq!(stream_methods, ["delete", "get"]);
 
         let north_paths: BTreeMap<_, _> = north["paths"].as_object().unwrap().iter().collect();
         assert_eq!(

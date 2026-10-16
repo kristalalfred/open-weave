@@ -1,24 +1,24 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
+  "title": "NodeAccepted",
+  "type": "object",
   "properties": {
-    "node_id": {
-      "maxLength": 63,
-      "minLength": 1,
-      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-      "type": "string"
-    },
     "status": {
+      "type": "string",
       "enum": [
         "accepted"
-      ],
-      "type": "string"
+      ]
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
     }
   },
+  "additionalProperties": false,
   "required": [
     "status",
     "node_id"
-  ],
-  "title": "NodeAccepted",
-  "type": "object"
+  ]
 }

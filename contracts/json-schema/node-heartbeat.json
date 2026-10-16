@@ -1,16 +1,45 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
+  "title": "NodeHeartbeat",
+  "type": "object",
   "properties": {
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "ready",
+        "degraded",
+        "offline"
+      ]
+    },
     "endpoints": {
-      "default": [],
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "id": {
             "type": "string"
           },
+          "label": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+          },
           "kind": {
+            "type": "string",
             "enum": [
               "source",
               "destination",
@@ -18,410 +47,381 @@
               "flow",
               "gateway",
               "unknown"
-            ],
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          },
-          "metadata": {
-            "default": null
-          },
-          "node_id": {
-            "maxLength": 63,
-            "minLength": 1,
-            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-            "type": [
-              "string",
-              "null"
             ]
           },
           "transports": {
-            "default": [],
             "description": "Transport labels an adapter recognised on this endpoint, such as\n `webrtc` or `ndi`. Guesses read off the underlying system, not offers.",
+            "type": "array",
             "items": {
               "type": "string"
             },
-            "type": "array"
+            "default": []
+          },
+          "metadata": {
+            "default": null
           }
         },
+        "additionalProperties": false,
         "required": [
           "id",
           "label",
           "kind"
-        ],
-        "type": "object"
+        ]
       },
-      "type": "array"
+      "default": []
     },
     "hop_status": {
-      "default": [],
+      "type": "array",
       "items": {
-        "additionalProperties": false,
         "description": "Node-reported realisation status for one desired hop.",
+        "type": "object",
         "properties": {
-          "egresses": {
-            "default": [],
-            "items": {
-              "additionalProperties": false,
-              "description": "Observed status for one identified egress branch.",
-              "properties": {
-                "branch_id": {
-                  "type": "string"
-                },
-                "condition": {
-                  "default": "idle",
-                  "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                  "oneOf": [
-                    {
-                      "const": "idle",
-                      "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                      "type": "string"
-                    },
-                    {
-                      "const": "connecting",
-                      "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                      "type": "string"
-                    },
-                    {
-                      "const": "connected",
-                      "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                      "type": "string"
-                    },
-                    {
-                      "const": "flowing",
-                      "description": "Connection up and media flowing.",
-                      "type": "string"
-                    },
-                    {
-                      "const": "stalled",
-                      "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                      "type": "string"
-                    }
-                  ]
-                },
-                "resolved": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "host": {
-                      "type": "string"
-                    },
-                    "port": {
-                      "format": "uint16",
-                      "maximum": 65535,
-                      "minimum": 0,
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "host",
-                    "port"
-                  ],
-                  "type": [
-                    "object",
-                    "null"
-                  ]
-                },
-                "stats": {
-                  "additionalProperties": false,
-                  "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
-                  "properties": {
-                    "connections": {
-                      "default": 0,
-                      "format": "uint",
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "packets_received_lost": {
-                      "default": 0,
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "packets_received_retransmitted": {
-                      "default": 0,
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "packets_retransmitted": {
-                      "default": 0,
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "packets_sent_lost": {
-                      "default": 0,
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "rate_mbps": {
-                      "default": 0.0,
-                      "format": "double",
-                      "type": "number"
-                    }
-                  },
-                  "type": [
-                    "object",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "branch_id"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
           "id": {
             "type": "string"
-          },
-          "ingress": {
-            "additionalProperties": false,
-            "description": "Observed condition, address, and statistics for one socket.",
-            "properties": {
-              "condition": {
-                "default": "idle",
-                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                "oneOf": [
-                  {
-                    "const": "idle",
-                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "connecting",
-                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "connected",
-                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "flowing",
-                    "description": "Connection up and media flowing.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "stalled",
-                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                    "type": "string"
-                  }
-                ]
-              },
-              "resolved": {
-                "additionalProperties": false,
-                "properties": {
-                  "host": {
-                    "type": "string"
-                  },
-                  "port": {
-                    "format": "uint16",
-                    "maximum": 65535,
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "host",
-                  "port"
-                ],
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "stats": {
-                "additionalProperties": false,
-                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
-                "properties": {
-                  "connections": {
-                    "default": 0,
-                    "format": "uint",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "packets_received_lost": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_received_retransmitted": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_retransmitted": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_sent_lost": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "rate_mbps": {
-                    "default": 0.0,
-                    "format": "double",
-                    "type": "number"
-                  }
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              }
-            },
-            "type": "object"
-          },
-          "merge_ingress": {
-            "additionalProperties": false,
-            "description": "Observed condition, address, and statistics for one socket.",
-            "properties": {
-              "condition": {
-                "default": "idle",
-                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
-                "oneOf": [
-                  {
-                    "const": "idle",
-                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "connecting",
-                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "connected",
-                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "flowing",
-                    "description": "Connection up and media flowing.",
-                    "type": "string"
-                  },
-                  {
-                    "const": "stalled",
-                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
-                    "type": "string"
-                  }
-                ]
-              },
-              "resolved": {
-                "additionalProperties": false,
-                "properties": {
-                  "host": {
-                    "type": "string"
-                  },
-                  "port": {
-                    "format": "uint16",
-                    "maximum": 65535,
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "host",
-                  "port"
-                ],
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "stats": {
-                "additionalProperties": false,
-                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
-                "properties": {
-                  "connections": {
-                    "default": 0,
-                    "format": "uint",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "packets_received_lost": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_received_retransmitted": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_retransmitted": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "packets_sent_lost": {
-                    "default": 0,
-                    "format": "int64",
-                    "type": "integer"
-                  },
-                  "rate_mbps": {
-                    "default": 0.0,
-                    "format": "double",
-                    "type": "number"
-                  }
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              }
-            },
-            "type": [
-              "object",
-              "null"
-            ]
           },
           "node_id": {
             "type": "string"
           },
           "state": {
             "description": "Control-plane lifecycle of a hop's provisioning. Runtime link health is\n reported separately per socket via [`LinkCondition`].",
+            "type": "string",
             "enum": [
               "pending",
               "provisioned",
               "failed"
+            ]
+          },
+          "ingress": {
+            "description": "Observed condition, address, and statistics for one socket.",
+            "type": "object",
+            "properties": {
+              "condition": {
+                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
+                "oneOf": [
+                  {
+                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
+                    "type": "string",
+                    "const": "idle"
+                  },
+                  {
+                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
+                    "type": "string",
+                    "const": "connecting"
+                  },
+                  {
+                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
+                    "type": "string",
+                    "const": "connected"
+                  },
+                  {
+                    "description": "Connection up and media flowing.",
+                    "type": "string",
+                    "const": "flowing"
+                  },
+                  {
+                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
+                    "type": "string",
+                    "const": "stalled"
+                  }
+                ],
+                "default": "idle"
+              },
+              "resolved": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "format": "uint16",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "host",
+                  "port"
+                ]
+              },
+              "stats": {
+                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "connections": {
+                    "type": "integer",
+                    "format": "uint",
+                    "minimum": 0,
+                    "default": 0
+                  },
+                  "rate_mbps": {
+                    "type": "number",
+                    "format": "double",
+                    "default": 0.0
+                  },
+                  "packets_sent_lost": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_retransmitted": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_received_lost": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_received_retransmitted": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "merge_ingress": {
+            "description": "Observed condition, address, and statistics for one socket.",
+            "type": [
+              "object",
+              "null"
             ],
-            "type": "string"
+            "properties": {
+              "condition": {
+                "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
+                "oneOf": [
+                  {
+                    "description": "No connection; the socket is a listener patiently waiting. Healthy.",
+                    "type": "string",
+                    "const": "idle"
+                  },
+                  {
+                    "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
+                    "type": "string",
+                    "const": "connecting"
+                  },
+                  {
+                    "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
+                    "type": "string",
+                    "const": "connected"
+                  },
+                  {
+                    "description": "Connection up and media flowing.",
+                    "type": "string",
+                    "const": "flowing"
+                  },
+                  {
+                    "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
+                    "type": "string",
+                    "const": "stalled"
+                  }
+                ],
+                "default": "idle"
+              },
+              "resolved": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "format": "uint16",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "host",
+                  "port"
+                ]
+              },
+              "stats": {
+                "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "connections": {
+                    "type": "integer",
+                    "format": "uint",
+                    "minimum": 0,
+                    "default": 0
+                  },
+                  "rate_mbps": {
+                    "type": "number",
+                    "format": "double",
+                    "default": 0.0
+                  },
+                  "packets_sent_lost": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_retransmitted": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_received_lost": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  },
+                  "packets_received_retransmitted": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "egresses": {
+            "type": "array",
+            "items": {
+              "description": "Observed status for one identified egress branch.",
+              "type": "object",
+              "properties": {
+                "branch_id": {
+                  "type": "string"
+                },
+                "condition": {
+                  "description": "Observed condition of one socket on a hop, independent of control-plane lifecycle.",
+                  "oneOf": [
+                    {
+                      "description": "No connection; the socket is a listener patiently waiting. Healthy.",
+                      "type": "string",
+                      "const": "idle"
+                    },
+                    {
+                      "description": "No connection; the socket is a caller still retrying. Ambiguous, not degraded.",
+                      "type": "string",
+                      "const": "connecting"
+                    },
+                    {
+                      "description": "Connection up but rate ~0 — fine on our end, nothing coming through yet.",
+                      "type": "string",
+                      "const": "connected"
+                    },
+                    {
+                      "description": "Connection up and media flowing.",
+                      "type": "string",
+                      "const": "flowing"
+                    },
+                    {
+                      "description": "Ingress once carried media but byte progress has frozen while the flow still\n claims to run — detected across polls, not from any instantaneous field.",
+                      "type": "string",
+                      "const": "stalled"
+                    }
+                  ],
+                  "default": "idle"
+                },
+                "resolved": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "host": {
+                      "type": "string"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "format": "uint16",
+                      "minimum": 0,
+                      "maximum": 65535
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "host",
+                    "port"
+                  ]
+                },
+                "stats": {
+                  "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "connections": {
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 0
+                    },
+                    "rate_mbps": {
+                      "type": "number",
+                      "format": "double",
+                      "default": 0.0
+                    },
+                    "packets_sent_lost": {
+                      "type": "integer",
+                      "format": "int64",
+                      "default": 0
+                    },
+                    "packets_retransmitted": {
+                      "type": "integer",
+                      "format": "int64",
+                      "default": 0
+                    },
+                    "packets_received_lost": {
+                      "type": "integer",
+                      "format": "int64",
+                      "default": 0
+                    },
+                    "packets_received_retransmitted": {
+                      "type": "integer",
+                      "format": "int64",
+                      "default": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "branch_id"
+              ]
+            },
+            "default": []
           }
         },
+        "additionalProperties": false,
         "required": [
           "id",
           "node_id",
           "state",
           "ingress"
-        ],
-        "type": "object"
+        ]
       },
-      "type": "array"
-    },
-    "node_id": {
-      "maxLength": 63,
-      "minLength": 1,
-      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-      "type": "string"
-    },
-    "status": {
-      "enum": [
-        "unknown",
-        "ready",
-        "degraded",
-        "offline"
-      ],
-      "type": "string"
+      "default": []
     }
   },
+  "additionalProperties": false,
   "required": [
     "node_id",
     "status"
-  ],
-  "title": "NodeHeartbeat",
-  "type": "object"
+  ]
 }

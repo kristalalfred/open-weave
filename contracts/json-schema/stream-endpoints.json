@@ -1,61 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StreamEndpoints",
+  "type": "object",
   "properties": {
-    "destinations": {
-      "items": {
-        "properties": {
-          "endpoint": {
-            "properties": {
-              "host": {
-                "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "node": {
-                "type": "string"
-              },
-              "port": {
-                "format": "uint16",
-                "maximum": 65535,
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "url": {
-                "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "node",
-              "url"
-            ],
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "id": {
-            "maxLength": 63,
-            "minLength": 1,
-            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "endpoint"
-        ],
-        "type": "object"
-      },
-      "type": "array"
-    },
     "ingress": {
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
+        "node": {
+          "type": "string"
+        },
         "host": {
           "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
           "type": [
@@ -63,17 +19,14 @@
             "null"
           ]
         },
-        "node": {
-          "type": "string"
-        },
         "port": {
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
         },
         "url": {
           "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
@@ -83,17 +36,64 @@
       "required": [
         "node",
         "url"
-      ],
-      "type": [
-        "object",
-        "null"
       ]
+    },
+    "destinations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+          },
+          "endpoint": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "node": {
+                "type": "string"
+              },
+              "host": {
+                "description": "The SRT listener's host. Absent for a WHIP or WHEP endpoint, whose `url`\n carries it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "port": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint16",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "url": {
+                "description": "What a peer dials: `srt://host:port`, or the WHIP or WHEP URL.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "node",
+              "url"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "endpoint"
+        ]
+      }
     }
   },
   "required": [
     "ingress",
     "destinations"
-  ],
-  "title": "StreamEndpoints",
-  "type": "object"
+  ]
 }
