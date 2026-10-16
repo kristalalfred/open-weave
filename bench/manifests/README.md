@@ -15,15 +15,16 @@ just bench stream-rm basic    # delete the stream; controller tears down its hop
 The bundled `producer`/`consumer` verification endpoints take a stream name so
 any scenario can be driven end to end
 (`just bench producer-up <stream>` / `consumer-up <stream>`, default `basic`).
-Addresses are not hardcoded: the recipes resolve them from the controller's
-discovery API (`GET :29082/streams/<name>/endpoints`, or the
-`scripts/endpoints.sh` helper) — the producer dials the reported `ingress` and
-each consumer dials a `destinations[].endpoint` selected by stable id.
+Addresses are not hardcoded: the recipes resolve them through
+`scripts/endpoints.sh` from northbound's discovery API
+(`GET :29080/streams/<name>/endpoints`). The producer dials the reported
+`ingress` and each consumer dials a `destinations[].endpoint` selected by stable
+id.
 
-`stream-up` does all of that in one step — it reads the output count from
-discovery (`endpoints.sh <stream> destinations`) and attaches that many consumers, so
-the "With producer + consumer" column below is what a bare `stream-up <name>`
-produces. The media endpoints are singletons, so driving a second stream takes
+`stream-up` does all of that in one step. It reads the destinations from
+discovery (`endpoints.sh <stream> destinations`) and attaches one consumer per
+destination, up to the bench's two, so the "With producer + consumer" column
+below is what a bare `stream-up <name>` produces. The media endpoints are singletons, so driving a second stream takes
 them from the first.
 
 ## Observed behaviour

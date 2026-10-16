@@ -50,7 +50,7 @@ Then take it apart:
 
 ```sh
 just bench netem node1 delay 200ms loss 5%   # impair node 1's network
-just bench status                            # per-hop rates and conditions
+just bench status                            # stream and destination status and conditions
 just bench netem-clear node1
 
 just bench stream-down basic   # detach the endpoints and delete the stream
@@ -164,7 +164,7 @@ exits `0`, `unplaceable` reports that nothing matched its hops and exits `1`.
 
 ```sh
 just bench up          # build + start + wait for healthy
-just bench status      # health, registered nodes, controller view, streams
+just bench status      # health, registered nodes, /status, streams
 just bench auth-check  # a node token is refused for another node's id
 just bench leader      # which controller holds the lease
 just bench tls-check   # the TLS endpoints verify against the bench CA, and only it
@@ -174,11 +174,14 @@ just bench down        # tear down (containers, networks, volumes)
 ```
 
 `stream-up` is the one to reach for: it applies the manifest, attaches the
-producer to the stream's ingress and **one consumer per receiver output**, and
-waits until the controller reports `flowing`. It reads the output count from
-discovery, so fan-out gets the right number of consumers without being told, and
-reads each endpoint's `passphrase` from the stream as northbound returns it, so a
-keyed manifest such as `encrypted` is driven with the keys it declares.
+producer to the stream's ingress and **one consumer per destination, up to
+two**, and waits until the controller reports `flowing`. It reads the
+destinations from discovery, so fan-out gets a second consumer without being
+told. The bench has two consumers, so for a stream with more than two
+destinations it warns, leaves the rest unpulled, and times out waiting for
+`flowing`. It reads each endpoint's `passphrase` from the stream as northbound
+returns it, so a keyed manifest such as `encrypted` is driven with the keys it
+declares.
 
 The lower-level pieces are there when a scenario wants them separately —
 applying a stream without media, or detaching a producer mid-run to watch the
@@ -189,10 +192,11 @@ just bench stream basic         # control plane only: placed but unfed -> `await
 just bench stream-rm basic      # delete the stream; controller tears down its hops
 
 just bench producer-up basic    # feed a stream's source ingress
-just bench producer-up encrypted some-passphrase  # the same, with a passphrase in its URL
+just bench producer-up encrypted bench-producer-passphrase  # the same, with the manifest's passphrase
 just bench producer-down        # stop it (drives source -> no-source transitions)
-just bench consumer-up basic    # pull output 0
-just bench consumer-2-up fanout # pull output 1 (fan-out's second destination)
+just bench consumer-up basic    # pull the destination `output`, the default id
+just bench consumer-up fanout preview   # pull the destination `preview`
+just bench consumer-2-up fanout studio  # a second consumer, on the destination `studio`
 just bench consumer-down
 just bench consumer-2-down
 
@@ -264,8 +268,9 @@ pools (`172.17.0.0/16`–`172.31.0.0/16` and `192.168.0.0/16`), so a compose
 project that lets Docker pick its subnet does not take one of them.
 
 Each node subnet reaches everything else only through its router. Applying netem
-on a router impairs both directions of that node's traffic: SRT media between
-Stroms, adapter heartbeats, and controller→Strom API calls.
+on a router impairs both directions of that node's traffic: media to and from
+its Strom, and its adapter's calls to southbound. The adapter and its Strom
+share the node subnet, so the adapter's calls to Strom are not impaired.
 
 **Nodes 3 and 4 each sit behind a NAT.** Their routers masquerade outbound
 traffic, and no route to `10.97.29.0/24` or `10.97.30.0/24` is installed
@@ -277,9 +282,12 @@ load-bearing: adding a return route would silently delete the boundary and the
 `nat-*` manifests would start passing for the wrong reason.
 
 Nodes 1 and 2 declare SRT listeners on the `internet` network that nodes 3 and 4
-dial out on, so either can carry transit between the two NAT'd sites. The
-controller picks the eligible node with the lowest id, so node 1 unless it is
-offline or out of ports.
+dial out on, so either can carry transit between the two NAT'd sites. For a new
+bridge the controller picks the eligible node with the lowest id, so node 1
+unless it is offline or out of ports. A bridge stays on the relay running it
+while that relay still qualifies, so a stream that moved to node 2 stays there
+when node 1 comes back (`cases/08-relay-recovery.yaml`, and
+[Relays](../docs/nodes.md#relays)).
 
 Because a NAT'd node's sockets can only be dialled from inside its network, the
 bench carries a pair of media endpoints on each NAT'd subnet (`producer-3` and
@@ -319,8 +327,10 @@ their SRT traffic crosses the same impaired hops as real external peers.
   ingress listener. `producer-up <stream>` resolves that stream's ingress address
   from discovery (default stream `basic`).
 - `consumer` pulls a receiver flow's output (SRT caller) and discards it
-  (`-f null -`). `consumer-up <stream>` resolves the stream's first output address
-  from discovery; `consumer-2-up <stream>` resolves the second output (fan-out).
+  (`-f null -`). `consumer-up <stream> [destination]` resolves that destination's
+  address from discovery, by its id (default `output`). `consumer-2-up <stream>
+  [destination]` starts the second consumer the same way (defaults `fanout` and
+  `studio`).
 
 Data-plane addresses are never hardcoded in the recipes: they are resolved from
 the discovery API, through northbound.
@@ -353,7 +363,7 @@ services are off by default (profile `browser`):
 just bench browser-up        # build + start the page as node `browser-bench`
 just bench browser-up video  # the same, sending the camera without the microphone
 just bench browser-stream    # apply browser-cam + browser-return, drive both
-just bench browser-2-up      # start a second page as node `browser-bench-2`
+just bench browser-2-up      # start a second page as node `browser-bench-2`, from the image browser-up builds
 just bench browser-b2b       # the first page's camera to the second page's screen
 just bench browser-down      # detach, delete the browser streams, stop the pages
 ```
@@ -424,8 +434,10 @@ this host.
 and the `Authorization` header it arrived with. Export `WEAVE_WEBHOOK_URL=`
 (empty) before `just bench up` to switch webhooks off.
 
-Run the sink in its own terminal *before* `just bench up` — the controller logs
-a connection-refused line and gives up on anything emitted while it is down.
+Run the sink in its own terminal *before* `just bench up`. While the sink is
+down, the controller tries each event four times, logs `webhook delivery failed`
+for each attempt and then `giving up on webhook delivery`, and does not send
+that event again.
 
 ```sh
 just bench hook-sink            # terminal 1
@@ -451,7 +463,7 @@ the payload and the delivery guarantees.
 |------|---------|
 | 29443 | northbound over TLS, which the recipes use (`SSL_CERT_FILE=bench/tls/public/ca.pem WEAVE_NORTHBOUND_URL=https://localhost:29443 weave ...`) |
 | 29444 | southbound over TLS, which the recipes use |
-| 29080 | northbound, plaintext |
+| 29080 | northbound, plaintext; `scripts/endpoints.sh` uses it |
 | 29081 | southbound, plaintext (`/nodes` shows registered capabilities; `just bench page` uses it) |
 | 29082 | controller: dashboard at `/ui`, `/view`; API at `/status`, `/streams/{name}/endpoints` |
 | 29083 | controller-2, the same routes; whichever does not lead answers `503 not_leader` |
@@ -497,16 +509,17 @@ curl -s -H "Authorization: Bearer bench-strom-key-for-local-use-only" localhost:
 
 Without a valid token these return `401` and `WWW-Authenticate: Bearer`. A node
 token used for another node's id gets `403`; `just bench auth-check` tries that
-against southbound and the leading controller. Every service **refuses to start** if its
-secret is missing, so a `docker compose up` that exits immediately with a
-`WEAVE_... is unset` error is the fail-closed default working, not a bug.
-`WEAVE_AUTH_DISABLED=1` opts out for local runs.
+against southbound and the leading controller.
+
+Authentication is always on in the bench. Every secret in `docker-compose.yml`
+falls back to the default above, and no service there gets
+`WEAVE_AUTH_DISABLED`.
 
 `/health` on all three services, the controller's dashboard (`/ui`, `/view`),
-and the `/status` rollup need no token, so anyone who can reach port 29082 or
-29083 can read the full topology and allocated ports. Compose publishes it on all
-interfaces: fine on a laptop, but **do not expose a controller port on a shared
-or public host.**
+and the controller's `/status` need no token, so anyone who can reach port
+29082 or 29083 can read the full topology and allocated ports. Compose publishes
+it on all interfaces: fine on a laptop, but **do not expose a controller port on
+a shared or public host.**
 
 ## TLS
 
@@ -531,6 +544,10 @@ Who dials TLS, and how each trusts the bench CA:
 | `weave` in the recipes | `https://localhost:29443` | `SSL_CERT_FILE=bench/tls/public/ca.pem` |
 | curl in the recipes | both, on localhost | `--cacert bench/tls/public/ca.pem` |
 
+`scripts/endpoints.sh`, which the producer and consumer recipes call to resolve
+addresses, reads northbound's plaintext port, `http://localhost:29080`, unless
+`WEAVE_NORTHBOUND_URL` names another.
+
 Certificate verification stays on everywhere; nothing is told to skip it.
 `just bench tls-check` shows that curl and `weave` verify against the bench CA
 and refuse the certificate without it. A browser on the host does not trust the
@@ -553,9 +570,7 @@ adapter image and the controller image are out of step. Rebuild with
 root without the prefix. Use `just bench up`, or `cd bench` first.
 
 **`just bench up` times out waiting for the stack.** `just bench ps` shows which
-container is unhealthy and `just bench logs <service>` says why. A service
-exiting immediately with `WEAVE_..._TOKEN is unset` is the fail-closed default,
-not a crash.
+container is unhealthy and `just bench logs <service>` says why.
 
 **A stream stays `pending`.** Nothing matched its hops. `just bench status`
 lists the registered nodes; the manifest names one that is not among them. A
@@ -568,9 +583,10 @@ to attach the producer and consumer too.
 **A stream reads `degraded` after driving another one.** The producer and
 consumer are singletons, so `stream-up <other>` took them from the first stream.
 
-**Ports already in use.** The bench publishes 29080–29083, 28080–28083 and
-29099. Another stack holding one of those makes `up` fail; stop it or change the
-`ports:` entries in `docker-compose.yml`.
+**Ports already in use.** The bench publishes 29080 to 29083, 29443, 29444 and
+28080 to 28083. Another stack holding one of those makes `up` fail; stop it or
+change the `ports:` entries in `docker-compose.yml`. `just bench hook-sink`
+binds 29099 on the host itself.
 
 **`Pool overlaps with other one on this address space`.** Another Docker network
 holds part of `10.97.25.0/24`–`10.97.30.0/24`. `docker network inspect` on each
@@ -585,16 +601,16 @@ per repair and is otherwise quiet.
 - Any service can be restarted, stopped/started, or rebuilt and recreated
   individually; `route-manager` repairs its routes within a tick and the system
   reconverges without manual steps.
-- The controller never talks to Strom. Per stream it derives an ordered hop chain
-  — a **sender** hop and a **receiver** hop — places each on a node (sender by
-  `source.node` or host-match on the source URL; receiver by host-match on the
-  destination), and groups the desired hops per node. The per-node **adapters**
+- The controller never talks to Strom. Per stream it derives a chain of hops:
+  a **sender** hop on the node `source.node` names, and for each destination on
+  a node a **receiver** hop on that node, with a **bridge** hop on each relay
+  between them. It groups the desired hops per node. The per-node **adapters**
   pull their own hops (`GET /nodes/{id}/desired` via southbound, full replace of
   what that node should run) and create/start/delete the `weave-…` Strom flows.
   Hops for a node that has not registered yet just wait until it does.
 - Per-stream status is rolled up from adapter-reported hop conditions:
   `awaiting_input` (no source media) → `degraded` (source flowing, not end to end)
   → `flowing`. See the controller `/status` endpoint.
-- The receiver hop listens on the destination port and re-exposes the media on
-  `port + 1` for a downstream consumer.
-- No pre-configured flows are shipped — create them through the CLI.
+- The receiver hop takes the link from upstream and serves the destination on
+  its own socket, at the address `/streams/{name}/endpoints` reports.
+- No pre-configured flows are shipped. Create them through the CLI.

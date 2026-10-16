@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Apply/clear netem impairment on a node's router. Each router forwards all of a
-# Strom node's traffic (SRT media, adapter heartbeats, controller->Strom API), so
-# impairing its two interfaces emulates that node's bad network.
+# Apply/clear netem impairment on a node's router. Each router forwards a Strom
+# node's traffic to and from other subnets (media, and the adapter's calls to
+# southbound), so impairing its two interfaces emulates that node's bad network.
 # Interfaces are resolved by IP, so eth0/eth1 ordering does not matter.
 set -euo pipefail
 
