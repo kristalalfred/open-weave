@@ -2,9 +2,9 @@
 id: OW-94
 title: "No release has been published"
 type: feature
-status: todo
+status: in-progress
 depends_on: [OW-89, OW-90, OW-91, OW-92, OW-93]
-assignee:
+assignee: claude-rc-fixes
 ---
 
 ## Evidence
@@ -24,3 +24,10 @@ publish is not pullable without credentials until its visibility is changed.
 ## Log
 
 - 2026-10-16: filed by claude-rc-fixes from the 0.1 release review.
+- 2026-10-16: started by claude-rc-fixes. OW-89 to OW-93 are done. On `main` at
+  `0c2e901`, the full bench corpus passed 12 of 12 locally with the bench
+  rebuilt from it, and CI and Release passed on GitHub. An earlier local run
+  failed `adapter-restart` at its relay move while this Mac idle-slept: the
+  power log shows sleep from 18:24 to 18:39, matching an 899 s gap in both
+  controllers' logs, so that run is discounted. The workspace version is now
+  `0.1.0-rc.1`.

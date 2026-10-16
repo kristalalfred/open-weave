@@ -41,12 +41,13 @@ belongs to the runtimes behind the adapters.
 
 ## Status
 
-Version `0.1.0`. HTTP routes and payloads can change without a deprecation
-window. The features above are verified on the docker-compose bench in
-`bench/` and nowhere else, except stream sets and plans, which only unit tests
-cover. Redundant paths, which no shipped node can merge, and WHIP senders and
-WHEP players outside open-weave are also built and covered only by unit tests.
-The deploy kit has run on one Docker host.
+Version `0.1.0-rc.1`, the first release candidate for 0.1.0. HTTP routes and
+payloads can change without a deprecation window. The features above are
+verified on the docker-compose bench in `bench/` and nowhere else, except
+stream sets and plans, which only unit tests cover. Redundant paths, which no
+shipped node can merge, and WHIP senders and WHEP players outside open-weave are
+also built and covered only by unit tests. The deploy kit has run on one Docker
+host.
 
 Not built: TLS served by the services themselves (put a proxy in front),
 Postgres HA, format conversion, and adapters other than Strom. Known gaps are

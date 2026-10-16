@@ -110,8 +110,8 @@ Each `v*` tag publishes the image `ghcr.io/kristalalfred/open-weave` for
 linux/amd64 and linux/arm64, and a GitHub release with the five binaries for
 x86_64 and aarch64 Linux and aarch64 macOS. The tag must be `v` followed by the
 workspace version. A tag with a pre-release part, such as `v0.1.0-rc.1`, makes a
-pre-release and moves neither `latest` nor `0.1`. No version has been tagged
-yet. The image and binary builds also run, without publishing, on every push to
+pre-release and moves neither `latest` nor `0.1`. `v0.1.0-rc.1` is the first
+tag. The image and binary builds also run, without publishing, on every push to
 `main` and every pull request.
 
 [`deploy/README.md`](../deploy/README.md) covers running the image.

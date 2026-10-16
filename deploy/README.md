@@ -19,11 +19,13 @@ for linux/amd64 and linux/arm64 under the version, such as `0.1.0` or
 `0.1.0-rc.1`. `latest` and `0.1` follow the newest tag without a pre-release
 part, so set `WEAVE_IMAGE` to the version when running a pre-release.
 
-No version has been tagged yet, so no image is published. Build it at the
-repository root with `docker build -t open-weave:local .` and set
-`WEAVE_IMAGE=open-weave:local` in `control-plane/.env` and in every
-`node/.env`. Every host that runs a kit needs the image: build it on each, or
-copy it to hosts of the same architecture with `docker save` and `docker load`.
+The only tag is `v0.1.0-rc.1`, a pre-release, so `latest` does not exist yet.
+Set `WEAVE_IMAGE=ghcr.io/kristalalfred/open-weave:0.1.0-rc.1` in
+`control-plane/.env` and in every `node/.env`. To run your own build instead,
+build it at the repository root with `docker build -t open-weave:local .`, set
+`WEAVE_IMAGE=open-weave:local`, and put the image on every host that runs a kit:
+build it on each, or copy it to hosts of the same architecture with
+`docker save` and `docker load`.
 
 The image holds `weave`, `weave-northbound`, `weave-southbound`,
 `weave-controller` and `weave-adapter-strom`, runs as uid 10001 and starts under
@@ -34,8 +36,8 @@ The image holds `weave`, `weave-northbound`, `weave-southbound`,
 1. Copy `control-plane/env.example` to `control-plane/.env` and fill in the four
    secrets, each from `openssl rand -hex 32`. `WEAVE_SOUTHBOUND_KEY` and
    `WEAVE_SRT_KEY_SECRET` must be at least 32 characters. Every controller needs
-   the same values; the compose file gives both the same. Until a version is
-   tagged, set `WEAVE_IMAGE` too.
+   the same values; the compose file gives both the same. Set `WEAVE_IMAGE` as
+   described above.
 2. Put a certificate and key in `control-plane/tls/` as `server.pem` and
    `server.key`. The certificate has to cover the name nodes and operators dial.
 3. `docker compose up -d` in `control-plane/`.
@@ -143,7 +145,7 @@ Run on each media node host.
    The `listeners` addresses are what other nodes dial to reach this node's Strom.
 2. Copy `node/env.example` to `node/.env`. Set `WEAVE_SOUTHBOUND_TOKEN` to the
    node's token and `STROM_API_KEY` to the output of `openssl rand -hex 32`.
-   Until a version is tagged, set `WEAVE_IMAGE` to the image on this host.
+   Set `WEAVE_IMAGE` as the control plane's `.env` does.
 3. `docker compose up -d` in `node/`.
 
 ### Strom's API key
