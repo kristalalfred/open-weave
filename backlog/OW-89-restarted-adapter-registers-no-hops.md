@@ -39,10 +39,10 @@ an adapter together with its Strom, so its empty report is true there.
 
 ## Done when
 
-- [ ] A restarted adapter's first registration reports the hops its Strom runs,
+- [x] A restarted adapter's first registration reports the hops its Strom runs,
       with their listener addresses; a unit test covers it.
-- [ ] With Strom unlisted, the reported hops keep their listener addresses.
-- [ ] In the `feed` and `a47` reproduction on two Strom nodes, restarting
+- [x] With Strom unlisted, the reported hops keep their listener addresses.
+- [x] In the `feed` and `a47` reproduction on two Strom nodes, restarting
       `studio`'s adapter moves no port and recreates no flow.
 - [ ] A bench case restarts an adapter while its Strom keeps running, and
       checks that flows are unchanged and media keeps decoding.
@@ -55,3 +55,26 @@ an adapter together with its Strom, so its empty report is true there.
 ## Log
 
 - 2026-10-16: filed and started by claude-rc-fixes from the 0.1 release review.
+- 2026-10-16: before its first registration the adapter now asks southbound
+  for the node's desired hops (`desired_before_registering`), so the
+  registration reports each flow Strom runs, with its listener address. A
+  `5xx` or no answer fails the poll and registration waits; a `404` or hops
+  that do not decode leave the registration to the handshake. With Strom
+  unlisted, `pending_statuses` now reports each socket's address from the
+  desired hop, as `hop_statuses` already did. Unit test
+  `a_restarted_adapter_registers_the_hops_its_strom_runs` failed before the
+  change (`left: []`) and passes after it; the added assertion in
+  `a_missed_desired_fetch_or_strom_listing_still_reports_the_last_desired_hops`
+  failed with `left: None` and passes. Boxes 1 and 2 ticked.
+- 2026-10-16: the `feed` and `a47` reproduction, scripted, on two Strom 0.6.10
+  containers outside the bench: with the CI release binaries, restarting
+  `studio`'s adapter moved `feed` to 20089 and `a47` to 20088 and recreated both
+  receiver flows; with binaries built from this change, every port and flow id
+  was unchanged after the restart. Box 3 ticked.
+- 2026-10-16: added bench case `12-adapter-restart`: the NAT transit stream
+  moves its bridge to strom-node-2, then adapter-2 restarts while strom-2 keeps
+  running. On the bench's existing images, built from the code before this
+  change, it failed: the stream read `pending (hops_pending)`, the bridge moved
+  to strom-node-1, the sender and receiver flows were recreated and the
+  receiver reconnected. Not yet run on images with the fix: rebuilding the
+  shared bench was refused in this session.

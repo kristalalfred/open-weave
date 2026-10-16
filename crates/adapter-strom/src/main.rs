@@ -236,6 +236,7 @@ async fn sync_once(
     // The first registration is the version handshake, so nothing is created
     // or deleted before southbound has accepted it.
     if !registered {
+        desired_before_registering(southbound, node_id, last_desired).await?;
         let hop_status = match flows.as_deref() {
             Some(flows) => {
                 hop_statuses(
@@ -248,7 +249,7 @@ async fn sync_once(
                 )
                 .await
             }
-            None => pending_statuses(last_desired),
+            None => pending_statuses(last_desired, listener_host),
         };
         let registration = registration(config, public_endpoint, status, endpoints, hop_status);
         register_node(southbound, &registration).await?;
@@ -346,7 +347,7 @@ async fn hop_status(
     last_desired: &mut Vec<DesiredHop>,
 ) -> Vec<HopStatus> {
     let Some(flows) = flows else {
-        return pending_statuses(last_desired);
+        return pending_statuses(last_desired, listener_host);
     };
     match provision(
         southbound,
@@ -375,10 +376,10 @@ async fn hop_status(
     }
 }
 
-fn pending_statuses(desired: &[DesiredHop]) -> Vec<HopStatus> {
-    let idle = || SocketStatus {
+fn pending_statuses(desired: &[DesiredHop], listener_host: Option<&str>) -> Vec<HopStatus> {
+    let idle = |spec: &SocketSpec| SocketStatus {
         condition: LinkCondition::Idle,
-        resolved: None,
+        resolved: resolved_addr(spec, listener_host),
         stats: None,
     };
     desired
@@ -387,18 +388,49 @@ fn pending_statuses(desired: &[DesiredHop]) -> Vec<HopStatus> {
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
             state: HopState::Pending,
-            ingress: idle(),
+            ingress: idle(&hop.ingress),
             merge_ingress: None,
             egresses: hop
                 .egresses
                 .iter()
                 .map(|egress| EgressStatus {
                     branch_id: egress.branch_id.clone(),
-                    status: idle(),
+                    status: idle(&egress.socket),
                 })
                 .collect(),
         })
         .collect()
+}
+
+/// Learns what the controller has this node run before it registers, so a
+/// restarted adapter reports the flows its Strom still runs instead of none.
+/// A `5xx` or no answer fails the poll and registration waits for the next one.
+/// A `404`, or hops that do not decode, leave `last_desired` as it is and let
+/// the registration handshake answer.
+async fn desired_before_registering(
+    southbound: &Southbound,
+    node_id: &str,
+    last_desired: &mut Vec<DesiredHop>,
+) -> Result<()> {
+    let response = southbound
+        .get(&format!("/nodes/{node_id}/desired"))
+        .send()
+        .await
+        .context("fetching desired hops before registering")?;
+    let status = response.status();
+    if status.is_server_error() {
+        let body = response_body(response).await;
+        bail!("southbound desired request failed before registering: {status}: {body}");
+    }
+    if status.is_success() {
+        match response.json::<Vec<DesiredHop>>().await {
+            Ok(desired) => *last_desired = desired,
+            Err(error) => {
+                tracing::warn!(error = %ErrorChain(&error), "desired hops before registering did not decode");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Pull desired hops for this node, reconcile them into Strom flows, and report
@@ -1233,6 +1265,71 @@ mod tests {
         assert!(strom.ops().is_empty(), "{:?}", strom.ops());
     }
 
+    #[tokio::test]
+    async fn a_restarted_adapter_registers_the_hops_its_strom_runs() {
+        let desired = hop("weave-feed-receiver-b", 20088);
+        let registered = std::sync::Arc::new(Mutex::new(None::<NodeRegistration>));
+        let seen = registered.clone();
+        let answer = json!([desired]);
+        let app = Router::new()
+            .route(
+                "/nodes/register",
+                axum::routing::post(move |Json(body): Json<NodeRegistration>| async move {
+                    let node_id = body.node.id.clone();
+                    *seen.lock().unwrap() = Some(body);
+                    Json(json!({ "status": "accepted", "node_id": node_id }))
+                }),
+            )
+            .route(
+                "/nodes/{node_id}/desired",
+                get(move || async move { Json(answer) }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        let southbound = Southbound::new(format!("http://{addr}"), None);
+        let config: AdapterConfig = serde_norway::from_str(&format!(
+            "node:\n  id: strom-node-1\n  southbound_url: http://{addr}\n  listen: 127.0.0.1:0\n  topology: {{ attachments: [] }}\nstrom:\n  url: http://127.0.0.1:1\n"
+        ))
+        .unwrap();
+        let strom = RecordingFlowApi::listing(&[(&desired.id, "id-feed")]);
+        let mut last_desired = Vec::new();
+
+        let next = sync_once(
+            &southbound,
+            &strom,
+            &config,
+            "http://strom-node-1",
+            false,
+            &mut StallTracker::default(),
+            &mut last_desired,
+        )
+        .await
+        .expect("registered");
+
+        assert!(next);
+        assert!(strom.ops().is_empty(), "{:?}", strom.ops());
+        let registration = registered.lock().unwrap().take().expect("a registration");
+        let reported: Vec<_> = registration
+            .hop_status
+            .iter()
+            .map(|status| {
+                (
+                    status.id.as_str(),
+                    status.state,
+                    status.ingress.resolved.as_ref().map(|addr| addr.port),
+                )
+            })
+            .collect();
+        assert_eq!(
+            reported,
+            [(desired.id.as_str(), HopState::Provisioned, Some(20088))],
+            "the first registration reports the flow Strom already runs"
+        );
+    }
+
     async fn provision_against(southbound: &Southbound, flows: &[StromFlow]) -> (bool, Vec<Op>) {
         let strom = RecordingFlowApi::default();
         let result = provision(
@@ -1939,6 +2036,11 @@ mod tests {
                 vec!["studio".to_string()]
             )],
             "with Strom unlisted, the last desired hops are reported pending"
+        );
+        assert_eq!(
+            unlisted[0].ingress.resolved.as_ref().map(|addr| addr.port),
+            Some(7001),
+            "with Strom unlisted, a hop keeps the listener port it holds"
         );
     }
 

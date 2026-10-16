@@ -1,0 +1,56 @@
+name: adapter-restart
+description: Restarting a relay's adapter while its Strom keeps running changes no flow and keeps decoded media.
+steps:
+  - do: apply
+    file: ../manifests/nat-transit.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+    nodes: [strom-node-3, strom-node-1, strom-node-4]
+  - do: service
+    service: adapter-1
+    action: stop
+  - do: service
+    service: strom-1
+    action: stop
+  - do: await
+    stream: main
+    status: flowing
+    nodes: [strom-node-3, strom-node-2, strom-node-4]
+    timeout_secs: 90
+  - do: service
+    service: strom-1
+    action: start
+  - do: service
+    service: adapter-1
+    action: start
+  - do: await
+    stream: main
+    status: flowing
+    nodes: [strom-node-3, strom-node-2, strom-node-4]
+  - do: flows
+    stream: main
+    nodes: {strom-node-2: 1, strom-node-3: 1, strom-node-4: 1}
+  - do: snapshot
+    stream: main
+    as_name: relayed
+  - do: observe
+    receivers: [main/output]
+    seconds: 30
+    during:
+      - do: service
+        service: adapter-2
+        action: restart
+      - do: wait
+        seconds: 15
+  - do: await
+    stream: main
+    status: flowing
+    nodes: [strom-node-3, strom-node-2, strom-node-4]
+  - do: unchanged
+    snapshot: relayed
+  - do: delete
+    stream: main
