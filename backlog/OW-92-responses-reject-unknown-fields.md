@@ -31,11 +31,17 @@ unknown fields while the types inside them reject them.
       not know, and prints it; a test covers it.
 - [ ] Manifests, stream sets and node configs still refuse an unknown field
       with its path, at every depth, `port_range` included.
-- [ ] Response and webhook schemas in `contracts/` allow additional
-      properties; input schemas do not.
+- [ ] Northbound response and webhook schemas in `contracts/` allow
+      additional properties and new enum values; request schemas and southbound
+      schemas do not.
 - [ ] `docs/api.md` says clients must ignore unknown fields and accept new enum
       values.
 
 ## Log
 
 - 2026-10-16: filed and started by claude-rc-fixes from the 0.1 release review.
+- 2026-10-16: box 3 narrowed from every response schema to northbound responses
+  and webhooks. An adapter acts on desired hops, and `PROTOCOL_VERSION` already
+  pins the southbound shape, so a southbound payload that ignored a field would
+  build a flow other than the one planned. Two design sketches reached this
+  independently.
