@@ -68,10 +68,12 @@
       "DesiredHopList": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "items": {
+          "additionalProperties": false,
           "description": "One provisioning unit placed on a single node: one ingress socket fanned out\n to one or more egress sockets (a sender tees to every destination).",
           "properties": {
             "egresses": {
               "items": {
+                "additionalProperties": false,
                 "description": "One identified output branch of a desired hop.",
                 "properties": {
                   "branch_id": {
@@ -90,6 +92,7 @@
                     ]
                   },
                   "params": {
+                    "additionalProperties": false,
                     "properties": {
                       "latency": {
                         "format": "uint32",
@@ -194,6 +197,7 @@
                   ]
                 },
                 "params": {
+                  "additionalProperties": false,
                   "properties": {
                     "latency": {
                       "format": "uint32",
@@ -292,6 +296,7 @@
                   ]
                 },
                 "params": {
+                  "additionalProperties": false,
                   "properties": {
                     "latency": {
                       "format": "uint32",
@@ -422,6 +427,7 @@
       "EndpointList": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "items": {
+          "additionalProperties": false,
           "properties": {
             "id": {
               "type": "string"
@@ -497,10 +503,12 @@
       },
       "NodeHeartbeat": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
         "properties": {
           "endpoints": {
             "default": [],
             "items": {
+              "additionalProperties": false,
               "properties": {
                 "id": {
                   "type": "string"
@@ -552,11 +560,13 @@
           "hop_status": {
             "default": [],
             "items": {
+              "additionalProperties": false,
               "description": "Node-reported realisation status for one desired hop.",
               "properties": {
                 "egresses": {
                   "default": [],
                   "items": {
+                    "additionalProperties": false,
                     "description": "Observed status for one identified egress branch.",
                     "properties": {
                       "branch_id": {
@@ -594,6 +604,7 @@
                         ]
                       },
                       "resolved": {
+                        "additionalProperties": false,
                         "properties": {
                           "host": {
                             "type": "string"
@@ -615,6 +626,7 @@
                         ]
                       },
                       "stats": {
+                        "additionalProperties": false,
                         "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                         "properties": {
                           "connections": {
@@ -666,6 +678,7 @@
                   "type": "string"
                 },
                 "ingress": {
+                  "additionalProperties": false,
                   "description": "Observed condition, address, and statistics for one socket.",
                   "properties": {
                     "condition": {
@@ -700,6 +713,7 @@
                       ]
                     },
                     "resolved": {
+                      "additionalProperties": false,
                       "properties": {
                         "host": {
                           "type": "string"
@@ -721,6 +735,7 @@
                       ]
                     },
                     "stats": {
+                      "additionalProperties": false,
                       "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                       "properties": {
                         "connections": {
@@ -764,6 +779,7 @@
                   "type": "object"
                 },
                 "merge_ingress": {
+                  "additionalProperties": false,
                   "description": "Observed condition, address, and statistics for one socket.",
                   "properties": {
                     "condition": {
@@ -798,6 +814,7 @@
                       ]
                     },
                     "resolved": {
+                      "additionalProperties": false,
                       "properties": {
                         "host": {
                           "type": "string"
@@ -819,6 +836,7 @@
                       ]
                     },
                     "stats": {
+                      "additionalProperties": false,
                       "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                       "properties": {
                         "connections": {
@@ -913,6 +931,7 @@
       "NodeList": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "items": {
+          "additionalProperties": false,
           "properties": {
             "capabilities": {
               "additionalProperties": false,
@@ -924,6 +943,7 @@
                 "adapters": {
                   "default": [],
                   "items": {
+                    "additionalProperties": false,
                     "properties": {
                       "kind": {
                         "enum": [
@@ -1369,6 +1389,7 @@
                                 "type": "string"
                               },
                               "port_range": {
+                                "additionalProperties": false,
                                 "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                 "properties": {
                                   "end": {
@@ -1407,6 +1428,7 @@
                                 "type": "string"
                               },
                               "port_range": {
+                                "additionalProperties": false,
                                 "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                 "properties": {
                                   "end": {
@@ -1503,10 +1525,12 @@
       },
       "NodeRegistration": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
         "properties": {
           "endpoints": {
             "default": [],
             "items": {
+              "additionalProperties": false,
               "properties": {
                 "id": {
                   "type": "string"
@@ -1558,11 +1582,13 @@
           "hop_status": {
             "default": [],
             "items": {
+              "additionalProperties": false,
               "description": "Node-reported realisation status for one desired hop.",
               "properties": {
                 "egresses": {
                   "default": [],
                   "items": {
+                    "additionalProperties": false,
                     "description": "Observed status for one identified egress branch.",
                     "properties": {
                       "branch_id": {
@@ -1600,6 +1626,7 @@
                         ]
                       },
                       "resolved": {
+                        "additionalProperties": false,
                         "properties": {
                           "host": {
                             "type": "string"
@@ -1621,6 +1648,7 @@
                         ]
                       },
                       "stats": {
+                        "additionalProperties": false,
                         "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                         "properties": {
                           "connections": {
@@ -1672,6 +1700,7 @@
                   "type": "string"
                 },
                 "ingress": {
+                  "additionalProperties": false,
                   "description": "Observed condition, address, and statistics for one socket.",
                   "properties": {
                     "condition": {
@@ -1706,6 +1735,7 @@
                       ]
                     },
                     "resolved": {
+                      "additionalProperties": false,
                       "properties": {
                         "host": {
                           "type": "string"
@@ -1727,6 +1757,7 @@
                       ]
                     },
                     "stats": {
+                      "additionalProperties": false,
                       "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                       "properties": {
                         "connections": {
@@ -1770,6 +1801,7 @@
                   "type": "object"
                 },
                 "merge_ingress": {
+                  "additionalProperties": false,
                   "description": "Observed condition, address, and statistics for one socket.",
                   "properties": {
                     "condition": {
@@ -1804,6 +1836,7 @@
                       ]
                     },
                     "resolved": {
+                      "additionalProperties": false,
                       "properties": {
                         "host": {
                           "type": "string"
@@ -1825,6 +1858,7 @@
                       ]
                     },
                     "stats": {
+                      "additionalProperties": false,
                       "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                       "properties": {
                         "connections": {
@@ -1894,6 +1928,7 @@
             "type": "array"
           },
           "node": {
+            "additionalProperties": false,
             "properties": {
               "capabilities": {
                 "additionalProperties": false,
@@ -1905,6 +1940,7 @@
                   "adapters": {
                     "default": [],
                     "items": {
+                      "additionalProperties": false,
                       "properties": {
                         "kind": {
                           "enum": [
@@ -2350,6 +2386,7 @@
                                   "type": "string"
                                 },
                                 "port_range": {
+                                  "additionalProperties": false,
                                   "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                   "properties": {
                                     "end": {
@@ -2388,6 +2425,7 @@
                                   "type": "string"
                                 },
                                 "port_range": {
+                                  "additionalProperties": false,
                                   "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                   "properties": {
                                     "end": {
@@ -2495,10 +2533,12 @@
       },
       "ObservedState": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
         "properties": {
           "endpoints": {
             "default": [],
             "items": {
+              "additionalProperties": false,
               "properties": {
                 "id": {
                   "type": "string"
@@ -2550,11 +2590,13 @@
           "hops": {
             "default": [],
             "items": {
+              "additionalProperties": false,
               "description": "Node-reported realisation status for one desired hop.",
               "properties": {
                 "egresses": {
                   "default": [],
                   "items": {
+                    "additionalProperties": false,
                     "description": "Observed status for one identified egress branch.",
                     "properties": {
                       "branch_id": {
@@ -2592,6 +2634,7 @@
                         ]
                       },
                       "resolved": {
+                        "additionalProperties": false,
                         "properties": {
                           "host": {
                             "type": "string"
@@ -2613,6 +2656,7 @@
                         ]
                       },
                       "stats": {
+                        "additionalProperties": false,
                         "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                         "properties": {
                           "connections": {
@@ -2664,6 +2708,7 @@
                   "type": "string"
                 },
                 "ingress": {
+                  "additionalProperties": false,
                   "description": "Observed condition, address, and statistics for one socket.",
                   "properties": {
                     "condition": {
@@ -2698,6 +2743,7 @@
                       ]
                     },
                     "resolved": {
+                      "additionalProperties": false,
                       "properties": {
                         "host": {
                           "type": "string"
@@ -2719,6 +2765,7 @@
                       ]
                     },
                     "stats": {
+                      "additionalProperties": false,
                       "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                       "properties": {
                         "connections": {
@@ -2762,6 +2809,7 @@
                   "type": "object"
                 },
                 "merge_ingress": {
+                  "additionalProperties": false,
                   "description": "Observed condition, address, and statistics for one socket.",
                   "properties": {
                     "condition": {
@@ -2796,6 +2844,7 @@
                       ]
                     },
                     "resolved": {
+                      "additionalProperties": false,
                       "properties": {
                         "host": {
                           "type": "string"
@@ -2817,6 +2866,7 @@
                       ]
                     },
                     "stats": {
+                      "additionalProperties": false,
                       "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                       "properties": {
                         "connections": {
@@ -2888,6 +2938,7 @@
           "nodes": {
             "default": [],
             "items": {
+              "additionalProperties": false,
               "properties": {
                 "capabilities": {
                   "additionalProperties": false,
@@ -2899,6 +2950,7 @@
                     "adapters": {
                       "default": [],
                       "items": {
+                        "additionalProperties": false,
                         "properties": {
                           "kind": {
                             "enum": [
@@ -3344,6 +3396,7 @@
                                     "type": "string"
                                   },
                                   "port_range": {
+                                    "additionalProperties": false,
                                     "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                     "properties": {
                                       "end": {
@@ -3382,6 +3435,7 @@
                                     "type": "string"
                                   },
                                   "port_range": {
+                                    "additionalProperties": false,
                                     "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                     "properties": {
                                       "end": {

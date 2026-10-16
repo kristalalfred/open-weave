@@ -14,6 +14,7 @@ use crate::{NodeCapabilities, NodeDescriptor, NodeStatus, NodeTopology, PathStat
 
 /// One event. The whole JSON body of a delivery.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Event {
     /// Stable across retries of one delivery, so a receiver can deduplicate.
     pub event_id: String,
@@ -109,6 +110,7 @@ impl fmt::Display for EventType {
 /// A [`crate::NodeRegistration`] also carries `endpoints` and `hop_status`.
 /// Those describe hops rather than the node, and are not part of this contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NodeSummary {
     pub id: String,
     pub status: NodeStatus,
@@ -135,6 +137,7 @@ impl From<&NodeDescriptor> for NodeSummary {
 /// A [`StreamStatus`] also carries the stream's nodes, ingress and destination
 /// endpoints. Those are addresses, and are not part of this contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct StreamSummary {
     pub name: String,
     pub generation: u64,
@@ -145,6 +148,7 @@ pub struct StreamSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DestinationSummary {
     pub id: String,
     pub status: PathStatus,

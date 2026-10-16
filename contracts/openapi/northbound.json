@@ -68,6 +68,7 @@
       "NodeList": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "items": {
+          "additionalProperties": false,
           "properties": {
             "capabilities": {
               "additionalProperties": false,
@@ -79,6 +80,7 @@
                 "adapters": {
                   "default": [],
                   "items": {
+                    "additionalProperties": false,
                     "properties": {
                       "kind": {
                         "enum": [
@@ -524,6 +526,7 @@
                                 "type": "string"
                               },
                               "port_range": {
+                                "additionalProperties": false,
                                 "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                 "properties": {
                                   "end": {
@@ -562,6 +565,7 @@
                                 "type": "string"
                               },
                               "port_range": {
+                                "additionalProperties": false,
                                 "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                 "properties": {
                                   "end": {
@@ -5659,10 +5663,12 @@
           },
           "hops": {
             "items": {
+              "additionalProperties": false,
               "description": "One provisioning unit placed on a single node: one ingress socket fanned out\n to one or more egress sockets (a sender tees to every destination).",
               "properties": {
                 "egresses": {
                   "items": {
+                    "additionalProperties": false,
                     "description": "One identified output branch of a desired hop.",
                     "properties": {
                       "branch_id": {
@@ -5681,6 +5687,7 @@
                         ]
                       },
                       "params": {
+                        "additionalProperties": false,
                         "properties": {
                           "latency": {
                             "format": "uint32",
@@ -5785,6 +5792,7 @@
                       ]
                     },
                     "params": {
+                      "additionalProperties": false,
                       "properties": {
                         "latency": {
                           "format": "uint32",
@@ -5883,6 +5891,7 @@
                       ]
                     },
                     "params": {
+                      "additionalProperties": false,
                       "properties": {
                         "latency": {
                           "format": "uint32",

@@ -90,7 +90,8 @@ generation and ETag.
 The controller validates every write. Northbound runs the same validator first
 for early feedback, and a client posting to the controller directly gets the
 same rules. An invalid stream returns `400` with every issue and is not stored.
-Top-level and endpoint payloads reject unknown fields.
+A stream with a field the API does not define, at any depth, returns
+`400 invalid_json`, and the detail names the field's path.
 
 When a stored stream no longer passes validation, the controller names the
 stream, field and error and does not serve. With `DATABASE_URL` it gives up the

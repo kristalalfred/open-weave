@@ -10,9 +10,11 @@ weave-adapter-strom --config examples/node.yaml
 ```
 
 The config comes from `--config` or `WEAVE_NODE_CONFIG`.
-[`examples/node.yaml`](../examples/node.yaml) is annotated. The node token comes
-from `WEAVE_SOUTHBOUND_TOKEN` or `node.southbound_token`, and Strom's API key
-from `WEAVE_STROM_TOKEN` or `strom.token` (see [Security](security.md)).
+[`examples/node.yaml`](../examples/node.yaml) is annotated. A key the config
+does not define, at any depth, stops the adapter with an error naming its path.
+The node token comes from `WEAVE_SOUTHBOUND_TOKEN` or `node.southbound_token`,
+and Strom's API key from `WEAVE_STROM_TOKEN` or `strom.token` (see
+[Security](security.md)).
 
 ## Startup and shutdown
 

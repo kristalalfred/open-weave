@@ -5,6 +5,7 @@
     {
       "properties": {
         "node": {
+          "additionalProperties": false,
           "description": "The node an event is about.\n\n A [`crate::NodeRegistration`] also carries `endpoints` and `hop_status`.\n Those describe hops rather than the node, and are not part of this contract.",
           "properties": {
             "capabilities": {
@@ -17,6 +18,7 @@
                 "adapters": {
                   "default": [],
                   "items": {
+                    "additionalProperties": false,
                     "properties": {
                       "kind": {
                         "enum": [
@@ -459,6 +461,7 @@
                                 "type": "string"
                               },
                               "port_range": {
+                                "additionalProperties": false,
                                 "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                 "properties": {
                                   "end": {
@@ -497,6 +500,7 @@
                                 "type": "string"
                               },
                               "port_range": {
+                                "additionalProperties": false,
                                 "description": "Inclusive `[start, end]` range of ports a node offers for controller-side\n assignment.",
                                 "properties": {
                                   "end": {
@@ -597,6 +601,7 @@
     {
       "properties": {
         "stream": {
+          "additionalProperties": false,
           "description": "The stream an event is about: its generations, status and conditions.\n\n A [`StreamStatus`] also carries the stream's nodes, ingress and destination\n endpoints. Those are addresses, and are not part of this contract.",
           "properties": {
             "conditions": {
@@ -667,6 +672,7 @@
             },
             "destinations": {
               "items": {
+                "additionalProperties": false,
                 "properties": {
                   "conditions": {
                     "items": {
@@ -876,5 +882,6 @@
     "occurred_at"
   ],
   "title": "Event",
-  "type": "object"
+  "type": "object",
+  "unevaluatedProperties": false
 }

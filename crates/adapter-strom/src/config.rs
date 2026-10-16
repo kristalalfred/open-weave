@@ -209,6 +209,25 @@ strom:
     }
 
     #[test]
+    fn refuses_an_unknown_field_inside_a_port_range() {
+        let path =
+            std::env::temp_dir().join(format!("weave-port-step-{}.yaml", std::process::id()));
+        std::fs::write(
+            &path,
+            VALID.replace(
+                "port_range: { start: 20000, end: 20999 }",
+                "port_range: { start: 20000, end: 20999, step: 2 }",
+            ),
+        )
+        .expect("writing the config");
+        let loaded = AdapterConfig::load(&path);
+        std::fs::remove_file(&path).expect("removing the config");
+        let error = format!("{:#}", loaded.expect_err("step is not a port range field"));
+        assert!(error.contains("unknown field `step`"), "{error}");
+        assert!(error.contains("port_range"), "{error}");
+    }
+
+    #[test]
     fn rejects_unknown_fields() {
         let yaml = format!("{VALID}  bogus: true\n");
         let result: Result<AdapterConfig, _> = serde_norway::from_str(&yaml);

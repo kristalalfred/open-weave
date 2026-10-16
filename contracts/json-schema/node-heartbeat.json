@@ -1,9 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "properties": {
     "endpoints": {
       "default": [],
       "items": {
+        "additionalProperties": false,
         "properties": {
           "id": {
             "type": "string"
@@ -55,11 +57,13 @@
     "hop_status": {
       "default": [],
       "items": {
+        "additionalProperties": false,
         "description": "Node-reported realisation status for one desired hop.",
         "properties": {
           "egresses": {
             "default": [],
             "items": {
+              "additionalProperties": false,
               "description": "Observed status for one identified egress branch.",
               "properties": {
                 "branch_id": {
@@ -97,6 +101,7 @@
                   ]
                 },
                 "resolved": {
+                  "additionalProperties": false,
                   "properties": {
                     "host": {
                       "type": "string"
@@ -118,6 +123,7 @@
                   ]
                 },
                 "stats": {
+                  "additionalProperties": false,
                   "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                   "properties": {
                     "connections": {
@@ -169,6 +175,7 @@
             "type": "string"
           },
           "ingress": {
+            "additionalProperties": false,
             "description": "Observed condition, address, and statistics for one socket.",
             "properties": {
               "condition": {
@@ -203,6 +210,7 @@
                 ]
               },
               "resolved": {
+                "additionalProperties": false,
                 "properties": {
                   "host": {
                     "type": "string"
@@ -224,6 +232,7 @@
                 ]
               },
               "stats": {
+                "additionalProperties": false,
                 "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                 "properties": {
                   "connections": {
@@ -267,6 +276,7 @@
             "type": "object"
           },
           "merge_ingress": {
+            "additionalProperties": false,
             "description": "Observed condition, address, and statistics for one socket.",
             "properties": {
               "condition": {
@@ -301,6 +311,7 @@
                 ]
               },
               "resolved": {
+                "additionalProperties": false,
                 "properties": {
                   "host": {
                     "type": "string"
@@ -322,6 +333,7 @@
                 ]
               },
               "stats": {
+                "additionalProperties": false,
                 "description": "Socket-level SRT stats mirrored from Strom's `srt-stats` payload.",
                 "properties": {
                   "connections": {

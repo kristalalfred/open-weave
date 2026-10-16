@@ -269,6 +269,39 @@ mod contract_tests {
     }
 
     #[test]
+    fn a_flattened_payload_refuses_a_field_neither_part_names() {
+        let egress = serde_json::json!({ "branch_id": "studio", "condition": "flowing" });
+        assert!(serde_json::from_value::<EgressStatus>(egress.clone()).is_ok());
+        let mut extra = egress;
+        extra["bogus"] = serde_json::json!(1);
+        let error = serde_json::from_value::<EgressStatus>(extra).unwrap_err();
+        assert!(
+            error.to_string().contains("unknown field `bogus`"),
+            "{error}"
+        );
+
+        let event = serde_json::json!({
+            "event_id": "guest-1-0",
+            "event_type": "node.offline",
+            "occurred_at": "2026-10-16T10:00:00Z",
+            "node": {
+                "id": "guest-1",
+                "status": "offline",
+                "endpoint": "browser://guest-1",
+                "topology": { "attachments": [] }
+            }
+        });
+        assert!(serde_json::from_value::<webhook::Event>(event.clone()).is_ok());
+        let mut extra = event;
+        extra["bogus"] = serde_json::json!(1);
+        let error = serde_json::from_value::<webhook::Event>(extra).unwrap_err();
+        assert!(
+            error.to_string().contains("unknown field `bogus`"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn superseded_capability_fields_are_rejected() {
         let result = serde_json::from_value::<NodeCapabilities>(serde_json::json!({
             "transports": ["srt"],
@@ -575,6 +608,7 @@ pub fn is_managed_hop_id(name: &str) -> bool {
 
 /// An ordered chain of hops (upstream→downstream) realising one stream.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Path {
     pub stream: String,
     #[serde(default = "default_enabled")]
@@ -586,6 +620,7 @@ pub struct Path {
 /// One provisioning unit placed on a single node: one ingress socket fanned out
 /// to one or more egress sockets (a sender tees to every destination).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DesiredHop {
     pub id: String,
     pub node_id: String,
@@ -644,6 +679,7 @@ impl DesiredHop {
 
 /// One identified output branch of a desired hop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DesiredEgress {
     pub branch_id: String,
     #[serde(flatten)]
@@ -1231,6 +1267,7 @@ impl std::fmt::Display for DeviceKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SrtParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency: Option<u32>,
@@ -1281,6 +1318,7 @@ impl std::fmt::Debug for Passphrase {
 
 /// Node-reported realisation status for one desired hop.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct HopStatus {
     pub id: String,
     pub node_id: String,
@@ -1294,6 +1332,7 @@ pub struct HopStatus {
 
 /// Observed condition, address, and statistics for one socket.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SocketStatus {
     #[serde(default)]
     pub condition: LinkCondition,
@@ -1305,6 +1344,7 @@ pub struct SocketStatus {
 
 /// Observed status for one identified egress branch.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct EgressStatus {
     pub branch_id: String,
     #[serde(flatten)]
@@ -1466,6 +1506,7 @@ pub fn roll_up_path(enabled: bool, hops: &[Option<HopConditions>]) -> PathStatus
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ResolvedAddr {
     pub host: String,
     pub port: u16,
@@ -1473,6 +1514,7 @@ pub struct ResolvedAddr {
 
 /// Socket-level SRT stats mirrored from Strom's `srt-stats` payload.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct LinkStats {
     #[serde(default)]
     pub connections: usize,
@@ -1489,6 +1531,7 @@ pub struct LinkStats {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NodeDescriptor {
     #[schemars(
         length(min = 1, max = 63),
@@ -1702,6 +1745,7 @@ pub struct SignallingListener {
 /// Inclusive `[start, end]` range of ports a node offers for controller-side
 /// assignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PortRange {
     pub start: u16,
     pub end: u16,
@@ -1855,6 +1899,7 @@ pub enum ConfigError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AdapterDescriptor {
     pub name: String,
     pub kind: AdapterKind,
@@ -1962,6 +2007,7 @@ impl<'de> Deserialize<'de> for RoleSet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct EndpointDescriptor {
     pub id: String,
     pub label: String,
@@ -1991,6 +2037,7 @@ pub enum EndpointKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NodeRegistration {
     /// Southbound protocol version the registering adapter speaks. Absent means
     /// an adapter predating the handshake, which reads as `0` and is rejected —
@@ -2005,6 +2052,7 @@ pub struct NodeRegistration {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NodeHeartbeat {
     #[schemars(
         length(min = 1, max = 63),
@@ -2019,6 +2067,7 @@ pub struct NodeHeartbeat {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ObservedState {
     #[serde(default)]
     pub nodes: Vec<NodeDescriptor>,
@@ -2029,6 +2078,7 @@ pub struct ObservedState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReconcileReport {
     pub status: ReconcileStatus,
     pub summary: String,

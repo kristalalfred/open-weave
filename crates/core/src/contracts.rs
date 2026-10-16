@@ -17,25 +17,49 @@ pub struct ContractArtifact {
 
 #[must_use]
 pub fn artifacts() -> Vec<ContractArtifact> {
-    vec![
+    let mut artifacts = vec![
         artifact("contracts/openapi/northbound.json", northbound_openapi()),
         artifact("contracts/openapi/southbound.json", southbound_openapi()),
-        schema_artifact::<ApiError>("contracts/json-schema/api-error.json"),
-        schema_artifact::<StatusResponse>("contracts/json-schema/status-response.json"),
-        schema_artifact::<StreamAccepted>("contracts/json-schema/stream-accepted.json"),
-        schema_artifact::<StreamDefinition>("contracts/json-schema/stream-definition.json"),
-        schema_artifact::<StreamEndpoints>("contracts/json-schema/stream-endpoints.json"),
-        schema_artifact::<StreamPlan>("contracts/json-schema/stream-plan.json"),
-        schema_artifact::<StreamResource>("contracts/json-schema/stream-resource.json"),
-        schema_artifact::<StreamSetAccepted>("contracts/json-schema/stream-set-accepted.json"),
-        schema_artifact::<StreamSetApply>("contracts/json-schema/stream-set-apply.json"),
-        schema_artifact::<StreamSetResource>("contracts/json-schema/stream-set-resource.json"),
-        schema_artifact::<NodeAccepted>("contracts/json-schema/node-accepted.json"),
-        schema_artifact::<NodeHeartbeat>("contracts/json-schema/node-heartbeat.json"),
-        schema_artifact::<NodeRegistration>("contracts/json-schema/node-registration.json"),
-        schema_artifact::<ObservedState>("contracts/json-schema/observed-state.json"),
-        schema_artifact::<Vec<DesiredHop>>("contracts/json-schema/desired-hops.json"),
-        schema_artifact::<webhook::Event>("contracts/json-schema/webhook-event.json"),
+    ];
+    artifacts.extend(
+        payloads()
+            .into_iter()
+            .map(|payload| artifact(payload.path, (payload.schema)())),
+    );
+    artifacts
+}
+
+/// A payload with a JSON Schema document of its own under `contracts/`.
+struct Payload {
+    path: &'static str,
+    schema: fn() -> Value,
+}
+
+fn payload<T: JsonSchema>(path: &'static str) -> Payload {
+    Payload {
+        path,
+        schema: schema::<T>,
+    }
+}
+
+fn payloads() -> [Payload; 16] {
+    [
+        payload::<ApiError>("contracts/json-schema/api-error.json"),
+        payload::<StatusResponse>("contracts/json-schema/status-response.json"),
+        payload::<StreamAccepted>("contracts/json-schema/stream-accepted.json"),
+        payload::<StreamDefinition>("contracts/json-schema/stream-definition.json"),
+        payload::<StreamEndpoints>("contracts/json-schema/stream-endpoints.json"),
+        payload::<StreamPlan>("contracts/json-schema/stream-plan.json"),
+        payload::<StreamResource>("contracts/json-schema/stream-resource.json"),
+        payload::<StreamSetAccepted>("contracts/json-schema/stream-set-accepted.json"),
+        payload::<StreamSetApply>("contracts/json-schema/stream-set-apply.json"),
+        payload::<StreamSetResource>("contracts/json-schema/stream-set-resource.json"),
+        payload::<NodeAccepted>("contracts/json-schema/node-accepted.json"),
+        payload::<NodeHeartbeat>("contracts/json-schema/node-heartbeat.json"),
+        payload::<NodeRegistration>("contracts/json-schema/node-registration.json"),
+        payload::<ObservedState>("contracts/json-schema/observed-state.json"),
+        payload::<Vec<DesiredHop>>("contracts/json-schema/desired-hops.json"),
+        payload::<webhook::Event>("contracts/json-schema/webhook-event.json"),
     ]
 }
 
@@ -44,10 +68,6 @@ fn artifact(path: &'static str, value: Value) -> ContractArtifact {
         path,
         content: format!("{}\n", serde_json::to_string_pretty(&value).unwrap()),
     }
-}
-
-fn schema_artifact<T: JsonSchema>(path: &'static str) -> ContractArtifact {
-    artifact(path, schema::<T>())
 }
 
 fn schema<T: JsonSchema>() -> Value {
@@ -466,6 +486,7 @@ pub fn southbound_openapi() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NodeConfig;
     use std::collections::BTreeMap;
     use std::path::Path;
 
@@ -475,6 +496,61 @@ mod tests {
         for artifact in artifacts() {
             let actual = std::fs::read_to_string(root.join(artifact.path)).unwrap_or_default();
             assert_eq!(actual, artifact.content, "{} is stale", artifact.path);
+        }
+    }
+
+    #[test]
+    fn the_model_refuses_unknown_fields_at_every_depth() {
+        let mut gaps = Vec::new();
+        for payload in payloads() {
+            unclosed(&(payload.schema)(), payload.path, "", false, &mut gaps);
+        }
+        unclosed(&schema::<NodeConfig>(), "node config", "", false, &mut gaps);
+        assert!(
+            gaps.is_empty(),
+            "these objects accept fields they do not name; give each one's type #[serde(deny_unknown_fields)]:\n{}",
+            gaps.join("\n")
+        );
+    }
+
+    /// Collects every object schema under `schema` that names properties and
+    /// accepts others. A branch of a union is closed by its parent's
+    /// `unevaluatedProperties`, which is how a flattened enum renders.
+    fn unclosed(schema: &Value, root: &str, at: &str, closed: bool, gaps: &mut Vec<String>) {
+        let Some(object) = schema.as_object() else {
+            return;
+        };
+        let refuses = |key: &str| object.get(key) == Some(&Value::Bool(false));
+        if object.contains_key("properties")
+            && !closed
+            && !refuses("additionalProperties")
+            && !refuses("unevaluatedProperties")
+        {
+            gaps.push(format!("{root}: {}", if at.is_empty() { "." } else { at }));
+        }
+        let child = |name: &str| {
+            if at.is_empty() {
+                name.to_string()
+            } else {
+                format!("{at}.{name}")
+            }
+        };
+        for (key, value) in object {
+            match key.as_str() {
+                "properties" => {
+                    for (name, property) in value.as_object().into_iter().flatten() {
+                        unclosed(property, root, &child(name), false, gaps);
+                    }
+                }
+                "items" => unclosed(value, root, &format!("{at}[]"), false, gaps),
+                "additionalProperties" => unclosed(value, root, &child("*"), false, gaps),
+                "anyOf" | "oneOf" | "allOf" => {
+                    for branch in value.as_array().into_iter().flatten() {
+                        unclosed(branch, root, at, refuses("unevaluatedProperties"), gaps);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 

@@ -161,6 +161,7 @@ pub struct AudioConstraint {
 /// reason usable by more than a log line: it is what a conversion planner will
 /// read to decide which transform to look for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Mismatch {
     /// Dotted path of the offending field, e.g. `audio.sample_rate`.
     pub field: String,
@@ -181,6 +182,7 @@ impl fmt::Display for Mismatch {
 
 /// A destination whose declared constraint the source format does not satisfy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FormatConflict {
     pub destination: String,
     pub mismatches: Vec<Mismatch>,

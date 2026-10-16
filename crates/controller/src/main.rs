@@ -7215,19 +7215,27 @@ mod node_auth_tests {
     async fn a_heartbeat_from_an_unknown_node_gets_404_whatever_its_body() {
         let (app, _) = app().await;
         let me = node_bearer("strom-node-1");
-        let mut body = heartbeat("strom-node-1");
-        body["status"] = json!("sleeping");
+        let mut unknown_value = heartbeat("strom-node-1");
+        unknown_value["status"] = json!("sleeping");
+        let mut unknown_field = heartbeat("strom-node-1");
+        unknown_field["uptime_secs"] = json!(30);
+        let cases = [
+            (unknown_value, "status: unknown variant `sleeping`"),
+            (unknown_field, "uptime_secs: unknown field `uptime_secs`"),
+        ];
 
-        let (status, error) = send(
-            &app,
-            "POST",
-            "/nodes/strom-node-1/heartbeat",
-            &me,
-            Some(body.clone()),
-        )
-        .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(error["code"], "node_not_found");
+        for (body, _) in &cases {
+            let (status, error) = send(
+                &app,
+                "POST",
+                "/nodes/strom-node-1/heartbeat",
+                &me,
+                Some(body.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+            assert_eq!(error["code"], "node_not_found");
+        }
 
         let (status, _) = send(
             &app,
@@ -7238,21 +7246,20 @@ mod node_auth_tests {
         )
         .await;
         assert_eq!(status, StatusCode::ACCEPTED);
-        let (status, error) = send(
-            &app,
-            "POST",
-            "/nodes/strom-node-1/heartbeat",
-            &me,
-            Some(body),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(error["code"], "invalid_json");
-        let detail = error["details"][0]["message"].as_str().unwrap();
-        assert!(
-            detail.starts_with("status: unknown variant `sleeping`"),
-            "{detail}"
-        );
+        for (body, expected) in cases {
+            let (status, error) = send(
+                &app,
+                "POST",
+                "/nodes/strom-node-1/heartbeat",
+                &me,
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(error["code"], "invalid_json");
+            let detail = error["details"][0]["message"].as_str().unwrap();
+            assert!(detail.starts_with(expected), "{detail}");
+        }
     }
 
     fn with_endpoints(mut body: Value, owners: &[Option<&str>]) -> Value {
