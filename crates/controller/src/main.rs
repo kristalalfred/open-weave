@@ -42,7 +42,9 @@ use axum::{
     routing::{get, post},
 };
 use clap::Parser;
-use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
@@ -1705,7 +1707,7 @@ async fn put_stream_set(
 ) -> Response {
     let Json(apply) = match payload {
         Ok(payload) => payload,
-        Err(rejection) => return invalid_json(rejection),
+        Err(rejection) => return invalid_json(rejection.body_text()),
     };
     let issues = validate_stream_set(&owner, &apply);
     if !issues.is_empty() {
@@ -1868,7 +1870,7 @@ async fn submit_stream(
 ) -> Response {
     let Json(stream) = match payload {
         Ok(payload) => payload,
-        Err(rejection) => return invalid_json(rejection),
+        Err(rejection) => return invalid_json(rejection.body_text()),
     };
     let issues = validate_stream(&stream);
     if !issues.is_empty() {
@@ -1954,7 +1956,7 @@ async fn plan_stream(
 ) -> Response {
     let Json(stream) = match payload {
         Ok(payload) => payload,
-        Err(rejection) => return invalid_json(rejection),
+        Err(rejection) => return invalid_json(rejection.body_text()),
     };
     let issues = validate_stream(&stream);
     if !issues.is_empty() {
@@ -2135,27 +2137,44 @@ async fn get_state(State(state): State<AppState>) -> Json<ObservedState> {
     Json(observed_state(&*state.nodes.read().await))
 }
 
+/// What every protocol version's registration says about who is speaking. It
+/// reads only those fields, so a registration from another version reaches the
+/// version check.
+#[derive(Deserialize)]
+struct Handshake {
+    #[serde(default)]
+    protocol_version: u32,
+    node: HandshakeNode,
+}
+
+#[derive(Deserialize)]
+struct HandshakeNode {
+    id: String,
+}
+
 /// Registration is also the version handshake: an adapter declaring a protocol
-/// this controller does not speak is turned away here.
+/// this controller does not speak is turned away here, before its body is held
+/// to this version's shape.
 async fn register_node(
     State(state): State<AppState>,
     Extension(caller): Extension<NodeCaller>,
-    payload: Result<Json<NodeRegistration>, JsonRejection>,
+    payload: Result<Json<Box<RawValue>>, JsonRejection>,
 ) -> Response {
-    let Json(registration) = match payload {
+    let Json(body) = match payload {
         Ok(payload) => payload,
-        Err(rejection) => return invalid_json(rejection),
+        Err(rejection) => return invalid_json(rejection.body_text()),
     };
-    let node_id = registration.node.id.clone();
-    if let Some(response) = refuse_other_node(&caller, &node_id) {
+    let handshake: Handshake = match decode(&body) {
+        Ok(handshake) => handshake,
+        Err(detail) => return invalid_json(detail),
+    };
+    if let Some(response) = refuse_other_node(&caller, &handshake.node.id) {
         return response;
     }
-    let endpoint_count = registration.endpoints.len();
-
-    if !protocol_compatible(registration.protocol_version) {
+    if !protocol_compatible(handshake.protocol_version) {
         tracing::warn!(
-            %node_id,
-            reported = registration.protocol_version,
+            node_id = %handshake.node.id,
+            reported = handshake.protocol_version,
             supported = PROTOCOL_VERSION,
             "rejecting node registration: incompatible southbound protocol version"
         );
@@ -2169,13 +2188,19 @@ async fn register_node(
                     "unsupported",
                     format!(
                         "reported {}; supported {}",
-                        registration.protocol_version, PROTOCOL_VERSION
+                        handshake.protocol_version, PROTOCOL_VERSION
                     ),
                 )],
             )),
         )
             .into_response();
     }
+    let registration: NodeRegistration = match decode(&body) {
+        Ok(registration) => registration,
+        Err(detail) => return invalid_json(detail),
+    };
+    let node_id = registration.node.id.clone();
+    let endpoint_count = registration.endpoints.len();
     let node_issues = validate_node(&registration.node);
     if !node_issues.is_empty() {
         return invalid_request("node descriptor is invalid", node_issues);
@@ -2237,25 +2262,39 @@ async fn register_node(
 
 /// A heartbeat writes the store only when [`reported`] changes, so a controller
 /// that starts or takes over plans from what each node last reported.
+///
+/// An unknown node gets `404` before its body is decoded, so an adapter from
+/// another protocol version re-registers and hears `409` there.
 async fn node_heartbeat(
     State(state): State<AppState>,
     Extension(caller): Extension<NodeCaller>,
     Path(node_id): Path<String>,
-    payload: Result<Json<NodeHeartbeat>, JsonRejection>,
+    payload: Result<Json<Box<RawValue>>, JsonRejection>,
 ) -> Response {
     if let Some(response) = refuse_other_node(&caller, &node_id) {
         return response;
     }
-    let Json(heartbeat) = match payload {
-        Ok(payload) => payload,
-        Err(rejection) => return invalid_json(rejection),
-    };
     if let Err(reason) = validate_resource_id(&node_id) {
         return invalid_request(
             "node id is invalid",
             vec![resource_id_issue("node_id", "node id", reason)],
         );
     }
+    let mut nodes = state.nodes.write().await;
+    let Some(registration) = nodes.get_mut(&node_id) else {
+        return error(
+            StatusCode::NOT_FOUND,
+            ApiErrorCode::NodeNotFound,
+            "unknown node",
+        );
+    };
+    let decoded = payload
+        .map_err(|rejection| rejection.body_text())
+        .and_then(|Json(body)| decode(&body));
+    let heartbeat: NodeHeartbeat = match decoded {
+        Ok(heartbeat) => heartbeat,
+        Err(detail) => return invalid_json(detail),
+    };
     if node_id != heartbeat.node_id {
         return invalid_request(
             "node id mismatch",
@@ -2286,14 +2325,6 @@ async fn node_heartbeat(
             )],
         );
     }
-    let mut nodes = state.nodes.write().await;
-    let Some(registration) = nodes.get_mut(&node_id) else {
-        return error(
-            StatusCode::NOT_FOUND,
-            ApiErrorCode::NodeNotFound,
-            "unknown node",
-        );
-    };
     let was_offline = registration.node.status == NodeStatus::Offline;
     let mut updated = registration.clone();
     updated.node.status = heartbeat.status;
@@ -2402,17 +2433,18 @@ fn invalid_request(message: &str, details: Vec<ValidationIssue>) -> Response {
         .response(StatusCode::BAD_REQUEST)
 }
 
-fn invalid_json(rejection: JsonRejection) -> Response {
+fn invalid_json(detail: String) -> Response {
     ApiError::with_details(
         ApiErrorCode::InvalidJson,
         "request body is not valid for this endpoint",
-        vec![ValidationIssue::new(
-            "body",
-            "invalid_json",
-            rejection.body_text(),
-        )],
+        vec![ValidationIssue::new("body", "invalid_json", detail)],
     )
     .response(StatusCode::BAD_REQUEST)
+}
+
+fn decode<T: DeserializeOwned>(body: &RawValue) -> Result<T, String> {
+    serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_str(body.get()))
+        .map_err(|error| error.to_string())
 }
 
 fn validate_endpoint_node_ids(endpoints: &[EndpointDescriptor]) -> Result<(), ValidationIssue> {
@@ -7141,6 +7173,85 @@ mod node_auth_tests {
             node_ids(&app).await,
             ["strom-node-1"],
             "a forged registration is not recorded"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_registration_is_judged_on_its_sender_and_version_before_its_shape() {
+        let (app, _) = app().await;
+        let me = node_bearer("strom-node-1");
+        let mut body = registration("strom-node-1");
+        body["node"]["capabilities"]["bogus"] = json!(true);
+        let mut stale = body.clone();
+        stale["protocol_version"] = json!(PROTOCOL_VERSION + 1);
+
+        let (status, error) = send(
+            &app,
+            "POST",
+            "/nodes/register",
+            &node_bearer("strom-node-2"),
+            Some(stale.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(error["code"], "forbidden");
+
+        let (status, error) = send(&app, "POST", "/nodes/register", &me, Some(stale)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(error["code"], "incompatible_protocol_version");
+
+        let (status, error) = send(&app, "POST", "/nodes/register", &me, Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error["code"], "invalid_json");
+        let detail = error["details"][0]["message"].as_str().unwrap();
+        assert!(
+            detail.starts_with("node.capabilities.bogus: unknown field `bogus`"),
+            "{detail}"
+        );
+        assert!(node_ids(&app).await.is_empty(), "nothing is recorded");
+    }
+
+    #[tokio::test]
+    async fn a_heartbeat_from_an_unknown_node_gets_404_whatever_its_body() {
+        let (app, _) = app().await;
+        let me = node_bearer("strom-node-1");
+        let mut body = heartbeat("strom-node-1");
+        body["status"] = json!("sleeping");
+
+        let (status, error) = send(
+            &app,
+            "POST",
+            "/nodes/strom-node-1/heartbeat",
+            &me,
+            Some(body.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(error["code"], "node_not_found");
+
+        let (status, _) = send(
+            &app,
+            "POST",
+            "/nodes/register",
+            &me,
+            Some(registration("strom-node-1")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let (status, error) = send(
+            &app,
+            "POST",
+            "/nodes/strom-node-1/heartbeat",
+            &me,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error["code"], "invalid_json");
+        let detail = error["details"][0]["message"].as_str().unwrap();
+        assert!(
+            detail.starts_with("status: unknown variant `sleeping`"),
+            "{detail}"
         );
     }
 

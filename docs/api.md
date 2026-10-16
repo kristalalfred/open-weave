@@ -241,6 +241,13 @@ The controller accepts only the version it speaks. Any other value, including an
 absent field, which reads as `0`, gets `409` and a `warn` log line naming the
 node. Nothing about the node is recorded.
 
+The controller reads only `protocol_version` and `node.id` before it answers
+`403` for another node's token or `409` for another version, so neither answer
+depends on the rest of the body. It then checks the body against this version's
+shape and answers `400 invalid_json` naming the first field that does not fit.
+A heartbeat from a node the controller does not know gets `404 node_not_found`
+before its body is checked, and both shipped nodes then register again.
+
 ```json
 {
   "code": "incompatible_protocol_version",
