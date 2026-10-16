@@ -18,7 +18,10 @@ use runtime::Bench;
 use scenario::Scenario;
 
 #[derive(Parser)]
-#[command(about = "Run media scenarios against the local open-weave bench")]
+#[command(
+    version,
+    about = "Run media scenarios against the local open-weave bench"
+)]
 struct Cli {
     #[arg(long, default_value_os_t = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bench"), global = true)]
     bench: PathBuf,
