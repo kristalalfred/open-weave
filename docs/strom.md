@@ -18,7 +18,8 @@ from `WEAVE_STROM_TOKEN` or `strom.token` (see [Security](security.md)).
 
 - The adapter needs Strom 0.6.9 or later. It reads `GET /api/version` and exits
   when the version is lower. A Strom that does not answer is asked again on the
-  next poll, and a version string the adapter cannot read does not stop it.
+  next poll, and a version string the adapter cannot read does not stop it. The
+  bench and the node kit run 0.6.10.
 - It creates and deletes no Strom flow until its first registration is accepted.
 - A `409` protocol-version mismatch or a `403` at registration is fatal, and the
   adapter exits.

@@ -13,22 +13,29 @@ have not been tried.
 - `node/`: Strom, the Strom adapter and a `node.yaml` template, for each media
   node.
 
-Both use the image `ghcr.io/kristalalfred/open-weave`. Each `v*` tag publishes
-it for linux/amd64 and linux/arm64 under the version, such as `0.1.0` or
+Both use the image `ghcr.io/kristalalfred/open-weave:latest` unless
+`WEAVE_IMAGE` in their `.env` names another. Each `v*` tag publishes the image
+for linux/amd64 and linux/arm64 under the version, such as `0.1.0` or
 `0.1.0-rc.1`. `latest` and `0.1` follow the newest tag without a pre-release
-part, so set `WEAVE_IMAGE` to the version when running a pre-release. No version
-has been tagged yet. To build the image yourself, run
-`docker build -t open-weave:local .` at the repository root and set
-`WEAVE_IMAGE=open-weave:local`. The image holds `weave`,
-`weave-northbound`, `weave-southbound`, `weave-controller` and
-`weave-adapter-strom`, runs as uid 10001 and starts under `tini`.
+part, so set `WEAVE_IMAGE` to the version when running a pre-release.
+
+No version has been tagged yet, so no image is published. Build it at the
+repository root with `docker build -t open-weave:local .` and set
+`WEAVE_IMAGE=open-weave:local` in `control-plane/.env` and in every
+`node/.env`. Every host that runs a kit needs the image: build it on each, or
+copy it to hosts of the same architecture with `docker save` and `docker load`.
+
+The image holds `weave`, `weave-northbound`, `weave-southbound`,
+`weave-controller` and `weave-adapter-strom`, runs as uid 10001 and starts under
+`tini`.
 
 ## Control plane
 
 1. Copy `control-plane/env.example` to `control-plane/.env` and fill in the four
    secrets, each from `openssl rand -hex 32`. `WEAVE_SOUTHBOUND_KEY` and
    `WEAVE_SRT_KEY_SECRET` must be at least 32 characters. Every controller needs
-   the same values; the compose file gives both the same.
+   the same values; the compose file gives both the same. Until a version is
+   tagged, set `WEAVE_IMAGE` too.
 2. Put a certificate and key in `control-plane/tls/` as `server.pem` and
    `server.key`. The certificate has to cover the name nodes and operators dial.
 3. `docker compose up -d` in `control-plane/`.
@@ -52,30 +59,38 @@ controllers (8082) are not published. They are reachable on the compose network.
 | `WEAVE_SOUTHBOUND_KEY` | southbound, controllers | Node tokens derive from it. Never sent as a token. |
 | `WEAVE_SRT_KEY_SECRET` | controllers | SRT link keys derive from it. Changing it rekeys every link. |
 | `POSTGRES_PASSWORD` | Postgres, controllers | |
-| `WEAVE_SOUTHBOUND_MIN_EPOCHS` | southbound, controllers | Optional. Raises a node's minimum token epoch, which revokes its older tokens. See Authentication in the main README. |
+| `WEAVE_SOUTHBOUND_MIN_EPOCHS` | southbound, controllers | Optional. Raises a node's minimum token epoch, which revokes its older tokens. See [Revoking a node](../docs/security.md#revoking-a-node). |
 | `WEAVE_SOUTHBOUND_CORS_ORIGIN` | southbound | Optional. Only a browser node needs it. |
 
 ### Minting node tokens
 
 A node's token is derived from `WEAVE_SOUTHBOUND_KEY`, and minting one calls no
-service. With the key in `control-plane/.env`:
+service. The southbound container holds the key, so in `control-plane/`:
 
 ```sh
-docker run --rm --env-file control-plane/.env ghcr.io/kristalalfred/open-weave:latest \
-  weave node-token strom-node-1
+docker compose exec southbound weave node-token strom-node-1
 ```
 
-`weave node-token <id> --epoch <n>` mints at another epoch. Put the token in the
-node's `WEAVE_SOUTHBOUND_TOKEN`. Adding a node needs no control-plane restart.
+A `weave` outside the container mints the same token with the key in its
+`WEAVE_SOUTHBOUND_KEY`. `weave node-token <id> --epoch <n>` mints at another
+epoch. Put the token in the node's `WEAVE_SOUTHBOUND_TOKEN`. Adding a node needs
+no control-plane restart.
 
 ### Talking to it
+
+The image holds `weave`. Each tagged release also has it in its archives, with
+the four services (see [Releases](../docs/operations.md#releases)). From a
+checkout, `cargo install --locked --path crates/cli` installs it into Cargo's
+bin directory.
 
 ```sh
 export WEAVE_NORTHBOUND_TOKEN=...
 weave --url https://<control-plane-host> get nodes
 ```
 
-`--url` (or `WEAVE_NORTHBOUND_URL`) defaults to `http://127.0.0.1:9080`.
+`--url` (or `WEAVE_NORTHBOUND_URL`) defaults to `http://127.0.0.1:9080`. When
+the certificate in `control-plane/tls/` is signed by a private CA, set
+`SSL_CERT_FILE` to the CA as a PEM file (see [TLS](../docs/security.md#tls)).
 
 ### Listening addresses
 
@@ -93,8 +108,8 @@ comma-separated list of every controller.
 
 ### The dashboard has no login
 
-The controller serves `/`, `/ui` and `/view` without authentication, and `/view`
-shows topology and allocated ports. The compose file publishes the controller
+The controller serves `/`, `/ui`, `/view` and `/status` without authentication,
+and `/view` shows topology and allocated ports. The compose file publishes the controller
 ports on `127.0.0.1`. Reach them over an SSH tunnel or a private network, and do
 not publish them on a public address.
 
@@ -128,6 +143,7 @@ Run on each media node host.
    The `listeners` addresses are what other nodes dial to reach this node's Strom.
 2. Copy `node/env.example` to `node/.env`. Set `WEAVE_SOUTHBOUND_TOKEN` to the
    node's token and `STROM_API_KEY` to the output of `openssl rand -hex 32`.
+   Until a version is tagged, set `WEAVE_IMAGE` to the image on this host.
 3. `docker compose up -d` in `node/`.
 
 ### Strom's API key
@@ -160,11 +176,12 @@ The node dials out to the control plane on 8443.
 ## First stream
 
 `examples/stream.yaml` names `strom-node-1` and `strom-node-2`, so bring up two
-node kits with those ids, then:
+node kits with those ids, then, from the repository root:
 
 ```sh
 export WEAVE_NORTHBOUND_URL=https://<control-plane-host>
 export WEAVE_NORTHBOUND_TOKEN=<the control plane's northbound token>
+export SSL_CERT_FILE=<the CA's PEM file>   # only with a private CA
 weave apply -f examples/stream.yaml
 weave get endpoints cam1-to-studio
 ```
@@ -188,8 +205,9 @@ not flowing and why. A destination nothing pulls from reads `degraded` with
 
 - Routes are unversioned before a stable release. Payloads and errors can change
   between versions without a deprecation window.
-- Strom is the only runtime with an adapter. Pin Strom 0.6.10; other versions
-  are untested against the adapter.
+- Strom is the only runtime with an adapter. The adapter refuses a Strom older
+  than 0.6.9 (see [Strom adapter](../docs/strom.md#startup-and-shutdown)). The
+  kit pins 0.6.10, the only version the bench runs.
 - The services serve no TLS themselves. The nginx here is the only TLS, and
   there is no mTLS.
 - Postgres is one instance. While no controller can reach it, none leads.
