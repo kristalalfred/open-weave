@@ -79,8 +79,10 @@ just get-stream cam1-to-studio
 
 The stream reads `pending` until its nodes register. For each node, run
 `just run-strom-adapter --config <file>` against a Strom instance.
-[`examples/node.yaml`](examples/node.yaml) is an annotated config with the
-bench's addresses.
+[`examples/node.yaml`](examples/node.yaml) is an annotated config for
+`strom-node-1` on this machine, with Strom at `http://127.0.0.1:8080`.
+`strom-node-2` needs a copy with its own id, listen address, Strom URL and SRT
+port range.
 
 `weave --help` lists every command. Output defaults to tables, and
 `weave get stream NAME` adds the stream's status, conditions and destinations.

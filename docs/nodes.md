@@ -3,11 +3,17 @@
 A node registers with southbound and declares two things: the hop shapes its
 adapter can build (capabilities), and where it can dial and be reached
 (topology). The controller plans links from those declarations and from the
-hops each node reports running. For the Strom adapter both declarations come
-from the node config, and [`examples/node.yaml`](../examples/node.yaml) is
-annotated.
+hops each node reports running.
+
+The Strom adapter's capabilities are built in, the Strom profiles under
+[Shipped profiles](#shipped-profiles). Its topology comes from `node.topology`
+in its config, and [`examples/node.yaml`](../examples/node.yaml) is annotated.
+The config takes no `capabilities` key, and the adapter refuses to start on a
+config that has one.
 
 ## Hop profiles
+
+A registration carries capabilities in this shape:
 
 ```yaml
 capabilities:

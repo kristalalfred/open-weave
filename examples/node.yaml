@@ -1,33 +1,46 @@
-# Strom adapter node config. Pass via --config or WEAVE_NODE_CONFIG.
+# Strom adapter node config for the control plane run from source on one
+# machine (README.md, Quickstart). Pass via --config or WEAVE_NODE_CONFIG.
+# examples/stream.yaml also names strom-node-2: run a second adapter from a copy
+# of this file with another id, listen address, Strom URL and SRT port range.
 node:
-  # Registered node id manifests reference for placement.
+  # The node id manifests name.
   id: strom-node-1
-  # Southbound API the adapter registers with and polls for desired hops.
-  southbound_url: http://10.97.25.21:8081
+  # Southbound, where the adapter registers, heartbeats and pulls its desired
+  # hops. `just run-south` listens here.
+  southbound_url: http://127.0.0.1:8081
   # Optional; this node's own southbound token, which `weave node-token
   # strom-node-1` prints from the key southbound holds. Takes precedence over
   # WEAVE_SOUTHBOUND_TOKEN, which is the usual way to supply it so the secret
   # stays out of config files. The adapter refuses to start without one unless
   # WEAVE_AUTH_DISABLED=1.
   # southbound_token: <token>
-  # Address the adapter's own health/control API binds to.
-  listen: 0.0.0.0:8091
-  # Optional; how peers reach this node's control API. Defaults to http://<listen>.
-  public_endpoint: http://10.97.25.21:8091
+  # Address the adapter serves /health on, its only route.
+  listen: 127.0.0.1:8091
+  # Optional; the endpoint the node registers, which GET /nodes and the
+  # dashboard show. Nothing dials it. Defaults to http://<listen>.
+  # public_endpoint: http://127.0.0.1:8091
+  # Capabilities are built into the adapter. A `capabilities` key here is
+  # refused.
   topology:
     attachments:
       - id: wan
+        # The routing domain this attachment is on. A link needs both ends on
+        # one network. examples/stream.yaml's `preview` destination names it.
         network: internet
+        # The node can dial out from this attachment.
         dial: true
+        # What peers dial to reach this node's Strom. The controller assigns
+        # SRT ports from the range.
         listeners:
           srt:
-            host: 10.97.26.10
+            host: 127.0.0.1
             port_range: { start: 20000, end: 20999 }
-          # whip: { base_url: http://10.97.26.10:8080/whip }
-          # whep: { base_url: http://10.97.26.10:8080/whep }
+          # Strom serves WHIP and WHEP on its API port.
+          # whip: { base_url: http://127.0.0.1:8080/whip }
+          # whep: { base_url: http://127.0.0.1:8080/whep }
 strom:
-  # Base URL of the Strom instance this adapter drives.
-  url: http://10.97.26.10:8080
+  # Base URL of the Strom instance this adapter drives, at Strom's default port.
+  url: http://127.0.0.1:8080
   # Optional; bearer token presented to Strom, only needed when Strom itself
   # requires one. Takes precedence over WEAVE_STROM_TOKEN. Nothing is sent when
   # neither is set.
