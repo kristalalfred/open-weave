@@ -998,7 +998,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use weave_core::{
         ApiErrorCode, SrtEndpoint, StreamAccepted, StreamDestination, StreamSetAction,
-        StreamSetMemberResult, StreamTransport,
+        StreamSetMemberResult, StreamTransport, validate_stream,
     };
 
     #[test]
@@ -1098,6 +1098,32 @@ destinations:
                 passphrase: None,
             })
         );
+    }
+
+    fn example(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples")
+            .join(name)
+    }
+
+    #[test]
+    fn example_manifests_parse_and_validate() {
+        for name in ["stream.yaml", "contribution.yaml"] {
+            let stream = read_stream(&example(name)).unwrap_or_else(|error| panic!("{error:#}"));
+            assert_eq!(validate_stream(&stream), [], "examples/{name}");
+        }
+
+        let set = read_stream_set(&example("stream-set.yaml"))
+            .unwrap_or_else(|error| panic!("{error:#}"));
+        assert!(!set.streams.is_empty(), "examples/stream-set.yaml");
+        for stream in &set.streams {
+            assert_eq!(
+                validate_stream(stream),
+                [],
+                "examples/stream-set.yaml: {}",
+                stream.name
+            );
+        }
     }
 
     #[test]

@@ -173,6 +173,41 @@ strom:
         assert_eq!(pick_token(Some("  "), Some("")), None);
     }
 
+    fn repository_file(path: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(path)
+    }
+
+    #[test]
+    fn example_node_config_loads() {
+        let path = repository_file("examples/node.yaml");
+        AdapterConfig::load(&path).unwrap_or_else(|error| panic!("{error:#}"));
+    }
+
+    #[test]
+    fn deploy_node_template_loads_once_filled_in() {
+        let template = std::fs::read_to_string(repository_file("deploy/node/node.yaml"))
+            .expect("reading deploy/node/node.yaml");
+        let filled = template
+            .replace("<node-id>", "strom-node-1")
+            .replace("<control-plane-host>", "control.example")
+            .replace("<node-address>", "203.0.113.10")
+            .replace("<node-public-address>", "203.0.113.10");
+        let unfilled: Vec<_> = filled
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#') && line.contains('<'))
+            .collect();
+        assert!(unfilled.is_empty(), "placeholders left: {unfilled:?}");
+
+        let path =
+            std::env::temp_dir().join(format!("weave-deploy-node-{}.yaml", std::process::id()));
+        std::fs::write(&path, filled).expect("writing the filled-in template");
+        let loaded = AdapterConfig::load(&path);
+        std::fs::remove_file(&path).expect("removing the filled-in template");
+        loaded.unwrap_or_else(|error| panic!("{error:#}"));
+    }
+
     #[test]
     fn rejects_unknown_fields() {
         let yaml = format!("{VALID}  bogus: true\n");
