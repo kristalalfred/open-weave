@@ -22,6 +22,8 @@ capabilities:
     - id: srt-forward
       ingress: { transport: srt, roles: [listen, connect] }
       egress: { transport: srt, roles: [listen, connect] }
+      media_behavior: preserve
+      accepts: {}
     - id: camera-to-whip
       ingress: { device: capture, tracks: [video] }
       egress: { transport: whip, roles: [connect] }
@@ -34,7 +36,15 @@ capabilities:
 | `egress` | The same, shared by every egress of the hop. |
 | `max_egresses` | Optional limit on egresses per hop. |
 | `accepts` | Optional. The media the ingress takes, in the shape of a destination's [`accepts`](streams.md#formats). |
+| `media_behavior` | `preserve` or `unknown` (default). Never inferred from transport or profile id. |
 | `merge` | Optional. The hop takes a second ingress of the `ingress` class, `merge_ingress`, and merges two [paths](streams.md#redundant-paths). |
+
+`preserve` declares that the complete application media payload, including
+container, tracks and embedded metadata, passes unchanged. Network packet
+boundaries and transport encryption may change. It does not promise lossless or
+uninterrupted delivery. Remuxing, transcoding, track filtering and payload
+rebuilding do not qualify. Strict routing also requires explicit input `accepts`;
+`{}` imposes no modeled restrictions. Missing `accepts` remains unknown.
 
 The controller writes the chosen `profile_id` into every desired hop, and the
 adapter dispatches on it.
@@ -51,6 +61,11 @@ with no audio pads. An outside WHIP sender's tracks are the ones its declared
 |---|---|
 | Strom | `srt-forward`, `whip-to-srt`, `srt-to-whep`, `whip-to-whep`, `srt-to-rist`, `rist-to-srt` |
 | Browser | `camera-to-whip`, `whep-to-display`, each with one egress |
+
+Only Strom's `srt-forward` advertises `preserve`, with `accepts: {}`. All other
+Strom profiles and both browser profiles advertise `unknown`. RIST packetization
+and WebRTC gateways do not establish output compatibility. Stored profiles
+without this metadata remain unknown until registration supplies it.
 
 A stream from one page to another is relayed through a Strom node's
 `whip-to-whep`. Strom's `whip-to-srt` and `whip-to-whep` accept H264 video and

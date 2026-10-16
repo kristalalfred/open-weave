@@ -519,6 +519,7 @@ pub(crate) mod tests {
         emitter.emit(
             EventType::StreamChanged,
             StreamSummary {
+                format_policy: weave_core::FormatPolicy::Report,
                 name: "basic".to_string(),
                 generation: 1,
                 observed_generation: Some(1),

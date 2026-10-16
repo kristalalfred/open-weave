@@ -175,25 +175,36 @@ destinations:
         audio: { sample_rate: [44100] }
 ```
 
-A `format` has one value per field. An `accepts` lists the values each field may
-take. An absent field constrains nothing, so an empty `accepts` accepts
-anything.
+A source declares the prepared feed after any processing outside open-weave.
+A present `format` fixes the container and tracks. Omitted tracks are absent;
+an absent `format` is unknown. A destination's omitted `accepts` is unknown,
+while `accepts: {}` explicitly imposes no modeled restrictions. Supplied
+constraints must all match; a track constraint requires that track to exist.
 
-Formats are declared, not discovered. No node parses the payload, and an absent
-`format` means unknown, not wrong.
+`format_policy` defaults to `report`. Omission and explicit `report` are equal
+for no-op writes, generations and revisions. `strict` accepts desired state but
+admits a route only when every selected path to every destination is compatible.
+One failing destination blocks the whole stream. Stream-set members use the same
+policy. Disabled streams create no hops.
 
-A source format outside a destination's `accepts`, or outside the `accepts` of
-the hop profile placed for the sender, is reported at plan time. The stream is
-still placed and the media still flows. The stream reads `degraded`, and its
-`format_compatible` condition is `false` with reason `format_mismatch` and a
-detail such as:
+The controller checks each selected profile's input constraints in route order.
+A [`preserve` profile](nodes.md#hop-profiles) carries the known format forward;
+an `unknown` profile makes its output format unknown. Missing profile constraints
+make compatibility unknown without erasing a known format. A known mismatch
+takes precedence over unknown declarations, including at a later boundary.
+Destination requirements are compared with the delivered format.
 
-```
-destination studio cannot accept the source format: audio.sample_rate is 48000 but accepts 44100
-node strom-node-1 cannot take the source format through profile whip-to-srt: video.codec is vp8 but accepts h264
-```
+Strict routing considers eligible alternatives before committing ports. When
+format checking blocks placement, the stream reads `pending`, has no desired
+hops or published endpoints, and retains per-destination format conditions.
+Changes to declarations, policy, capabilities or topology trigger reevaluation.
+An active route that becomes blocked is removed through desired state, including
+when switching from `report` to `strict`; there is no old-route fallback.
+Removal is asynchronous. A disconnected adapter can retain flows until it polls.
+Strict admission is not an immediate cutoff or a security boundary.
 
-The profile check covers only the tracks the sender's hop carries, so a
-video-only source is not checked for audio.
-
-Nothing converts. No node is placed to fix a mismatch.
+Under `report`, known mismatches read `degraded` without preventing routing.
+Unknown compatibility does not independently degrade a stream, so `flowing` can
+coexist with unknown declarations. The controller does not inspect media or build
+processing pipelines. Declared compatibility does not prove decoding, delivery,
+or correctness of declarations. Nothing converts or negotiates an output format.

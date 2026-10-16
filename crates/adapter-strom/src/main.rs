@@ -803,14 +803,16 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             ingress: transport_class(Transport::Srt, RoleSet::both()),
             egress: transport_class(Transport::Srt, RoleSet::both()),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Preserve,
             merge: false,
-            accepts: None,
+            accepts: Some(FormatConstraint::default()),
         },
         HopProfile {
             id: "whip-to-srt".to_string(),
             ingress: transport_class(Transport::Whip, RoleSet::only(SocketRole::Listen)),
             egress: transport_class(Transport::Srt, RoleSet::both()),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: Some(whip_input_accepts()),
         },
@@ -819,6 +821,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             ingress: transport_class(Transport::Srt, RoleSet::both()),
             egress: transport_class(Transport::Whep, RoleSet::only(SocketRole::Listen)),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         },
@@ -827,6 +830,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             ingress: transport_class(Transport::Whip, RoleSet::only(SocketRole::Listen)),
             egress: transport_class(Transport::Whep, RoleSet::only(SocketRole::Listen)),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: Some(whip_input_accepts()),
         },
@@ -835,6 +839,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             ingress: transport_class(Transport::Srt, RoleSet::both()),
             egress: transport_class(Transport::Rist, RoleSet::only(SocketRole::Connect)),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         },
@@ -843,6 +848,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             ingress: transport_class(Transport::Rist, RoleSet::only(SocketRole::Listen)),
             egress: transport_class(Transport::Srt, RoleSet::both()),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         },
@@ -1868,14 +1874,24 @@ mod tests {
     }
 
     #[test]
-    fn only_the_whip_ingests_constrain_their_ingress() {
+    fn srt_preserves_unrestricted_payloads_and_gateways_declare_unknown() {
         let profiles = strom_hop_profiles();
         let constrained: Vec<_> = profiles
             .iter()
             .filter(|profile| profile.accepts.is_some())
             .map(|profile| profile.id.as_str())
             .collect();
-        assert_eq!(constrained, ["whip-to-srt", "whip-to-whep"]);
+        assert_eq!(constrained, ["srt-forward", "whip-to-srt", "whip-to-whep"]);
+        assert_eq!(
+            profiles[0].media_behavior,
+            weave_core::MediaBehavior::Preserve
+        );
+        assert_eq!(profiles[0].accepts, Some(FormatConstraint::default()));
+        assert!(
+            profiles[1..]
+                .iter()
+                .all(|profile| profile.media_behavior == weave_core::MediaBehavior::Unknown)
+        );
         let accepts = profiles[1].accepts.as_ref().unwrap();
         let format = |video| weave_core::MediaFormat {
             container: weave_core::Container::Rtp,

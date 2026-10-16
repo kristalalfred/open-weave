@@ -119,6 +119,7 @@ impl From<&NodeDescriptor> for NodeSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamSummary {
+    pub format_policy: crate::FormatPolicy,
     pub name: String,
     pub generation: u64,
     pub observed_generation: Option<u64>,
@@ -138,6 +139,7 @@ pub struct DestinationSummary {
 impl From<&StreamStatus> for StreamSummary {
     fn from(stream: &StreamStatus) -> Self {
         Self {
+            format_policy: stream.format_policy,
             name: stream.name.clone(),
             generation: stream.generation,
             observed_generation: stream.observed_generation,
@@ -184,6 +186,7 @@ mod tests {
                             roles: RoleSet::only(SocketRole::Connect),
                         }),
                         max_egresses: Some(1),
+                        media_behavior: crate::MediaBehavior::Unknown,
                         merge: false,
                         accepts: None,
                     }],
@@ -234,6 +237,7 @@ mod tests {
             last_transition_time: "2026-09-25T10:00:00Z".to_string(),
         };
         StreamStatus {
+            format_policy: crate::FormatPolicy::Report,
             name: "basic".to_string(),
             generation: 2,
             observed_generation: Some(2),
@@ -282,6 +286,7 @@ mod tests {
             [
                 "conditions",
                 "destinations",
+                "format_policy",
                 "generation",
                 "name",
                 "observed_generation",

@@ -1,0 +1,67 @@
+name: declared-media
+description: Strict SRT compatibility, decoded media, blocking, removal, recovery and report admission.
+steps:
+  - do: apply
+    file: ../manifests/format-strict.yaml
+    stream: main
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+    format_reason: format_compatible
+  - do: observe
+    receivers: [main/output]
+    seconds: 10
+  - do: service
+    service: leader
+    action: restart
+  - do: await
+    stream: main
+    status: flowing
+    format_reason: format_compatible
+  - do: apply
+    file: ../manifests/format-strict-mismatch.yaml
+    stream: main
+  - do: await
+    stream: main
+    status: pending
+    format_reason: format_mismatch
+  - do: flows
+    stream: main
+    nodes: {}
+  - do: apply
+    file: ../manifests/format-strict-unknown.yaml
+    stream: main
+  - do: await
+    stream: main
+    status: pending
+    format_reason: destination_accepts_unknown
+  - do: flows
+    stream: main
+    nodes: {}
+  - do: apply
+    file: ../manifests/format-strict.yaml
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+    format_reason: format_compatible
+  - do: observe
+    receivers: [main/output]
+    seconds: 10
+  - do: apply
+    file: ../manifests/format-mismatch.yaml
+    stream: main
+  - do: await
+    stream: main
+    status: degraded
+    format_reason: format_mismatch
+  - do: observe
+    receivers: [main/output]
+    seconds: 10
+  - do: flows
+    stream: main
+    nodes: { strom-node-1: 1, strom-node-2: 1 }
+  - do: delete
+    stream: main

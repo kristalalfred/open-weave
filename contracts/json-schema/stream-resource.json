@@ -20,6 +20,21 @@
     "spec": {
       "type": "object",
       "properties": {
+        "format_policy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "report",
+                "strict"
+              ],
+              "default": "report"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
         "name": {
           "type": "string",
           "minLength": 1,
@@ -2395,6 +2410,7 @@
         }
       },
       "required": [
+        "format_policy",
         "name",
         "enabled",
         "source",

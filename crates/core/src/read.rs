@@ -9,6 +9,10 @@ use crate::{
     StreamConditionReason, StreamConditionStatus, StreamConditionType, StreamSetAction,
 };
 
+fn report_policy() -> Open<crate::FormatPolicy> {
+    Open::Known(crate::FormatPolicy::Report)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Open<E> {
     Known(E),
@@ -98,6 +102,8 @@ pub struct StreamResource {
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct StreamSpec {
+    #[serde(default = "report_policy")]
+    pub format_policy: Open<crate::FormatPolicy>,
     pub name: String,
     pub enabled: bool,
 }
@@ -137,6 +143,12 @@ pub struct StreamSetMemberResult {
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct StreamPlan {
+    #[serde(default)]
+    pub conditions: Vec<StreamCondition>,
+    #[serde(default)]
+    pub destinations: Vec<StreamDestinationStatus>,
+    #[serde(default = "report_policy")]
+    pub format_policy: Open<crate::FormatPolicy>,
     pub name: String,
     pub status: Open<PlanStatus>,
     pub nodes: Vec<String>,
@@ -199,6 +211,8 @@ pub struct RunningStatus {
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct StreamStatus {
+    #[serde(default = "report_policy")]
+    pub format_policy: Open<crate::FormatPolicy>,
     pub name: String,
     pub generation: u64,
     pub observed_generation: Option<u64>,
@@ -282,6 +296,8 @@ pub struct NodeSummary {
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct StreamSummary {
+    #[serde(default = "report_policy")]
+    pub format_policy: Open<crate::FormatPolicy>,
     pub name: String,
     pub generation: u64,
     pub status: Open<PathStatus>,

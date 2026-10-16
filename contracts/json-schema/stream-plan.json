@@ -3,6 +3,281 @@
   "title": "StreamPlan",
   "type": "object",
   "properties": {
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "placement_ready",
+                  "nodes_available",
+                  "hops_ready",
+                  "format_compatible",
+                  "media_flowing"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "true",
+                  "false",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "placed",
+                  "single_path",
+                  "disabled",
+                  "placement_failed",
+                  "cleartext_not_allowed",
+                  "nodes_available",
+                  "node_missing",
+                  "node_offline",
+                  "hops_ready",
+                  "hops_pending",
+                  "hop_failed",
+                  "format_compatible",
+                  "source_format_unknown",
+                  "destination_accepts_unknown",
+                  "hop_accepts_unknown",
+                  "media_behavior_unknown",
+                  "format_route_unknown",
+                  "format_mismatch",
+                  "media_flowing",
+                  "awaiting_input",
+                  "media_degraded",
+                  "media_failed",
+                  "media_idle",
+                  "not_ready"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "detail": {
+            "type": "string"
+          },
+          "last_transition_time": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "type",
+          "status",
+          "reason",
+          "detail",
+          "last_transition_time"
+        ]
+      }
+    },
+    "destinations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "failed",
+                  "pending",
+                  "awaiting_input",
+                  "degraded",
+                  "flowing"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+            }
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "placement_ready",
+                        "nodes_available",
+                        "hops_ready",
+                        "format_compatible",
+                        "media_flowing"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "true",
+                        "false",
+                        "unknown"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "placed",
+                        "single_path",
+                        "disabled",
+                        "placement_failed",
+                        "cleartext_not_allowed",
+                        "nodes_available",
+                        "node_missing",
+                        "node_offline",
+                        "hops_ready",
+                        "hops_pending",
+                        "hop_failed",
+                        "format_compatible",
+                        "source_format_unknown",
+                        "destination_accepts_unknown",
+                        "hop_accepts_unknown",
+                        "media_behavior_unknown",
+                        "format_route_unknown",
+                        "format_mismatch",
+                        "media_flowing",
+                        "awaiting_input",
+                        "media_degraded",
+                        "media_failed",
+                        "media_idle",
+                        "not_ready"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "last_transition_time": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "type",
+                "status",
+                "reason",
+                "detail",
+                "last_transition_time"
+              ]
+            }
+          },
+          "endpoint": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "node": {
+                "type": "string"
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "port": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint16",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "node",
+              "url"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "nodes",
+          "conditions",
+          "endpoint"
+        ]
+      }
+    },
+    "format_policy": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "report",
+            "strict"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
     "name": {
       "type": "string",
       "minLength": 1,
@@ -531,6 +806,9 @@
     }
   },
   "required": [
+    "conditions",
+    "destinations",
+    "format_policy",
     "name",
     "status",
     "nodes",

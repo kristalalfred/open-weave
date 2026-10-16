@@ -314,6 +314,7 @@ impl Bench {
                 destination,
                 timeout_secs,
                 nodes,
+                format_reason,
             } => {
                 self.await_status(
                     stream,
@@ -321,6 +322,7 @@ impl Bench {
                     destination.as_deref(),
                     *timeout_secs,
                     nodes.as_deref(),
+                    *format_reason,
                 )
                 .await?;
             }
@@ -564,6 +566,7 @@ impl Bench {
         destination: Option<&str>,
         seconds: u64,
         nodes: Option<&[String]>,
+        format_reason: Option<weave_core::StreamConditionReason>,
     ) -> Result<()> {
         let name = self.name(alias)?;
         let started = Instant::now();
@@ -597,13 +600,38 @@ impl Bench {
                             expected.iter().collect::<BTreeSet<_>>()
                                 == got_nodes.iter().collect::<BTreeSet<_>>()
                         });
+                        let conditions = selected.map_or(&stream.conditions, |d| &d.conditions);
+                        let format_matches = format_reason.is_none_or(|expected| {
+                            conditions.iter().any(|condition| {
+                                condition.condition_type
+                                    == weave_core::StreamConditionType::FormatCompatible
+                                    && condition.reason == expected
+                            })
+                        });
                         let media = status != PathStatus::Flowing
                             || self.receiving(alias, destination, started);
                         if got.is_some_and(|got| *got == status)
                             && stream.observed_generation == Some(stream.generation)
                             && nodes_match
+                            && format_matches
                             && media
                         {
+                            if format_reason.is_some()
+                                && status == PathStatus::Pending
+                                && stream.format_policy == weave_core::FormatPolicy::Strict
+                            {
+                                let response = self
+                                    .http
+                                    .get(format!("{}/streams/{name}/endpoints", self.url))
+                                    .bearer_auth(&self.token)
+                                    .send()
+                                    .await?;
+                                ensure!(
+                                    response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                                    "blocked stream still publishes endpoints: {}",
+                                    response.status()
+                                );
+                            }
                             return Ok(());
                         }
                     }

@@ -45,7 +45,7 @@ pub const ROUTE_STREAM_SET: &str = "/stream-sets/{owner}";
 pub const ROUTE_STREAM_SETS: &str = "/stream-sets";
 pub const ROUTE_STREAMS: &str = "/streams";
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 #[must_use]
 pub fn protocol_compatible(version: u32) -> bool {
@@ -82,6 +82,7 @@ mod contract_tests {
         let left = StreamDefinition {
             name: "feed".to_string(),
             enabled: true,
+            format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: endpoint("source"),
             destinations: vec![destination("studio", "a"), destination("preview", "b")],
@@ -96,6 +97,7 @@ mod contract_tests {
         let stream = StreamDefinition {
             name: "feed".to_string(),
             enabled: true,
+            format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: endpoint("source"),
             destinations: vec![destination("studio", "a"), destination("studio", "b")],
@@ -300,9 +302,27 @@ mod contract_tests {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FormatPolicy {
+    #[default]
+    Report,
+    Strict,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaBehavior {
+    Preserve,
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamDefinition {
+    #[serde(default)]
+    pub format_policy: FormatPolicy,
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -321,6 +341,7 @@ pub struct StreamDefinition {
 impl PartialEq for StreamDefinition {
     fn eq(&self, other: &Self) -> bool {
         if self.name != other.name
+            || self.format_policy != other.format_policy
             || self.enabled != other.enabled
             || self.allow_cleartext_links != other.allow_cleartext_links
             || self.source != other.source
@@ -1451,6 +1472,8 @@ impl NodeCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HopProfile {
+    #[serde(default)]
+    pub media_behavior: MediaBehavior,
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -2539,6 +2562,7 @@ mod tests {
         StreamDefinition {
             name: "formats".to_string(),
             enabled: true,
+            format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(source),
             destinations: vec![StreamDestination {
@@ -2738,6 +2762,7 @@ mod tests {
         let stream = StreamDefinition {
             name: "alice-cam".to_string(),
             enabled: true,
+            format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Device(NodeEndpoint {
                 node: "browser-a1b2".to_string(),
@@ -3096,9 +3121,50 @@ mod tests {
                 .is_none()
         );
         let merging = HopProfile {
+            media_behavior: crate::MediaBehavior::Unknown,
             merge: true,
             ..profile
         };
         assert_eq!(serde_json::to_value(&merging).unwrap()["merge"], true);
+    }
+}
+
+#[cfg(test)]
+mod declared_media_tests {
+    use super::*;
+
+    #[test]
+    fn policy_defaults_round_trip_and_reject_unknown_values() {
+        let mut value = serde_json::json!({
+            "name": "feed",
+            "source": {"srt": {"node": "source"}},
+            "destinations": [{"id": "output", "srt": {"node": "receiver"}}]
+        });
+        let omitted: StreamDefinition = serde_json::from_value(value.clone()).unwrap();
+        value["format_policy"] = serde_json::json!("report");
+        let explicit: StreamDefinition = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(omitted, explicit);
+        value["format_policy"] = serde_json::json!("strict");
+        let strict: StreamDefinition = serde_json::from_value(value.clone()).unwrap();
+        assert_ne!(strict, omitted);
+        assert_eq!(
+            serde_json::from_value::<StreamDefinition>(serde_json::to_value(&strict).unwrap())
+                .unwrap(),
+            strict
+        );
+        value["format_policy"] = serde_json::json!("guess");
+        assert!(serde_json::from_value::<StreamDefinition>(value).is_err());
+    }
+
+    #[test]
+    fn old_profile_metadata_never_implies_preservation() {
+        let value = serde_json::json!({
+            "id": "srt-forward",
+            "ingress": {"transport": "srt", "roles": ["listen", "connect"]},
+            "egress": {"transport": "srt", "roles": ["listen", "connect"]},
+            "accepts": {}
+        });
+        let profile: HopProfile = serde_json::from_value(value).unwrap();
+        assert_eq!(profile.media_behavior, MediaBehavior::Unknown);
     }
 }

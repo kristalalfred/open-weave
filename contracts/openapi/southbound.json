@@ -1406,6 +1406,14 @@
                   "items": {
                     "type": "object",
                     "properties": {
+                      "media_behavior": {
+                        "type": "string",
+                        "enum": [
+                          "preserve",
+                          "unknown"
+                        ],
+                        "default": "unknown"
+                      },
                       "id": {
                         "type": "string",
                         "minLength": 1,
@@ -1718,6 +1726,7 @@
                     },
                     "additionalProperties": false,
                     "required": [
+                      "media_behavior",
                       "id",
                       "ingress",
                       "egress"
@@ -1970,6 +1979,14 @@
                     "items": {
                       "type": "object",
                       "properties": {
+                        "media_behavior": {
+                          "type": "string",
+                          "enum": [
+                            "preserve",
+                            "unknown"
+                          ],
+                          "default": "unknown"
+                        },
                         "id": {
                           "type": "string",
                           "minLength": 1,
@@ -2856,6 +2873,14 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "media_behavior": {
+                            "type": "string",
+                            "enum": [
+                              "preserve",
+                              "unknown"
+                            ],
+                            "default": "unknown"
+                          },
                           "id": {
                             "type": "string",
                             "minLength": 1,
@@ -3168,6 +3193,7 @@
                         },
                         "additionalProperties": false,
                         "required": [
+                          "media_behavior",
                           "id",
                           "ingress",
                           "egress"

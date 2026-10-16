@@ -338,8 +338,14 @@ function renderStreams(streams) {
       h("div", "stream-head",
         h("span", "name", stream.name),
         pill(stream.status),
+        h("span", null, `format policy: ${stream.format_policy}`),
         stream.reason ? h("span", "reason", stream.reason) : null,
       ),
+      ...stream.conditions.filter(c => c.type === "format_compatible").map(c =>
+        h("div", null, `declared compatibility: ${c.status} (${c.reason}): ${c.detail}`)),
+      ...stream.destinations.map(d => h("div", null,
+        `${d.id}: ` + d.conditions.filter(c => c.type === "format_compatible")
+          .map(c => `${c.status} (${c.reason}): ${c.detail}`).join("; "))),
       stream.hops.length ? renderPath(stream) : null,
     )
   ));

@@ -1,0 +1,441 @@
+{
+  "scope": "Local Docker bench with generated ffmpeg media; not independent equipment verification.",
+  "run": "1792173139-22833",
+  "scenario": "bench/cases/13-declared-media.yaml",
+  "media_image": {
+    "image": "linuxserver/ffmpeg@sha256:abb675ffda7047f42dfba02adcd0886b3abfca6dec332adc4da831de943989ed",
+    "id": "sha256:abb675ffda7047f42dfba02adcd0886b3abfca6dec332adc4da831de943989ed",
+    "digests": [
+      "linuxserver/ffmpeg@sha256:abb675ffda7047f42dfba02adcd0886b3abfca6dec332adc4da831de943989ed"
+    ]
+  },
+  "timeline_sha256": "0094a51db5d7517e78e93015e532c4fba61bdde42e3ec835f6fce04683c32732",
+  "raw_evidence": "bench/results/1792173139-22833/declared-media",
+  "result": {
+    "name": "declared-media",
+    "passed": true,
+    "elapsed_ms": 88615,
+    "error": null,
+    "cleanup_error": null,
+    "media": [
+      {
+        "receiver": "main/output",
+        "progress": {
+          "container": "ow-e2e-22833-0-main-output",
+          "attempts": 4,
+          "decoded_frames": 1726,
+          "decoded_audio_samples": 2768896,
+          "max_progress_gap_ms": 19514,
+          "observer_error": null
+        }
+      }
+    ],
+    "diagnostic_errors": []
+  },
+  "gap_scope": "The maximum progress gap includes intentional strict blocking and subsequent peer reconnection. Each observation window enforced a 3000 ms maximum gap and zero additional restarts.",
+  "completed_steps": [
+    {
+      "step": 1,
+      "action": {
+        "do": "apply",
+        "file": "../manifests/format-strict.yaml",
+        "stream": "main"
+      },
+      "completed_ms": 1608
+    },
+    {
+      "step": 2,
+      "action": {
+        "do": "drive",
+        "stream": "main"
+      },
+      "completed_ms": 4960
+    },
+    {
+      "step": 3,
+      "action": {
+        "do": "await",
+        "stream": "main",
+        "status": "flowing",
+        "destination": null,
+        "timeout_secs": 90,
+        "nodes": null,
+        "format_reason": "format_compatible"
+      },
+      "completed_ms": 14643,
+      "observed": {
+        "generation": 1,
+        "observed_generation": 1,
+        "status": "flowing",
+        "format_policy": "strict",
+        "conditions": [
+          {
+            "type": "placement_ready",
+            "status": "true",
+            "reason": "placed",
+            "detail": "the stream has a complete path"
+          },
+          {
+            "type": "format_compatible",
+            "status": "true",
+            "reason": "format_compatible",
+            "detail": "declared formats are compatible"
+          }
+        ]
+      }
+    },
+    {
+      "step": 4,
+      "action": {
+        "do": "observe",
+        "receivers": [
+          "main/output"
+        ],
+        "seconds": 10,
+        "max_gap_ms": 3000,
+        "max_restarts": 0,
+        "during": []
+      },
+      "completed_ms": 24645,
+      "receiver_progress": {
+        "receiver": "main/output",
+        "frames": 463,
+        "audio_samples": 754688,
+        "attempts": 1,
+        "video_idle_ms": 106,
+        "audio_idle_ms": 0,
+        "ended": false,
+        "observer_error": null
+      }
+    },
+    {
+      "step": 5,
+      "action": {
+        "do": "service",
+        "service": "leader",
+        "action": "restart"
+      },
+      "completed_ms": 30278
+    },
+    {
+      "step": 6,
+      "action": {
+        "do": "await",
+        "stream": "main",
+        "status": "flowing",
+        "destination": null,
+        "timeout_secs": 90,
+        "nodes": null,
+        "format_reason": "format_compatible"
+      },
+      "completed_ms": 30784,
+      "observed": {
+        "generation": 1,
+        "observed_generation": 1,
+        "status": "flowing",
+        "format_policy": "strict",
+        "conditions": [
+          {
+            "type": "placement_ready",
+            "status": "true",
+            "reason": "placed",
+            "detail": "the stream has a complete path"
+          },
+          {
+            "type": "format_compatible",
+            "status": "true",
+            "reason": "format_compatible",
+            "detail": "declared formats are compatible"
+          }
+        ]
+      }
+    },
+    {
+      "step": 7,
+      "action": {
+        "do": "apply",
+        "file": "../manifests/format-strict-mismatch.yaml",
+        "stream": "main"
+      },
+      "completed_ms": 30790
+    },
+    {
+      "step": 8,
+      "action": {
+        "do": "await",
+        "stream": "main",
+        "status": "pending",
+        "destination": null,
+        "timeout_secs": 90,
+        "nodes": null,
+        "format_reason": "format_mismatch"
+      },
+      "completed_ms": 34866,
+      "observed": {
+        "generation": 2,
+        "observed_generation": 2,
+        "status": "pending",
+        "format_policy": "strict",
+        "conditions": [
+          {
+            "type": "placement_ready",
+            "status": "false",
+            "reason": "format_mismatch",
+            "detail": "destination output path output: audio.sample_rate is 48000 but accepts 44100"
+          },
+          {
+            "type": "format_compatible",
+            "status": "false",
+            "reason": "format_mismatch",
+            "detail": "destination output path output: audio.sample_rate is 48000 but accepts 44100"
+          }
+        ]
+      }
+    },
+    {
+      "step": 9,
+      "action": {
+        "do": "flows",
+        "stream": "main",
+        "nodes": {},
+        "timeout_secs": 90
+      },
+      "completed_ms": 37088
+    },
+    {
+      "step": 10,
+      "action": {
+        "do": "apply",
+        "file": "../manifests/format-strict-unknown.yaml",
+        "stream": "main"
+      },
+      "completed_ms": 37092
+    },
+    {
+      "step": 11,
+      "action": {
+        "do": "await",
+        "stream": "main",
+        "status": "pending",
+        "destination": null,
+        "timeout_secs": 90,
+        "nodes": null,
+        "format_reason": "destination_accepts_unknown"
+      },
+      "completed_ms": 40135,
+      "observed": {
+        "generation": 3,
+        "observed_generation": 3,
+        "status": "pending",
+        "format_policy": "strict",
+        "conditions": [
+          {
+            "type": "placement_ready",
+            "status": "false",
+            "reason": "destination_accepts_unknown",
+            "detail": "destination output path output: accepts is not declared"
+          },
+          {
+            "type": "format_compatible",
+            "status": "unknown",
+            "reason": "destination_accepts_unknown",
+            "detail": "destination output path output: accepts is not declared"
+          }
+        ]
+      }
+    },
+    {
+      "step": 12,
+      "action": {
+        "do": "flows",
+        "stream": "main",
+        "nodes": {},
+        "timeout_secs": 90
+      },
+      "completed_ms": 40587
+    },
+    {
+      "step": 13,
+      "action": {
+        "do": "apply",
+        "file": "../manifests/format-strict.yaml",
+        "stream": "main"
+      },
+      "completed_ms": 40592
+    },
+    {
+      "step": 14,
+      "action": {
+        "do": "await",
+        "stream": "main",
+        "status": "flowing",
+        "destination": null,
+        "timeout_secs": 90,
+        "nodes": null,
+        "format_reason": "format_compatible"
+      },
+      "completed_ms": 56578,
+      "observed": {
+        "generation": 4,
+        "observed_generation": 4,
+        "status": "flowing",
+        "format_policy": "strict",
+        "conditions": [
+          {
+            "type": "placement_ready",
+            "status": "true",
+            "reason": "placed",
+            "detail": "the stream has a complete path"
+          },
+          {
+            "type": "format_compatible",
+            "status": "true",
+            "reason": "format_compatible",
+            "detail": "declared formats are compatible"
+          }
+        ]
+      }
+    },
+    {
+      "step": 15,
+      "action": {
+        "do": "observe",
+        "receivers": [
+          "main/output"
+        ],
+        "seconds": 10,
+        "max_gap_ms": 3000,
+        "max_restarts": 0,
+        "during": []
+      },
+      "completed_ms": 66579,
+      "receiver_progress": {
+        "receiver": "main/output",
+        "frames": 1298,
+        "audio_samples": 2088960,
+        "attempts": 4,
+        "video_idle_ms": 251,
+        "audio_idle_ms": 140,
+        "ended": false,
+        "observer_error": null
+      }
+    },
+    {
+      "step": 16,
+      "action": {
+        "do": "apply",
+        "file": "../manifests/format-mismatch.yaml",
+        "stream": "main"
+      },
+      "completed_ms": 66690
+    },
+    {
+      "step": 17,
+      "action": {
+        "do": "await",
+        "stream": "main",
+        "status": "degraded",
+        "destination": null,
+        "timeout_secs": 90,
+        "nodes": null,
+        "format_reason": "format_mismatch"
+      },
+      "completed_ms": 69724,
+      "observed": {
+        "generation": 5,
+        "observed_generation": 5,
+        "status": "degraded",
+        "format_policy": "report",
+        "conditions": [
+          {
+            "type": "placement_ready",
+            "status": "true",
+            "reason": "placed",
+            "detail": "the stream has a complete path"
+          },
+          {
+            "type": "format_compatible",
+            "status": "false",
+            "reason": "format_mismatch",
+            "detail": "destination output path output: audio.sample_rate is 48000 but accepts 44100"
+          }
+        ]
+      }
+    },
+    {
+      "step": 18,
+      "action": {
+        "do": "observe",
+        "receivers": [
+          "main/output"
+        ],
+        "seconds": 10,
+        "max_gap_ms": 3000,
+        "max_restarts": 0,
+        "during": []
+      },
+      "completed_ms": 79725,
+      "receiver_progress": {
+        "receiver": "main/output",
+        "frames": 1696,
+        "audio_samples": 2720768,
+        "attempts": 4,
+        "video_idle_ms": 133,
+        "audio_idle_ms": 0,
+        "ended": false,
+        "observer_error": null
+      }
+    },
+    {
+      "step": 19,
+      "action": {
+        "do": "flows",
+        "stream": "main",
+        "nodes": {
+          "strom-node-1": 1,
+          "strom-node-2": 1
+        },
+        "timeout_secs": 90
+      },
+      "completed_ms": 80234
+    },
+    {
+      "step": 20,
+      "action": {
+        "do": "delete",
+        "stream": "main"
+      },
+      "completed_ms": 88398
+    }
+  ],
+  "runtime_flow_checks": [
+    {
+      "elapsed_ms": 37088,
+      "kind": "flows_verified",
+      "data": []
+    },
+    {
+      "elapsed_ms": 40587,
+      "kind": "flows_verified",
+      "data": []
+    },
+    {
+      "elapsed_ms": 80234,
+      "kind": "flows_verified",
+      "data": [
+        {
+          "node": 1,
+          "name": "weave-e2e-22833-0-main-sender",
+          "id": "38633af7-62fb-42a7-9e08-be1219c807bf",
+          "running": true
+        },
+        {
+          "node": 2,
+          "name": "weave-e2e-22833-0-main-receiver-output",
+          "id": "795b1e66-f6af-43d2-900f-ab4099091aca",
+          "running": true
+        }
+      ]
+    }
+  ]
+}

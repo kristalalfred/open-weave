@@ -22,6 +22,7 @@ fn profile(id: &str, ingress: HopEndpointClass, egress: HopEndpointClass) -> Hop
         ingress,
         egress,
         max_egresses: None,
+        media_behavior: weave_core::MediaBehavior::Unknown,
         merge: false,
         accepts: None,
     }
@@ -140,6 +141,7 @@ fn stream(source: StreamTransport, destinations: Vec<(&str, StreamTransport)>) -
     let stream = StreamDefinition {
         name: "feed".to_string(),
         enabled: true,
+        format_policy: weave_core::FormatPolicy::Report,
         allow_cleartext_links: false,
         source,
         destinations: destinations
@@ -425,7 +427,7 @@ fn a_whip_sender_declaring_a_codec_the_ingest_cannot_take_is_a_format_mismatch()
         condition.condition_type == StreamConditionType::PlacementReady
             && condition.status == StreamConditionStatus::True
     }));
-    let detail = "node strom-node-1 cannot take the source format through profile whip-to-srt: \
+    let detail = "destination studio path studio, node strom-node-1 profile whip-to-srt: \
                   video.codec is vp8 but accepts h264";
     for conditions in [&status.conditions, &status.destinations[0].conditions] {
         let condition = format_compatible(conditions);
@@ -437,22 +439,25 @@ fn a_whip_sender_declaring_a_codec_the_ingest_cannot_take_is_a_format_mismatch()
 }
 
 #[test]
-fn a_whip_sender_declaring_what_the_ingest_takes_is_compatible() {
+fn a_whip_gateway_has_unknown_output_even_when_its_input_matches() {
     let status = reconciled(Some(sender_format(VideoCodec::H264)));
     assert_eq!(status.status, PathStatus::Pending);
     let condition = format_compatible(&status.conditions);
-    assert_eq!(condition.status, StreamConditionStatus::True);
-    assert_eq!(condition.reason, StreamConditionReason::FormatCompatible);
+    assert_eq!(condition.status, StreamConditionStatus::Unknown);
+    assert_eq!(
+        condition.reason,
+        StreamConditionReason::MediaBehaviorUnknown
+    );
 
     let undeclared = reconciled(None);
     assert_eq!(
         format_compatible(&undeclared.conditions).reason,
-        StreamConditionReason::FormatUnknown
+        StreamConditionReason::SourceFormatUnknown
     );
 }
 
 #[test]
-fn a_whip_sender_declaring_one_track_is_built_and_checked_for_that_track() {
+fn a_whip_sender_with_one_track_reports_missing_required_tracks() {
     let video_only = MediaFormat {
         audio: None,
         ..sender_format(VideoCodec::H264)
@@ -469,7 +474,7 @@ fn a_whip_sender_declaring_one_track_is_built_and_checked_for_that_track() {
         let condition = format_compatible(&outcome.streams[0].conditions);
         assert_eq!(
             condition.reason,
-            StreamConditionReason::FormatCompatible,
+            StreamConditionReason::FormatMismatch,
             "{tracks:?}: {}",
             condition.detail
         );

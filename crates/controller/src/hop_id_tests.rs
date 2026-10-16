@@ -29,6 +29,7 @@ fn node(id: &str, network: &str) -> NodeDescriptor {
                 ingress: srt(),
                 egress: srt(),
                 max_egresses: None,
+                media_behavior: weave_core::MediaBehavior::Unknown,
                 merge: false,
                 accepts: None,
             }],
@@ -72,6 +73,7 @@ fn stream(name: &str, source: &str, destinations: &[(&str, &str)]) -> StreamDefi
     StreamDefinition {
         name: name.to_string(),
         enabled: true,
+        format_policy: weave_core::FormatPolicy::Report,
         allow_cleartext_links: false,
         source: endpoint(source),
         destinations: destinations

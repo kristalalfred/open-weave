@@ -159,12 +159,20 @@ carries five conditions:
 | `placement_ready` | The stream has a plan. |
 | `nodes_available` | Every node it names is registered and online. |
 | `hops_ready` | Every desired hop is provisioned. |
-| `format_compatible` | Declared formats satisfy every `accepts`. |
+| `format_compatible` | The source, every selected hop and every destination establish unchanged, acceptable media by declaration. |
 | `media_flowing` | Media reaches every destination. |
 
 Each condition has a `status` of `true`, `false` or `unknown`, a stable `reason`
 code, a `detail` string and an RFC 3339 `last_transition_time`. The time
 changes only when the status changes.
+
+Format reasons are `format_compatible` (`true`), `format_mismatch` (`false`), or
+`source_format_unknown`, `destination_accepts_unknown`, `hop_accepts_unknown`,
+`media_behavior_unknown`, `format_route_unknown` (`unknown`). Known mismatches
+win; ties use destination-id and route order. Details name the boundary and
+missing declaration or incompatible values. A strict format failure sets
+`placement_ready` to `false` with the blocking format reason. Topology failures
+retain their placement reasons. These declarations do not certify decoded media.
 
 ## Stream sets
 
@@ -201,13 +209,15 @@ ETag. It does not retry a stale write. See
 validates the definition, plans it alongside the stored streams against the
 current nodes and the hops they report running, and returns `placed`,
 `unplaced` or `disabled` with the resolved nodes, desired hops, endpoints and
-any placement reason. Passphrases are removed from the returned hops. `weave
-plan -f FILE` calls it.
+any placement reason. It includes `format_policy`, stream conditions and
+per-destination results. Strict format failures return `unplaced` with no
+executable hops or endpoints. Passphrases are removed from the returned hops.
+`weave plan -f FILE` calls it.
 
 ## Status and endpoints
 
-`GET /status` is the scriptable rollup: one entry per stream with its status
-and conditions, and one entry per destination with its own status, nodes,
+`GET /status` is the scriptable rollup: one entry per stream with its status,
+`format_policy` and conditions, and one entry per destination with its own status, nodes,
 conditions and endpoint. Its overall `status` is `idle` with no enabled streams,
 `degraded` if any stream is failed or degraded, `converging` if any is pending,
 and `converged` otherwise, including streams awaiting input.
@@ -243,7 +253,7 @@ registration declares.
 `weave_core::PROTOCOL_VERSION`:
 
 ```json
-{ "protocol_version": 5, "node": { "id": "strom-node-1", "...": "..." } }
+{ "protocol_version": 6, "node": { "id": "strom-node-1", "...": "..." } }
 ```
 
 The controller accepts only the version it speaks. Any other value, including an

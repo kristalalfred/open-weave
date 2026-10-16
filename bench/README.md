@@ -67,7 +67,7 @@ Cases use these actions:
 | `apply` | `file` relative to the case; `stream` is a case-local alias. |
 | `drive` | Start a producer and all destination consumers for `stream`. |
 | `producer`, `consumer` | Set `running` for a stream's producer or a `receiver` such as `main/output`. |
-| `await` | Wait for `status`, optional `destination` and `nodes`, within `timeout_secs` (default 90). |
+| `await` | Wait for `status`, optional `destination`, `nodes` and `format_reason`, within `timeout_secs` (default 90). |
 | `flows` | Require running hop counts in `nodes`; omitted nodes must have zero. |
 | `observe` | Watch `receivers` for at least `seconds`; also watch until every `during` action finishes. |
 | `service` | `stop`, `start`, `restart`, or `kill` a bench control service, adapter, or Strom; `leader` selects the current controller leader. `start` and `restart` wait until the container runs and passes its healthcheck. |
@@ -96,7 +96,11 @@ is recorded; `--media-image` overrides it. The runner pulls it when absent.
 
 The corpus covers direct links, fan-out, concurrent feeds, controller
 failover, source reconnects, delay/loss, site partitions, relay replacement,
-encrypted endpoints, southbound outages, and a media runtime restart. Its
+encrypted endpoints, southbound outages, a media runtime restart, and strict
+declared compatibility admission, blocking, removal and recovery. The local
+[declared-media evidence](evidence/declared-media.json) records decoded media
+and control-plane results separately from unit tests. It is not independent
+equipment verification. Its
 external peers use SRT and require both video and audio. Browser, external
 WHIP/WHEP, and RIST-specific cases are not in this corpus. Router impairment
 affects control traffic as well as media. The Media bench CI job runs the corpus

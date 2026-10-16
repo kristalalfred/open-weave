@@ -1,6 +1,6 @@
 "use strict";
 
-const PROTOCOL_VERSION = 5;
+const PROTOCOL_VERSION = 6;
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 2000;
 const STALL_POLLS = 3;
@@ -94,12 +94,14 @@ function registration() {
             ingress: { device: "capture", tracks: Object.keys(config.media).sort() },
             egress: { transport: "whip", roles: ["connect"] },
             max_egresses: 1,
+            media_behavior: "unknown",
           },
           {
             id: "whep-to-display",
             ingress: { transport: "whep", roles: ["connect"] },
             egress: { device: "display" },
             max_egresses: 1,
+            media_behavior: "unknown",
           },
         ],
       },

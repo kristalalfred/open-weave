@@ -50,6 +50,20 @@
           "items": {
             "type": "object",
             "properties": {
+              "format_policy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "report",
+                      "strict"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
               "name": {
                 "type": "string",
                 "minLength": 1,
@@ -150,7 +164,11 @@
                             "hops_pending",
                             "hop_failed",
                             "format_compatible",
-                            "format_unknown",
+                            "source_format_unknown",
+                            "destination_accepts_unknown",
+                            "hop_accepts_unknown",
+                            "media_behavior_unknown",
+                            "format_route_unknown",
                             "format_mismatch",
                             "media_flowing",
                             "awaiting_input",
@@ -307,7 +325,11 @@
                                   "hops_pending",
                                   "hop_failed",
                                   "format_compatible",
-                                  "format_unknown",
+                                  "source_format_unknown",
+                                  "destination_accepts_unknown",
+                                  "hop_accepts_unknown",
+                                  "media_behavior_unknown",
+                                  "format_route_unknown",
                                   "format_mismatch",
                                   "media_flowing",
                                   "awaiting_input",
@@ -384,6 +406,7 @@
               }
             },
             "required": [
+              "format_policy",
               "name",
               "generation",
               "observed_generation",

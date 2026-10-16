@@ -1322,6 +1322,7 @@ pub(crate) mod tests {
         StreamDefinition {
             name: name.to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(SrtEndpoint {
                 node: Some("strom-node-1".to_string()),
@@ -2116,6 +2117,7 @@ pub(crate) mod tests {
     }
     fn status_of(name: &str) -> StreamStatus {
         StreamStatus {
+            format_policy: weave_core::FormatPolicy::Report,
             name: name.to_string(),
             generation: 1,
             observed_generation: Some(1),

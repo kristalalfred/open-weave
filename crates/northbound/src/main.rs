@@ -543,6 +543,7 @@ mod tests {
         StreamDefinition {
             name: "cam1-to-studio".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(node_ref("strom-node-1")),
             destinations: vec![StreamDestination {

@@ -28,6 +28,11 @@ const TRANSPORT_PREFERENCE: [Transport; 4] = [
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PlacementError {
+    #[error("{detail}")]
+    FormatBlocked {
+        detail: String,
+        compatibility: crate::compatibility::Compatibility,
+    },
     #[error("stream has no destinations")]
     NoDestination,
     #[error("node {node} is not registered")]
@@ -678,6 +683,47 @@ pub fn derive_stream(
     stream: &StreamDefinition,
     nodes: &[NodeDescriptor],
     _observed: &[HopStatus],
+    committed_ports: &mut PortAllocator,
+    keys: &LinkKeys,
+) -> Result<PlannedStream, PlacementError> {
+    if stream.format_policy == weave_core::FormatPolicy::Strict {
+        let mut eligible = nodes.to_vec();
+        for node in &mut eligible {
+            node.capabilities.hop_profiles.retain(|profile| {
+                profile.media_behavior == weave_core::MediaBehavior::Preserve
+                    && stream.source.format().is_some_and(|format| {
+                        profile
+                            .accepts
+                            .as_ref()
+                            .is_some_and(|accepts| accepts.satisfied_by(format))
+                    })
+            });
+        }
+        let mut candidate_ports = committed_ports.clone();
+        if let Ok(planned) = derive_transports(stream, &eligible, &mut candidate_ports, keys) {
+            let compatibility = crate::compatibility::evaluate(stream, Some(&planned.path), nodes);
+            if compatibility.aggregate().status == weave_core::StreamConditionStatus::True {
+                *committed_ports = candidate_ports;
+                return Ok(planned);
+            }
+            return Err(PlacementError::FormatBlocked {
+                detail: compatibility.aggregate().detail,
+                compatibility,
+            });
+        }
+        let planned = derive_transports(stream, nodes, &mut committed_ports.clone(), keys)?;
+        let compatibility = crate::compatibility::evaluate(stream, Some(&planned.path), nodes);
+        return Err(PlacementError::FormatBlocked {
+            detail: compatibility.aggregate().detail,
+            compatibility,
+        });
+    }
+    derive_transports(stream, nodes, committed_ports, keys)
+}
+
+fn derive_transports(
+    stream: &StreamDefinition,
+    nodes: &[NodeDescriptor],
     committed_ports: &mut PortAllocator,
     keys: &LinkKeys,
 ) -> Result<PlannedStream, PlacementError> {
@@ -2374,6 +2420,7 @@ mod contract_tests {
             ingress: class(Transport::Srt, weave_core::RoleSet::both()),
             egress: class(Transport::Srt, weave_core::RoleSet::both()),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         }
@@ -2437,6 +2484,7 @@ mod contract_tests {
         StreamDefinition {
             name: "feed".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: srt_endpoint("source"),
             destinations,
@@ -2539,6 +2587,7 @@ mod contract_tests {
                         weave_core::RoleSet::only(SocketRole::Connect),
                     ),
                     max_egresses: Some(1),
+                    media_behavior: weave_core::MediaBehavior::Unknown,
                     merge: false,
                     accepts: None,
                 }],
@@ -2562,12 +2611,14 @@ mod contract_tests {
             ),
             egress: class(Transport::Srt, weave_core::RoleSet::both()),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         });
         let stream = StreamDefinition {
             name: "camera".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Device(NodeEndpoint {
                 node: "browser".to_string(),
@@ -2618,12 +2669,14 @@ mod contract_tests {
             }),
             egress: class(Transport::Srt, weave_core::RoleSet::both()),
             max_egresses: Some(1),
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         }];
         let definition = StreamDefinition {
             name: "fanout".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Device(NodeEndpoint {
                 node: "browser".to_string(),
@@ -2652,6 +2705,7 @@ mod contract_tests {
                 weave_core::RoleSet::only(SocketRole::Listen),
             ),
             max_egresses: Some(1),
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         }];
@@ -3112,6 +3166,7 @@ mod tests {
             ingress,
             egress,
             max_egresses,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         }
@@ -3246,6 +3301,7 @@ mod tests {
         StreamDefinition {
             name: "contribution".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(node_ref("strom-node-1", 200)),
             destinations: vec![dest("studio", node_ref("strom-node-2", 1000))],
@@ -4128,6 +4184,7 @@ mod tests {
         let stream = StreamDefinition {
             name: "nat-transit".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(node_ref("strom-node-3", 200)),
             destinations: vec![dest("output", node_ref("strom-node-4", 1000))],
@@ -4670,6 +4727,7 @@ mod tests {
         StreamDefinition {
             name: "alice-cam".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: device_ref("browser-a1b2"),
             destinations: vec![dest("studio", node_ref("strom-node-2", 1000))],
@@ -4680,6 +4738,7 @@ mod tests {
         StreamDefinition {
             name: "alice-return".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(node_ref("strom-node-2", 200)),
             destinations: vec![device_dest("guest", "browser-a1b2")],
@@ -4794,6 +4853,7 @@ mod tests {
         let b2b = StreamDefinition {
             name: "b2b".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: device_ref("browser-a1b2"),
             destinations: vec![device_dest("display", "browser-c3d4")],

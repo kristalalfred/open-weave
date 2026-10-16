@@ -24,6 +24,7 @@ fn profile(id: &str, ingress: Transport, merge: bool) -> HopProfile {
         ingress: class(ingress, RoleSet::both()),
         egress: class(Transport::Srt, RoleSet::both()),
         max_egresses: None,
+        media_behavior: weave_core::MediaBehavior::Unknown,
         merge,
         accepts: None,
     }
@@ -107,6 +108,7 @@ fn stream(name: &str, destinations: Vec<StreamDestination>) -> StreamDefinition 
     StreamDefinition {
         name: name.to_string(),
         enabled: true,
+        format_policy: weave_core::FormatPolicy::Report,
         allow_cleartext_links: false,
         source: endpoint("source"),
         destinations,

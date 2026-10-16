@@ -3,6 +3,14 @@
   "title": "StreamDefinition",
   "type": "object",
   "properties": {
+    "format_policy": {
+      "type": "string",
+      "enum": [
+        "report",
+        "strict"
+      ],
+      "default": "report"
+    },
     "name": {
       "type": "string",
       "minLength": 1,

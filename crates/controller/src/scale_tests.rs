@@ -65,6 +65,7 @@ fn registration(id: &str, attachments: Vec<NetworkAttachment>) -> NodeRegistrati
                     ingress: srt(),
                     egress: srt(),
                     max_egresses: None,
+                    media_behavior: weave_core::MediaBehavior::Unknown,
                     merge: false,
                     accepts: None,
                 }],
@@ -111,6 +112,7 @@ fn fan_out_stream(receivers: usize) -> StreamDefinition {
     StreamDefinition {
         name: "feed".to_string(),
         enabled: true,
+        format_policy: weave_core::FormatPolicy::Report,
         allow_cleartext_links: false,
         source: endpoint("source"),
         destinations: (0..receivers)
@@ -267,6 +269,7 @@ fn one_destination_stream(name: &str) -> StreamDefinition {
     StreamDefinition {
         name: name.to_string(),
         enabled: true,
+        format_policy: weave_core::FormatPolicy::Report,
         allow_cleartext_links: false,
         source: endpoint("source"),
         destinations: vec![StreamDestination {

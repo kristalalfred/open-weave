@@ -1,0 +1,29 @@
+name: format-strict-mismatch
+format_policy: strict
+enabled: true
+source:
+  srt:
+    node: strom-node-1
+    latency: 200
+    format:
+      container: mpeg_ts
+      video:
+        codec: h264
+        width: 1280
+        height: 720
+        framerate: { numerator: 30, denominator: 1 }
+        chroma_subsampling: yuv420
+      audio:
+        codec: aac
+        sample_rate: 48000
+        channels: 1
+destinations:
+  - id: output
+    srt:
+      node: strom-node-2
+      latency: 1000
+      accepts:
+        container: [mpeg_ts]
+        audio:
+          codec: [aac]
+          sample_rate: [44100]

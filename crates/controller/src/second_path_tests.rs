@@ -21,6 +21,7 @@ fn profile(id: &str, merge: bool) -> HopProfile {
         ingress: srt(),
         egress: srt(),
         max_egresses: None,
+        media_behavior: weave_core::MediaBehavior::Unknown,
         merge,
         accepts: None,
     }
@@ -94,6 +95,7 @@ fn stream(destinations: &[(&str, &str, u8)]) -> StreamDefinition {
     StreamDefinition {
         name: "feed".to_string(),
         enabled: true,
+        format_policy: weave_core::FormatPolicy::Report,
         allow_cleartext_links: false,
         source: endpoint("source"),
         destinations: destinations
@@ -285,4 +287,77 @@ fn a_new_destination_with_no_free_relay_takes_the_second_paths_rather_than_fail(
             .collect::<Vec<_>>(),
         ["studio"]
     );
+}
+
+#[test]
+fn declared_compatibility_checks_secondary_bridges_before_the_merged_receiver() {
+    use weave_core::{
+        Container, FormatConstraint, FormatPolicy, MediaBehavior, MediaFormat,
+        StreamConditionReason, StreamConditionStatus,
+    };
+    let mut definition = stream(&[("studio", "studio-node", 2)]);
+    let StreamTransport::Srt(source) = &mut definition.source else {
+        unreachable!()
+    };
+    source.format = Some(MediaFormat {
+        container: Container::MpegTs,
+        video: None,
+        audio: None,
+    });
+    let StreamTransport::Srt(destination) = &mut definition.destinations[0].endpoint else {
+        unreachable!()
+    };
+    destination.accepts = Some(FormatConstraint::default());
+    let mut nodes = three_relays();
+    for profile in nodes
+        .iter_mut()
+        .flat_map(|node| &mut node.capabilities.hop_profiles)
+    {
+        profile.accepts = Some(FormatConstraint::default());
+        profile.media_behavior = MediaBehavior::Preserve;
+    }
+    let planned = plan(&definition, &nodes, &[]);
+    assert!(planned.single_path.is_empty());
+    let evaluate = |nodes: &[NodeDescriptor]| {
+        crate::compatibility::evaluate(&definition, Some(&planned.path), nodes).aggregate()
+    };
+    assert_eq!(evaluate(&nodes).status, StreamConditionStatus::True);
+    let secondary_node = &hop(&planned, SECOND).node_id;
+    for profile in &mut nodes
+        .iter_mut()
+        .find(|node| node.id == *secondary_node)
+        .unwrap()
+        .capabilities
+        .hop_profiles
+    {
+        profile.accepts.as_mut().unwrap().container = Some(vec![Container::Rtp]);
+    }
+    assert_eq!(
+        evaluate(&nodes).reason,
+        StreamConditionReason::FormatMismatch
+    );
+    assert!(evaluate(&nodes).detail.contains("path studio.2"));
+    for profile in &mut nodes
+        .iter_mut()
+        .find(|node| node.id == *secondary_node)
+        .unwrap()
+        .capabilities
+        .hop_profiles
+    {
+        profile.accepts = Some(FormatConstraint::default());
+        profile.media_behavior = MediaBehavior::Unknown;
+    }
+    assert_eq!(
+        evaluate(&nodes).reason,
+        StreamConditionReason::MediaBehaviorUnknown
+    );
+    definition.format_policy = FormatPolicy::Strict;
+    let strict = plan(&definition, &nodes, &[]);
+    assert_eq!(
+        crate::compatibility::evaluate(&definition, Some(&strict.path), &nodes)
+            .aggregate()
+            .status,
+        StreamConditionStatus::True
+    );
+    assert_eq!(strict.single_path.len(), 1);
 }

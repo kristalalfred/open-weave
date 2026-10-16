@@ -550,6 +550,7 @@ mod tests {
         StreamDefinition {
             name: "camera".to_string(),
             enabled: true,
+            format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(srt_node("source")),
             destinations: vec![destination(
@@ -574,6 +575,7 @@ mod tests {
         let device_stream = StreamDefinition {
             name: "browser".to_string(),
             enabled: true,
+            format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Device(NodeEndpoint {
                 node: "browser-source".to_string(),
@@ -1054,6 +1056,7 @@ mod tests {
                     ingress: class.clone(),
                     egress: class,
                     max_egresses: None,
+                    media_behavior: crate::MediaBehavior::Unknown,
                     merge: false,
                     accepts: Some(FormatConstraint {
                         video: Some(crate::VideoConstraint {
@@ -1127,6 +1130,7 @@ mod passphrase_tests {
         StreamDefinition {
             name: "feed".to_string(),
             enabled: true,
+            format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(SrtEndpoint {
                 node: Some("source".to_string()),

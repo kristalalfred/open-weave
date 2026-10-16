@@ -36,6 +36,7 @@ pub struct RunningStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamStatus {
+    pub format_policy: crate::FormatPolicy,
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -119,7 +120,11 @@ pub enum StreamConditionReason {
     HopsPending,
     HopFailed,
     FormatCompatible,
-    FormatUnknown,
+    SourceFormatUnknown,
+    DestinationAcceptsUnknown,
+    HopAcceptsUnknown,
+    MediaBehaviorUnknown,
+    FormatRouteUnknown,
     FormatMismatch,
     MediaFlowing,
     AwaitingInput,
@@ -235,6 +240,9 @@ pub enum AcceptedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamPlan {
+    pub conditions: Vec<StreamCondition>,
+    pub destinations: Vec<StreamDestinationStatus>,
+    pub format_policy: crate::FormatPolicy,
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")

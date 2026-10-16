@@ -1,3 +1,4 @@
+mod compatibility;
 mod desired;
 #[cfg(test)]
 mod hop_id_tests;
@@ -302,6 +303,9 @@ struct NodeView {
 
 #[derive(Debug, Serialize)]
 struct StreamView {
+    format_policy: weave_core::FormatPolicy,
+    conditions: Vec<StreamCondition>,
+    destinations: Vec<StreamDestinationStatus>,
     name: String,
     status: PathStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1011,6 +1015,7 @@ fn unreconciled_stream_status(stored: &StoredStream) -> StreamStatus {
     })
     .collect();
     let mut status = StreamStatus {
+        format_policy: stored.spec.format_policy,
         name: stored.spec.name.clone(),
         generation: stored.generation,
         observed_generation: None,
@@ -1287,6 +1292,9 @@ async fn get_view(State(state): State<AppState>) -> Json<SystemView> {
         .streams
         .iter()
         .map(|stream| StreamView {
+            format_policy: stream.format_policy,
+            conditions: stream.conditions.clone(),
+            destinations: stream.destinations.clone(),
             name: stream.name.clone(),
             status: stream.status,
             reason: stream
@@ -1905,6 +1913,8 @@ async fn plan_stream(
     };
 
     Json(StreamPlan {
+        format_policy: stream.format_policy,
+        destinations: planned.destinations,
         name: planned.name,
         status,
         nodes: planned.nodes,
@@ -1919,6 +1929,7 @@ async fn plan_stream(
                     || condition.reason == StreamConditionReason::SinglePath
             })
             .map(|condition| condition.detail.clone()),
+        conditions: planned.conditions,
     })
     .into_response()
 }
@@ -2358,72 +2369,6 @@ fn refuse_other_nodes_endpoints(
         .find_map(|node_id| refuse_other_node(caller, node_id))
 }
 
-struct IngressAccepts<'a> {
-    node: &'a str,
-    profile: &'a str,
-    accepts: weave_core::FormatConstraint,
-}
-
-fn ingress_accepts<'a>(
-    path: &'a weave_core::Path,
-    nodes: &'a [NodeDescriptor],
-) -> Option<IngressAccepts<'a>> {
-    let sender = path.hops.first()?;
-    let profile = nodes
-        .iter()
-        .find(|node| node.id == sender.node_id)?
-        .capabilities
-        .hop_profiles
-        .iter()
-        .find(|profile| profile.id == sender.profile_id)?;
-    let mut accepts = profile.accepts.clone()?;
-    if let Some(tracks) = &sender.tracks {
-        if !tracks.contains(&weave_core::Track::Video) {
-            accepts.video = None;
-        }
-        if !tracks.contains(&weave_core::Track::Audio) {
-            accepts.audio = None;
-        }
-    }
-    Some(IngressAccepts {
-        node: &sender.node_id,
-        profile: &profile.id,
-        accepts,
-    })
-}
-
-fn format_conflict_reason(
-    stream: &StreamDefinition,
-    ingress: Option<&IngressAccepts>,
-) -> Option<String> {
-    let ingress_conflict = ingress
-        .zip(stream.source.format())
-        .and_then(|(ingress, format)| {
-            let mismatches = ingress.accepts.mismatches(format);
-            (!mismatches.is_empty()).then(|| {
-                format!(
-                    "node {} cannot take the source format through profile {}: {}",
-                    ingress.node,
-                    ingress.profile,
-                    mismatches
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                )
-            })
-        });
-    let conflicts: Vec<String> = ingress_conflict
-        .into_iter()
-        .chain(
-            weave_core::stream_format_conflicts(stream)
-                .iter()
-                .map(ToString::to_string),
-        )
-        .collect();
-    (!conflicts.is_empty()).then(|| conflicts.join("; "))
-}
-
 fn stream_condition(
     condition_type: StreamConditionType,
     status: StreamConditionStatus,
@@ -2436,40 +2381,6 @@ fn stream_condition(
         reason,
         detail: detail.into(),
         last_transition_time: String::new(),
-    }
-}
-
-fn format_condition(
-    stream: &StreamDefinition,
-    ingress: Option<&IngressAccepts>,
-) -> StreamCondition {
-    let source_declared = stream.source.format().is_some();
-    let constrained = ingress.is_some()
-        || stream
-            .destinations
-            .iter()
-            .any(|destination| destination.endpoint.accepts().is_some());
-    if !source_declared || !constrained {
-        return stream_condition(
-            StreamConditionType::FormatCompatible,
-            StreamConditionStatus::Unknown,
-            StreamConditionReason::FormatUnknown,
-            "source format or destination constraints are not declared",
-        );
-    }
-    match format_conflict_reason(stream, ingress) {
-        Some(detail) => stream_condition(
-            StreamConditionType::FormatCompatible,
-            StreamConditionStatus::False,
-            StreamConditionReason::FormatMismatch,
-            detail,
-        ),
-        None => stream_condition(
-            StreamConditionType::FormatCompatible,
-            StreamConditionStatus::True,
-            StreamConditionReason::FormatCompatible,
-            "declared formats are compatible",
-        ),
     }
 }
 
@@ -2534,7 +2445,7 @@ fn disabled_conditions(stream: &StreamDefinition) -> Vec<StreamCondition> {
             StreamConditionReason::Disabled,
             "stream is disabled",
         ),
-        format_condition(stream, None),
+        compatibility::evaluate(stream, None, &[]).aggregate(),
         media_condition(PathStatus::Idle),
     ]
 }
@@ -2555,7 +2466,13 @@ fn placement_failed_conditions(
             StreamConditionReason::NotReady,
         )
     };
-    let placement_reason = if matches!(error, PlacementError::CleartextLink { .. }) {
+    let format = match error {
+        PlacementError::FormatBlocked { compatibility, .. } => compatibility.for_stream(stream),
+        _ => compatibility::evaluate(stream, None, &[]).aggregate(),
+    };
+    let placement_reason = if let PlacementError::FormatBlocked { compatibility, .. } = error {
+        compatibility.aggregate().reason
+    } else if matches!(error, PlacementError::CleartextLink { .. }) {
         StreamConditionReason::CleartextNotAllowed
     } else {
         StreamConditionReason::PlacementFailed
@@ -2579,7 +2496,7 @@ fn placement_failed_conditions(
             StreamConditionReason::NotReady,
             "no desired hops exist until placement succeeds",
         ),
-        format_condition(stream, None),
+        format,
         media_condition(PathStatus::Pending),
     ]
 }
@@ -2598,8 +2515,7 @@ fn single_path_detail<'a>(shortfalls: impl IntoIterator<Item = &'a SinglePath>) 
 }
 
 fn placed_conditions(
-    stream: &StreamDefinition,
-    ingress: Option<&IngressAccepts>,
+    format: StreamCondition,
     path_status: PathStatus,
     offline_node: Option<&str>,
     single_path: Option<&str>,
@@ -2656,7 +2572,7 @@ fn placed_conditions(
         placement,
         nodes,
         hops,
-        format_condition(stream, ingress),
+        format,
         media_condition(if offline_node.is_some() {
             PathStatus::Degraded
         } else {
@@ -2675,7 +2591,8 @@ fn destination_stream(stream: &StreamDefinition, id: &str) -> StreamDefinition {
     StreamDefinition {
         name: stream.name.clone(),
         enabled: stream.enabled,
-        allow_cleartext_links: false,
+        format_policy: stream.format_policy,
+        allow_cleartext_links: stream.allow_cleartext_links,
         source: stream.source.clone(),
         destinations: vec![destination],
     }
@@ -2715,6 +2632,7 @@ fn reconcile(
         if !stream.enabled {
             let conditions = disabled_conditions(stream);
             stream_statuses.push(StreamStatus {
+                format_policy: stream.format_policy,
                 name: stream.name.clone(),
                 generation: 0,
                 observed_generation: None,
@@ -2771,9 +2689,9 @@ fn reconcile(
                     .iter()
                     .find(|id| offline.contains(id.as_str()))
                     .cloned();
-                let ingress = ingress_accepts(&path, &observed.nodes);
+                let compatibility = compatibility::evaluate(stream, Some(&path), &observed.nodes);
                 let status = if offline_node.is_some()
-                    || format_conflict_reason(stream, ingress.as_ref()).is_some()
+                    || compatibility.aggregate().status == StreamConditionStatus::False
                 {
                     PathStatus::Degraded
                 } else {
@@ -2802,8 +2720,8 @@ fn reconcile(
                             .cloned();
                         let destination_stream = destination_stream(stream, &destination.id);
                         let status = if offline_node.is_some()
-                            || format_conflict_reason(&destination_stream, ingress.as_ref())
-                                .is_some()
+                            || compatibility.for_stream(&destination_stream).status
+                                == StreamConditionStatus::False
                         {
                             PathStatus::Degraded
                         } else {
@@ -2820,8 +2738,7 @@ fn reconcile(
                             status,
                             nodes,
                             conditions: placed_conditions(
-                                &destination_stream,
-                                ingress.as_ref(),
+                                compatibility.for_stream(&destination_stream),
                                 branch_status,
                                 offline_node.as_deref(),
                                 single_path.as_deref(),
@@ -2837,6 +2754,7 @@ fn reconcile(
                     })
                     .collect();
                 stream_statuses.push(StreamStatus {
+                    format_policy: stream.format_policy,
                     name: stream.name.clone(),
                     generation: 0,
                     observed_generation: None,
@@ -2845,8 +2763,7 @@ fn reconcile(
                     ingress: endpoints.as_ref().and_then(|value| value.ingress.clone()),
                     destinations: destination_statuses,
                     conditions: placed_conditions(
-                        stream,
-                        ingress.as_ref(),
+                        compatibility.aggregate(),
                         path_status,
                         offline_node.as_deref(),
                         single_path_detail(&planned.single_path).as_deref(),
@@ -2858,6 +2775,7 @@ fn reconcile(
                 tracing::warn!(stream = %stream.name, error = %ErrorChain(&error), "cannot place stream; retrying next tick");
                 let conditions = placement_failed_conditions(stream, &error);
                 stream_statuses.push(StreamStatus {
+                    format_policy: stream.format_policy,
                     name: stream.name.clone(),
                     generation: 0,
                     observed_generation: None,
@@ -2928,6 +2846,10 @@ fn reconcile(
 
 #[cfg(test)]
 mod tests {
+    mod formats {
+        use super::*;
+        include!("format_tests.rs");
+    }
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
@@ -2975,8 +2897,9 @@ mod tests {
             ingress: srt.clone(),
             egress: srt,
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Preserve,
             merge: false,
-            accepts: None,
+            accepts: Some(weave_core::FormatConstraint::default()),
         }
     }
 
@@ -3044,6 +2967,7 @@ mod tests {
         StreamDefinition {
             name: name.to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: srt_endpoint(source, 200),
             destinations: vec![StreamDestination {
@@ -3965,6 +3889,7 @@ mod tests {
         {
             let mut view = state.view.write().await;
             view.streams = vec![StreamStatus {
+                format_policy: weave_core::FormatPolicy::Report,
                 name: "basic".to_string(),
                 generation: 1,
                 observed_generation: None,
@@ -4378,6 +4303,7 @@ mod tests {
     #[test]
     fn condition_transition_time_changes_only_when_status_changes() {
         let mut previous = StreamStatus {
+            format_policy: weave_core::FormatPolicy::Report,
             name: "basic".to_string(),
             generation: 1,
             observed_generation: Some(1),
@@ -5027,6 +4953,7 @@ mod tests {
                 roles: RoleSet::only(weave_core::SocketRole::Connect),
             }),
             max_egresses: Some(1),
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         }];
@@ -5052,6 +4979,7 @@ mod tests {
                 roles: RoleSet::both(),
             }),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge: false,
             accepts: None,
         });
@@ -6301,6 +6229,7 @@ mod tests {
 
     fn observed_status(conditions: Vec<StreamCondition>) -> StreamStatus {
         StreamStatus {
+            format_policy: weave_core::FormatPolicy::Report,
             name: "basic".to_string(),
             generation: 1,
             observed_generation: Some(1),
@@ -7397,6 +7326,7 @@ mod key_exposure_tests {
             ingress: srt(),
             egress: srt(),
             max_egresses: None,
+            media_behavior: weave_core::MediaBehavior::Unknown,
             merge,
             accepts: None,
         };
@@ -7440,6 +7370,7 @@ mod key_exposure_tests {
         StreamDefinition {
             name: "feed".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: endpoint("node-a", PRODUCER_KEY),
             destinations: vec![StreamDestination {

@@ -22,6 +22,7 @@ fn profile(id: &str, ingress: HopEndpointClass, egress: HopEndpointClass) -> Hop
         ingress,
         egress,
         max_egresses: None,
+        media_behavior: weave_core::MediaBehavior::Unknown,
         merge: false,
         accepts: None,
     }
@@ -100,6 +101,7 @@ fn stream(destinations: &[&str]) -> StreamDefinition {
     StreamDefinition {
         name: "feed".to_string(),
         enabled: true,
+        format_policy: weave_core::FormatPolicy::Report,
         allow_cleartext_links: true,
         source: endpoint("source"),
         destinations: destinations

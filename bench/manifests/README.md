@@ -27,7 +27,10 @@ are shared, so driving another stream disconnects the previous one.
 | `nat-relay` | both ends on NAT'd node-3; bridged via node-1 |
 | `nat-transit` | NAT'd node-3 → NAT'd node-4, no `via`; the controller bridges via node-1 |
 | `format-ok` | declared source format the destination accepts |
-| `format-mismatch` | 48 kHz source into a 44.1 kHz-only destination |
+| `format-mismatch` | Report policy: 48 kHz source into a 44.1 kHz-only destination |
+| `format-strict` | Compatible strict SRT route |
+| `format-strict-mismatch` | Strict rejection of a declared sample-rate mismatch |
+| `format-strict-unknown` | Strict rejection of undeclared destination requirements |
 | `browser-cam` | page camera → node-1 over WHIP, consumer pulls SRT |
 | `browser-cam-host` | camera of a page on the docker host → node-1 via the `docker-host` network |
 | `browser-return` | producer → node-1 → page screen over WHEP |

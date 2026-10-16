@@ -316,10 +316,14 @@ fn render_streams(streams: &[read::StreamResource], statuses: &[read::StreamStat
                     .map_or_else(|| "-".to_string(), |status| status.status.to_string()),
                 stream.owner.clone().unwrap_or_else(|| "-".to_string()),
                 stream.spec.enabled.to_string(),
+                stream.spec.format_policy.to_string(),
             ]
         })
         .collect();
-    table(&["NAME", "GENERATION", "STATUS", "OWNER", "ENABLED"], rows)
+    table(
+        &["NAME", "GENERATION", "STATUS", "OWNER", "ENABLED", "POLICY"],
+        rows,
+    )
 }
 
 fn render_stream(stream: &read::StreamResource, statuses: &[read::StreamStatus]) -> String {
@@ -343,32 +347,48 @@ fn render_stream(stream: &read::StreamResource, statuses: &[read::StreamStatus])
                 })
                 .collect(),
         ));
-        sections.push(table(
-            &["DESTINATION", "STATUS", "ENDPOINT", "REASON"],
-            status
-                .destinations
-                .iter()
-                .map(|destination| {
-                    vec![
-                        destination.id.clone(),
-                        destination.status.to_string(),
-                        destination
-                            .endpoint
-                            .as_ref()
-                            .map_or_else(|| "-".to_string(), |endpoint| endpoint.url.clone()),
-                        failing_reasons(&destination.conditions),
-                    ]
-                })
-                .collect(),
-        ));
+        sections.push(render_destinations(&status.destinations));
     }
     sections.join("\n\n")
+}
+
+fn render_destinations(destinations: &[read::StreamDestinationStatus]) -> String {
+    table(
+        &["DESTINATION", "STATUS", "FORMAT", "ENDPOINT", "REASON"],
+        destinations
+            .iter()
+            .map(|destination| {
+                vec![
+                    destination.id.clone(),
+                    destination.status.to_string(),
+                    format_result(&destination.conditions),
+                    destination
+                        .endpoint
+                        .as_ref()
+                        .map_or_else(|| "-".to_string(), |endpoint| endpoint.url.clone()),
+                    failing_reasons(&destination.conditions),
+                ]
+            })
+            .collect(),
+    )
+}
+
+fn format_result(conditions: &[read::StreamCondition]) -> String {
+    conditions
+        .iter()
+        .find(|condition| {
+            condition.condition_type == weave_core::StreamConditionType::FormatCompatible
+        })
+        .map_or_else(
+            || "-".to_string(),
+            |condition| format!("{}:{}", condition.status, condition.reason),
+        )
 }
 
 fn failing_reasons(conditions: &[read::StreamCondition]) -> String {
     let reasons = conditions
         .iter()
-        .filter(|condition| condition.status == StreamConditionStatus::False)
+        .filter(|condition| condition.status != StreamConditionStatus::True)
         .map(|condition| condition.reason.to_string())
         .collect::<Vec<_>>();
     if reasons.is_empty() {
@@ -426,6 +446,8 @@ fn render_status(status: &read::StatusResponse) -> String {
                             .observed_generation
                             .map_or_else(|| "-".to_string(), |value| value.to_string()),
                         stream.status.to_string(),
+                        stream.format_policy.to_string(),
+                        format_result(&stream.conditions),
                         if stream.nodes.is_empty() {
                             "-".to_string()
                         } else {
@@ -438,7 +460,18 @@ fn render_status(status: &read::StatusResponse) -> String {
                 "STATUS: {}\nSUMMARY: {}\n\n{}",
                 status.status,
                 status.summary,
-                table(&["NAME", "GENERATION", "OBSERVED", "STATUS", "NODES"], rows,)
+                table(
+                    &[
+                        "NAME",
+                        "GENERATION",
+                        "OBSERVED",
+                        "STATUS",
+                        "POLICY",
+                        "FORMAT",
+                        "NODES"
+                    ],
+                    rows,
+                )
             )
         }
     }
@@ -531,11 +564,13 @@ fn render_stream_set_accepted(accepted: &read::StreamSetAccepted) -> String {
 }
 
 fn render_plan(plan: &read::StreamPlan) -> String {
-    table(
-        &["NAME", "STATUS", "NODES", "REASON"],
+    let summary = table(
+        &["NAME", "STATUS", "POLICY", "FORMAT", "NODES", "REASON"],
         vec![vec![
             plan.name.clone(),
             plan.status.to_string(),
+            plan.format_policy.to_string(),
+            format_result(&plan.conditions),
             if plan.nodes.is_empty() {
                 "-".to_string()
             } else {
@@ -543,7 +578,12 @@ fn render_plan(plan: &read::StreamPlan) -> String {
             },
             plan.reason.clone().unwrap_or_else(|| "-".to_string()),
         ]],
-    )
+    );
+    if plan.destinations.is_empty() {
+        summary
+    } else {
+        format!("{summary}\n\n{}", render_destinations(&plan.destinations))
+    }
 }
 
 async fn get_body(
@@ -1195,6 +1235,7 @@ streams:
             generation,
             owner: owner.map(str::to_string),
             spec: read::StreamSpec {
+                format_policy: read::Open::Known(weave_core::FormatPolicy::Report),
                 name: "cam1-to-studio".to_string(),
                 enabled: true,
             },
@@ -1206,7 +1247,7 @@ streams:
         let streams = vec![listed(3, Some("studio-a"))];
         assert_eq!(
             render_streams(&streams, &[]),
-            "NAME            GENERATION  STATUS  OWNER     ENABLED\ncam1-to-studio  3           -       studio-a  true"
+            "NAME            GENERATION  STATUS  OWNER     ENABLED  POLICY\ncam1-to-studio  3           -       studio-a  true     report"
         );
 
         let endpoints: read::StreamEndpoints = serde_json::from_value(serde_json::json!({
@@ -1256,6 +1297,8 @@ streams:
                 "2",
                 "1",
                 "awaiting_input",
+                "report",
+                "-",
                 "strom-node-1,strom-node-2"
             ]
         );
@@ -1278,6 +1321,8 @@ streams:
             [
                 "cam1-to-studio",
                 "unplaced",
+                "report",
+                "-",
                 "-",
                 "no",
                 "node",
@@ -1373,7 +1418,7 @@ streams:
         let list = render_streams(std::slice::from_ref(&stream), status.streams());
         assert_eq!(
             words(list.lines().last().unwrap()),
-            ["cam1-to-studio", "3", "degraded", "-", "true"]
+            ["cam1-to-studio", "3", "degraded", "-", "true", "report"]
         );
 
         let view = render_stream(&stream, status.streams());
@@ -1393,10 +1438,11 @@ streams:
         assert!(lines.contains(&vec![
             "preview",
             "degraded",
+            "-",
             "srt://192.0.2.2:21567",
             "media_degraded"
         ]));
-        assert!(lines.contains(&vec!["studio", "flowing", "-", "-"]));
+        assert!(lines.contains(&vec!["studio", "flowing", "-", "-", "-"]));
     }
 
     #[test]
@@ -1408,8 +1454,8 @@ streams:
         assert_eq!(
             view.lines().map(words).collect::<Vec<_>>(),
             [
-                vec!["NAME", "GENERATION", "STATUS", "OWNER", "ENABLED"],
-                vec!["cam1-to-studio", "1", "-", "-", "true"]
+                vec!["NAME", "GENERATION", "STATUS", "OWNER", "ENABLED", "POLICY"],
+                vec!["cam1-to-studio", "1", "-", "-", "true", "report"]
             ]
         );
     }
@@ -1440,6 +1486,7 @@ destinations:
         StreamDefinition {
             name: "cam1-to-studio".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(SrtEndpoint {
                 node: Some("strom-node-1".to_string()),
@@ -1707,6 +1754,9 @@ destinations:
                 stream.name
             ));
             axum::Json(StreamPlan {
+                format_policy: weave_core::FormatPolicy::Report,
+                conditions: vec![],
+                destinations: vec![],
                 name: stream.name,
                 status: weave_core::PlanStatus::Unplaced,
                 nodes: Vec::new(),
@@ -1977,7 +2027,14 @@ destinations:
             .unwrap();
         let lines = view.lines().map(words).collect::<Vec<_>>();
         assert!(
-            lines.contains(&vec!["cam1-to-studio", "4", "preempted", "-", "true"]),
+            lines.contains(&vec![
+                "cam1-to-studio",
+                "4",
+                "preempted",
+                "-",
+                "true",
+                "report"
+            ]),
             "{view}"
         );
         assert!(
@@ -1994,14 +2051,14 @@ destinations:
             "{view}"
         );
         assert!(
-            lines.contains(&vec!["studio", "preempted", "-", "source_preempted"]),
+            lines.contains(&vec!["studio", "preempted", "-", "-", "source_preempted"]),
             "{view}"
         );
 
         let list = get_streams(&url, None, OutputFormat::Human).await.unwrap();
         assert_eq!(
             words(list.lines().last().unwrap()),
-            ["cam1-to-studio", "4", "preempted", "-", "true"]
+            ["cam1-to-studio", "4", "preempted", "-", "true", "report"]
         );
 
         let json = get_stream(&url, None, name, OutputFormat::Json)
@@ -2087,6 +2144,7 @@ destinations:
         let stream = StreamDefinition {
             name: "preview".to_string(),
             enabled: true,
+            format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(SrtEndpoint {
                 node: Some("missing".to_string()),

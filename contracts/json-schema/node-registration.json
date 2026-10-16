@@ -67,6 +67,14 @@
               "items": {
                 "type": "object",
                 "properties": {
+                  "media_behavior": {
+                    "type": "string",
+                    "enum": [
+                      "preserve",
+                      "unknown"
+                    ],
+                    "default": "unknown"
+                  },
                   "id": {
                     "type": "string",
                     "minLength": 1,

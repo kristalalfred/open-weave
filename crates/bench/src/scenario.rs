@@ -47,6 +47,8 @@ pub enum Step {
         timeout_secs: u64,
         #[serde(default)]
         nodes: Option<Vec<String>>,
+        #[serde(default)]
+        format_reason: Option<weave_core::StreamConditionReason>,
     },
     Observe {
         receivers: Vec<String>,
