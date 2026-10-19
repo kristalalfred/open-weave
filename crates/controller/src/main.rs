@@ -325,14 +325,32 @@ struct HopView {
     node: String,
     profile_id: String,
     role: weave_core::HopRole,
-    ingress: SocketView,
+    ingress: IngressView,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    merge_ingress: Option<IngressView>,
     egresses: Vec<EgressView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     state: Option<weave_core::HopState>,
+}
+
+#[derive(Debug, Serialize)]
+struct IngressView {
+    #[serde(flatten)]
+    socket: SocketView,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ingress_condition: Option<weave_core::LinkCondition>,
+    condition: Option<weave_core::LinkCondition>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ingress_stats: Option<weave_core::LinkStats>,
+    stats: Option<weave_core::LinkStats>,
+}
+
+impl IngressView {
+    fn new(socket: &weave_core::SocketSpec, status: Option<&weave_core::SocketStatus>) -> Self {
+        Self {
+            socket: SocketView::from(socket),
+            condition: status.map(|status| status.condition),
+            stats: status.and_then(|status| status.stats),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -1334,7 +1352,10 @@ async fn get_view(State(state): State<AppState>) -> Json<SystemView> {
                         node: hop.node_id.clone(),
                         profile_id: hop.profile_id.clone(),
                         role: hop.role,
-                        ingress: SocketView::from(&hop.ingress),
+                        ingress: IngressView::new(&hop.ingress, status.map(|s| &s.ingress)),
+                        merge_ingress: hop.merge_ingress.as_ref().map(|socket| {
+                            IngressView::new(socket, status.and_then(|s| s.merge_ingress.as_ref()))
+                        }),
                         egresses: hop
                             .egresses
                             .iter()
@@ -1352,8 +1373,6 @@ async fn get_view(State(state): State<AppState>) -> Json<SystemView> {
                             })
                             .collect(),
                         state: status.map(|s| s.state),
-                        ingress_condition: status.map(|s| s.ingress.condition),
-                        ingress_stats: status.and_then(|s| s.ingress.stats),
                     }
                 })
                 .collect(),
@@ -4119,8 +4138,8 @@ mod tests {
         assert_eq!(sender["id"], "weave-basic-sender");
         assert_eq!(sender["node"], "strom-node-1");
         assert_eq!(sender["state"], "provisioned");
-        assert_eq!(sender["ingress_condition"], "flowing");
-        assert_eq!(sender["ingress_stats"]["rate_mbps"], 3.2);
+        assert_eq!(sender["ingress"]["condition"], "flowing");
+        assert_eq!(sender["ingress"]["stats"]["rate_mbps"], 3.2);
         assert_eq!(sender["ingress"]["mode"], "listen");
         assert_eq!(sender["egresses"][0]["branch_id"], "preview");
         assert_eq!(sender["egresses"][0]["condition"], "flowing");
@@ -4301,6 +4320,60 @@ mod tests {
         }
 
         assert_eq!(mem.delete_stream_calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn view_reports_each_merge_input_and_ignores_stale_revisions() {
+        let (state, _mem) = mem_state();
+        two_nodes_and_basic(&state).await;
+        reconcile_tick(&state).await;
+        let receiver = {
+            let mut view = state.view.write().await;
+            let receiver = &mut view.hops.get_mut("basic").unwrap()[1];
+            receiver.merge_ingress = Some(weave_core::SocketSpec::srt_listen(7100, 60));
+            receiver.clone()
+        };
+        let report = serde_json::from_value(json!({
+            "id": receiver.id,
+            "node_id": receiver.node_id,
+            "revision": receiver.revision(),
+            "state": "provisioned",
+            "ingress": {"condition": "stalled", "stats": {"rate_mbps": 0.0}},
+            "merge_ingress": {"condition": "flowing", "stats": {"rate_mbps": 2.3}}
+        }))
+        .unwrap();
+        state
+            .nodes
+            .write()
+            .await
+            .get_mut(&receiver.node_id)
+            .unwrap()
+            .hop_status = vec![report];
+        let app = open_router(state.clone());
+
+        let (status, body) = send(&app, "GET", "/view", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let hop = &body["streams"][0]["hops"][1];
+        assert_eq!(hop["ingress"]["condition"], "stalled");
+        assert_eq!(hop["ingress"]["stats"]["rate_mbps"], 0.0);
+        assert_eq!(hop["merge_ingress"]["condition"], "flowing");
+        assert_eq!(hop["merge_ingress"]["stats"]["rate_mbps"], 2.3);
+        assert_eq!(hop["merge_ingress"]["port"], 7100);
+
+        state
+            .nodes
+            .write()
+            .await
+            .get_mut(&receiver.node_id)
+            .unwrap()
+            .hop_status[0]
+            .revision = "stale".into();
+        let (_, body) = send(&app, "GET", "/view", None).await;
+        let hop = &body["streams"][0]["hops"][1];
+        for input in ["ingress", "merge_ingress"] {
+            assert!(hop[input].get("condition").is_none());
+            assert!(hop[input].get("stats").is_none());
+        }
     }
 
     #[tokio::test]

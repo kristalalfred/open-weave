@@ -104,9 +104,25 @@
     flex-direction: column;
     gap: 0.5rem;
     margin-top: 0.625rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
   }
-  .trunk, .branch { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-  .branch { margin-left: 1.5rem; }
+  .trunk, .branch, .destination { display: flex; align-items: center; gap: 0.5rem; }
+  .destination { margin-left: 1.5rem; }
+  .routes { display: flex; flex-direction: column; gap: 0.5rem; }
+  .redundant .routes { position: relative; padding-right: 0.75rem; }
+  .redundant .routes::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 1rem;
+    bottom: 1rem;
+    width: 0.5rem;
+    border: solid var(--faint);
+    border-width: 1px 1px 1px 0;
+  }
+  .redundant .branch { justify-content: flex-end; }
+  .route-id { font: 0.6875rem var(--mono); color: var(--muted); }
   .arrow, .fork { color: var(--faint); flex: none; }
 
   .chip {
@@ -221,17 +237,18 @@ function renderNodes(nodes) {
 }
 
 function rate(hop) {
-  const down = hop.ingress_stats && hop.ingress_stats.rate_mbps;
+  const inputs = [hop.ingress, hop.merge_ingress].filter(Boolean);
+  const down = inputs.reduce((sum, input) => sum + (input.stats?.rate_mbps || 0), 0);
   const up = hop.egresses.reduce((sum, egress) => sum + ((egress.stats && egress.stats.rate_mbps) || 0), 0);
-  if (down == null && !hop.egresses.some(egress => egress.stats)) return null;
+  if (!inputs.some(input => input.stats) && !hop.egresses.some(egress => egress.stats)) return null;
   const fmt = v => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
   const el = h("span", "rate", `↓${fmt(down || 0)} ↑${fmt(up)} Mb/s`);
   el.title = "ingress / egress rate";
   return el;
 }
 
-function hopChip(hop) {
-  const short = hop.role === "receiver"
+function hopChip(hop, showIngress = true) {
+  const short = hop.merge_ingress ? "merge" : hop.role === "receiver"
     ? hop.id.replace(/^weave-.*-receiver-/, "receiver-")
     : hop.role;
   const reported = hop.state != null;
@@ -240,7 +257,8 @@ function hopChip(hop) {
     h("span", "on", `@ ${hop.node}`),
   );
   if (reported) {
-    const conditions = h("span", "conds", dot(hop.ingress_condition, `ingress: ${hop.ingress_condition}`));
+    const conditions = h("span", "conds");
+    if (showIngress) conditions.append(dot(hop.ingress.condition, `ingress: ${hop.ingress.condition}`));
     for (const egress of hop.egresses) {
       conditions.append(
         h("span", "sep", "→"),
@@ -278,8 +296,7 @@ function deviceChip(tag, socket) {
 
 function bridgesFor(hops, id) {
   return hops
-    .filter(hop => hop.role === "bridge" && hop.egresses.some(egress => egress.branch_id === id))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .filter(hop => hop.role === "bridge" && hop.egresses.some(egress => egress.branch_id === id));
 }
 
 function renderPath(stream) {
@@ -294,33 +311,51 @@ function renderPath(stream) {
   if (trunk.childNodes.length) path.append(trunk);
 
   const destinationEndpoints = endpoints ? endpoints.destinations : [];
+  const receivers = downstream.filter(hop => hop.role === "receiver");
+  const mergedBranches = new Set(receivers.filter(hop => hop.merge_ingress)
+    .map(hop => `${hop.egresses[0].branch_id}.2`));
   const ids = [...new Set([
     ...destinationEndpoints.map(destination => destination.id),
     ...(sender ? sender.egresses.map(egress => egress.branch_id) : []),
-  ])].sort();
+  ])].filter(id => !mergedBranches.has(id)).sort();
   for (const id of ids) {
-    const branch = h("div", "branch", h("span", "fork", "↳"));
     const output = destinationEndpoints.find(destination => destination.id === id)?.endpoint;
-    let link = sender ? sender.egresses.find(egress => egress.branch_id === id) : null;
-    for (const bridge of bridgesFor(downstream, id)) {
-      branch.append(arrow(link), hopChip(bridge));
-      link = bridge.egresses[0];
-    }
     const receiver = output && output.node === ""
       ? null
-      : downstream.find(r => r.id === `weave-${stream.name}-receiver-${id}`);
+      : receivers.find(hop => hop.egresses.some(egress => egress.branch_id === id));
+    const redundant = Boolean(receiver?.merge_ingress);
+    const destination = h("div", "destination" + (redundant ? " redundant" : ""));
+    const routes = h("div", "routes");
+    const branchIds = redundant ? [id, `${id}.2`] : [id];
+    let link;
+    branchIds.forEach((branchId, index) => {
+      const branch = h("div", "branch", h("span", "fork", "↳"));
+      if (redundant) branch.append(h("span", "route-id", String(index + 1)));
+      link = sender?.egresses.find(egress => egress.branch_id === branchId);
+      for (const bridge of bridgesFor(downstream, branchId)) {
+        branch.append(arrow(link), hopChip(bridge));
+        link = bridge.egresses[0];
+      }
+      if (redundant) {
+        const ingress = index === 0 ? receiver.ingress : receiver.merge_ingress;
+        const condition = ingress.condition || "unreported";
+        branch.append(arrow(link), dot(condition, `${receiver.node} input ${index + 1}: ${condition}`));
+      }
+      routes.append(branch);
+    });
+    destination.append(routes);
     if (receiver) {
-      branch.append(arrow(link), hopChip(receiver));
+      destination.append(arrow(link), hopChip(receiver, !redundant));
       link = receiver.egresses[0];
     }
     if (receiver && link && link.transport === DEVICE_TRANSPORT) {
-      branch.append(arrow(link), deviceChip("out", link));
+      destination.append(arrow(link), deviceChip("out", link));
     } else if (output) {
-      branch.append(arrow(link), receiver
-        ? addrChip("out", output.url, "consumers dial this output")
+      destination.append(arrow(link), receiver
+        ? addrChip(`${link?.transport || ""} out`.trim(), output.url, "consumers dial this output")
         : addrChip("remote", output.url, "remote listener the chain dials"));
     }
-    if (branch.childNodes.length > 1) path.append(branch);
+    path.append(destination);
   }
   return path;
 }

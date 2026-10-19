@@ -27,6 +27,7 @@ lint:
 
 browser-check:
     node nodes/browser/check.mjs --check-only
+    node --test crates/controller/src/ui.test.mjs
 
 run-north:
     cargo run -p weave-northbound
