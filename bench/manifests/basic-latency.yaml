@@ -1,0 +1,11 @@
+name: basic
+enabled: true
+source:
+  srt:
+    node: strom-node-1
+    latency: 400
+destinations:
+  - id: output
+    srt:
+      node: strom-node-2
+      latency: 1000

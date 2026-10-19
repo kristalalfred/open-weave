@@ -1,0 +1,43 @@
+name: controller-blackout
+description: Established media survives both controllers being stopped past the node heartbeat TTL.
+steps:
+  - do: apply
+    stream: main
+    file: ../manifests/basic.yaml
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: snapshot
+    stream: main
+    as_name: established
+  - do: observe
+    receivers: [main/output]
+    seconds: 40
+    during:
+      - do: service
+        service: controller
+        action: stop
+      - do: service
+        service: controller-2
+        action: stop
+      - do: await_control
+        status: 502
+        timeout_secs: 15
+      - do: wait
+        seconds: 20
+      - do: service
+        service: controller
+        action: start
+      - do: service
+        service: controller-2
+        action: start
+      - do: await
+        stream: main
+        status: flowing
+        timeout_secs: 45
+  - do: unchanged
+    snapshot: established
+  - do: delete
+    stream: main

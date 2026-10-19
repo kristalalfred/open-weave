@@ -1,0 +1,37 @@
+name: database-stall
+description: A frozen database removes leadership without interrupting established media and recovers without flow churn.
+steps:
+  - do: apply
+    stream: main
+    file: ../manifests/basic.yaml
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: snapshot
+    stream: main
+    as_name: established
+  - do: observe
+    receivers: [main/output]
+    seconds: 40
+    during:
+      - do: service
+        service: postgres
+        action: pause
+      - do: await_control
+        status: 503
+        timeout_secs: 25
+      - do: wait
+        seconds: 5
+      - do: service
+        service: postgres
+        action: unpause
+      - do: await
+        stream: main
+        status: flowing
+        timeout_secs: 45
+  - do: unchanged
+    snapshot: established
+  - do: delete
+    stream: main

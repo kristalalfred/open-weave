@@ -1,0 +1,29 @@
+name: controller-crash
+description: An abruptly killed leader preserves decoded media, revisions and runtime flow identities.
+steps:
+  - do: apply
+    stream: main
+    file: ../manifests/basic.yaml
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: snapshot
+    stream: main
+    as_name: established
+  - do: observe
+    receivers: [main/output]
+    seconds: 30
+    during:
+      - do: service
+        service: leader
+        action: kill
+      - do: await
+        stream: main
+        status: flowing
+        timeout_secs: 30
+  - do: unchanged
+    snapshot: established
+  - do: delete
+    stream: main

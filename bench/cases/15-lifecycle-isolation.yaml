@@ -1,0 +1,65 @@
+name: lifecycle-isolation
+description: Disabling, enabling, deleting and recreating one stream leaves another feed and its flows unchanged.
+steps:
+  - do: apply
+    stream: main
+    file: ../manifests/basic.yaml
+  - do: drive
+    stream: main
+  - do: apply
+    stream: other
+    file: ../manifests/reverse.yaml
+  - do: drive
+    stream: other
+  - do: await
+    stream: main
+    status: flowing
+  - do: await
+    stream: other
+    status: flowing
+  - do: snapshot
+    stream: other
+    as_name: isolated
+  - do: observe
+    receivers: [other/output]
+    seconds: 20
+    during:
+      - do: undrive
+        stream: main
+      - do: apply
+        stream: main
+        file: ../manifests/disabled.yaml
+      - do: await
+        stream: main
+        status: idle
+      - do: flows
+        stream: main
+        nodes: {}
+      - do: apply
+        stream: main
+        file: ../manifests/basic.yaml
+      - do: drive
+        stream: main
+      - do: await
+        stream: main
+        status: flowing
+  - do: observe
+    receivers: [other/output]
+    seconds: 20
+    during:
+      - do: delete
+        stream: main
+      - do: apply
+        stream: main
+        file: ../manifests/basic.yaml
+      - do: drive
+        stream: main
+      - do: await
+        stream: main
+        status: flowing
+  - do: unchanged
+    snapshot: isolated
+  - do: delete
+    stream: main
+  - do: delete
+    stream: other

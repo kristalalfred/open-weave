@@ -13,13 +13,14 @@ use weave_strom::StromClient;
 
 use crate::media::{self, Probe, Watch};
 use crate::report::{Report, redact};
-use crate::scenario::{ServiceAction, Step};
+use crate::scenario::{RuntimeAction, ServiceAction, Step, WriteCondition};
 
 const SERVICES: &[&str] = &[
     "northbound",
     "southbound",
     "controller",
     "controller-2",
+    "postgres",
     "route-manager",
     "router-1",
     "router-2",
@@ -60,6 +61,7 @@ pub struct Bench {
     strom_token: Option<Token>,
     pub prefix: String,
     image: String,
+    identities: BTreeMap<String, media::Identity>,
     streams: BTreeMap<String, StreamDefinition>,
     producers: BTreeMap<String, String>,
     pub consumers: BTreeMap<String, Probe>,
@@ -67,6 +69,7 @@ pub struct Bench {
     services: BTreeSet<String>,
     impaired: BTreeSet<String>,
     stopped: BTreeSet<String>,
+    paused: BTreeSet<String>,
     snapshots: BTreeMap<String, Snapshot>,
     completed_media: Vec<Value>,
 }
@@ -104,6 +107,7 @@ impl Bench {
             strom_token: Token::new(&strom_token),
             prefix,
             image,
+            identities: BTreeMap::new(),
             streams: BTreeMap::new(),
             producers: BTreeMap::new(),
             consumers: BTreeMap::new(),
@@ -111,6 +115,7 @@ impl Bench {
             services: BTreeSet::new(),
             impaired: BTreeSet::new(),
             stopped: BTreeSet::new(),
+            paused: BTreeSet::new(),
             snapshots: BTreeMap::new(),
             completed_media: Vec::new(),
         })
@@ -128,10 +133,12 @@ impl Bench {
                 value[0]["State"]["Running"] == true,
                 "{container} is not running"
             );
+            ensure!(value[0]["State"]["Paused"] != true, "{container} is paused");
             ensure!(
                 value[0]["Config"]["Labels"]["com.docker.compose.project"] == "ow-bench",
                 "{container} is not owned by the bench"
             );
+            self.report.event("runtime_artifact", json!({"container": container, "image": value[0]["Image"], "reference": value[0]["Config"]["Image"]}))?;
         }
         let deadline = Instant::now() + Duration::from_secs(45);
         self.report.event(
@@ -250,8 +257,71 @@ impl Bench {
 
     async fn step(&mut self, step: &Step, directory: &Path) -> Result<()> {
         match step {
-            Step::Apply { file, stream } => self.apply(stream, &directory.join(file)).await?,
+            Step::Apply {
+                file,
+                stream,
+                condition,
+                expect,
+            } => {
+                self.apply(stream, &directory.join(file), condition, *expect)
+                    .await?
+            }
             Step::Drive { stream } => self.drive(stream).await?,
+            Step::Undrive { stream } => self.undrive(stream).await?,
+            Step::Runtime {
+                stream,
+                node,
+                action,
+            } => {
+                let name = self.name(stream)?.to_string();
+                let flows = self
+                    .flows_on(*node)
+                    .await?
+                    .into_iter()
+                    .filter(|flow| flow.name.starts_with(&format!("weave-{name}-")))
+                    .collect::<Vec<_>>();
+                ensure!(!flows.is_empty(), "no {stream} flows on node {node}");
+                let client = StromClient::with_timeout(
+                    format!("http://localhost:{}", 28079 + node),
+                    Duration::from_secs(5),
+                )
+                .with_token(self.strom_token.clone());
+                for flow in flows {
+                    self.report
+                        .event("runtime_fault", json!({"flow": flow, "action": action}))?;
+                    match action {
+                        RuntimeAction::Stop => client.stop_flow(&flow.id).await?,
+                        RuntimeAction::Delete => client.delete_flow(&flow.id).await?,
+                    }
+                }
+            }
+            Step::AwaitControl {
+                status,
+                timeout_secs,
+            } => {
+                let deadline = Instant::now() + Duration::from_secs(*timeout_secs);
+                loop {
+                    let response = self
+                        .http
+                        .get(format!("{}/status", self.url))
+                        .bearer_auth(&self.token)
+                        .send()
+                        .await;
+                    let observed = response.as_ref().map(|r| r.status().as_u16()).ok();
+                    self.report.event(
+                        "control_status",
+                        json!({"expected": status, "observed": observed}),
+                    )?;
+                    if observed == Some(*status) {
+                        break;
+                    }
+                    ensure!(
+                        Instant::now() < deadline,
+                        "controller did not answer HTTP {status}; last: {response:?}"
+                    );
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
             Step::Flows {
                 stream,
                 nodes,
@@ -388,40 +458,66 @@ impl Bench {
         Ok(())
     }
 
-    async fn apply(&mut self, alias: &str, file: &Path) -> Result<()> {
+    async fn apply(
+        &mut self,
+        alias: &str,
+        file: &Path,
+        condition: &WriteCondition,
+        expected: u16,
+    ) -> Result<()> {
         let mut spec = crate::scenario::read_manifest(file)?;
         spec.name = format!("{}-{alias}", self.prefix);
         weave_core::validate_resource_id(&spec.name)?;
-        let existing = self
-            .http
-            .get(format!("{}/streams/{}", self.url, spec.name))
-            .bearer_auth(&self.token)
-            .send()
-            .await?;
-        let request = self
+        let mut request = self
             .http
             .post(format!("{}/streams", self.url))
             .bearer_auth(&self.token)
             .json(&spec);
-        let request = match existing.status() {
-            reqwest::StatusCode::NOT_FOUND => request.header(IF_NONE_MATCH, "*"),
-            reqwest::StatusCode::OK => request.header(
-                IF_MATCH,
-                existing
-                    .headers()
-                    .get(ETAG)
-                    .context("missing ETag")?
-                    .clone(),
-            ),
-            status => bail!("looking up stream: {status}"),
+        request = match condition {
+            WriteCondition::Absent => request.header(IF_NONE_MATCH, "*"),
+            WriteCondition::Missing => request,
+            WriteCondition::Snapshot(name) => {
+                let snapshot = self.snapshots.get(name).context("unknown snapshot")?;
+                ensure!(
+                    snapshot.stream == alias,
+                    "snapshot belongs to another stream"
+                );
+                request.header(IF_MATCH, &snapshot.etag)
+            }
+            WriteCondition::Current => {
+                let existing = self
+                    .http
+                    .get(format!("{}/streams/{}", self.url, spec.name))
+                    .bearer_auth(&self.token)
+                    .send()
+                    .await?;
+                match existing.status() {
+                    reqwest::StatusCode::NOT_FOUND => request.header(IF_NONE_MATCH, "*"),
+                    reqwest::StatusCode::OK => request.header(
+                        IF_MATCH,
+                        existing
+                            .headers()
+                            .get(ETAG)
+                            .context("missing ETag")?
+                            .clone(),
+                    ),
+                    status => bail!("looking up stream: {status}"),
+                }
+            }
         };
-        self.streams.insert(alias.to_string(), spec);
+        if (200..300).contains(&expected) {
+            self.streams.insert(alias.to_string(), spec);
+        }
         let response = request.send().await?;
+        let status = response.status().as_u16();
+        let body = redact(&response.text().await?);
+        self.report.event(
+            "write_response",
+            json!({"stream": alias, "status": status, "body": body}),
+        )?;
         ensure!(
-            response.status().is_success(),
-            "applying manifest: {} {}",
-            response.status(),
-            redact(&response.text().await?)
+            status == expected,
+            "applying manifest: expected HTTP {expected}, got {status}: {body}"
         );
         Ok(())
     }
@@ -452,13 +548,25 @@ impl Bench {
             "{alias} is already driven"
         );
         let endpoints = self.endpoints(alias).await?;
+        let identity = if let Some(identity) = self.identities.get(alias) {
+            *identity
+        } else {
+            let identity = media::Identity::new(self.identities.len())?;
+            self.identities.insert(alias.to_string(), identity);
+            identity
+        };
         let spec = self.streams.get(alias).unwrap();
         let url = media_url(
             endpoints.ingress.as_ref().context("no ingress")?,
             &spec.source,
         )?;
         let producer = self
-            .spawn_media(&url, &format!("{alias}-producer"), media::PRODUCER)
+            .spawn_media(
+                &url,
+                &format!("{alias}-producer"),
+                media::PRODUCER,
+                identity,
+            )
             .await?;
         self.producers.insert(alias.to_string(), producer);
         for destination in endpoints.destinations {
@@ -491,17 +599,32 @@ impl Bench {
             .find(|d| d.id == destination)
             .context("destination missing from manifest")?;
         let url = media_url(endpoint, &spec.endpoint)?;
+        let identity = *self
+            .identities
+            .get(alias)
+            .context("stream has no media identity")?;
         let container = self
-            .spawn_media(&url, &format!("{alias}-{destination}"), media::CONSUMER)
+            .spawn_media(
+                &url,
+                &format!("{alias}-{destination}"),
+                media::CONSUMER,
+                identity,
+            )
             .await?;
         self.consumers.insert(
             receiver.clone(),
-            Probe::follow(container, receiver, self.report.clone())?,
+            Probe::follow(container, receiver, identity, self.report.clone())?,
         );
         Ok(())
     }
 
-    async fn spawn_media(&mut self, url: &str, suffix: &str, script: &str) -> Result<String> {
+    async fn spawn_media(
+        &mut self,
+        url: &str,
+        suffix: &str,
+        script: &str,
+        identity: media::Identity,
+    ) -> Result<String> {
         let host = reqwest::Url::parse(url)?
             .host_str()
             .context("media URL missing host")?
@@ -545,6 +668,10 @@ impl Bench {
             "open-weave.bench.project=ow-bench",
             "--env",
             &format!("BENCH_URL={url}"),
+            "--env",
+            &format!("BENCH_COLOR={}", identity.color()),
+            "--env",
+            &format!("BENCH_FREQUENCY={}", identity.frequency),
             "--entrypoint",
             "/bin/bash",
             &self.image,
@@ -554,7 +681,7 @@ impl Bench {
         .await?;
         self.report.event(
             "media_started",
-            json!({"container": name, "site": site, "host": host}),
+            json!({"container": name, "site": site, "host": host, "identity": identity}),
         )?;
         Ok(name)
     }
@@ -696,6 +823,8 @@ impl Bench {
             ServiceAction::Start => vec!["start", &container],
             ServiceAction::Restart => vec!["restart", "--time", "5", &container],
             ServiceAction::Kill => vec!["kill", "--signal", "KILL", &container],
+            ServiceAction::Pause => vec!["pause", &container],
+            ServiceAction::Unpause => vec!["unpause", &container],
         };
         docker(&args).await?;
         match action {
@@ -708,6 +837,12 @@ impl Bench {
             }
             ServiceAction::Kill => {
                 self.stopped.remove(&actual);
+            }
+            ServiceAction::Pause => {
+                self.paused.insert(actual);
+            }
+            ServiceAction::Unpause => {
+                self.paused.remove(&actual);
             }
         }
         Ok(())
@@ -802,6 +937,22 @@ impl Bench {
     }
 
     async fn delete(&mut self, alias: &str) -> Result<()> {
+        self.undrive(alias).await?;
+        let name = self.name(alias)?.to_string();
+        self.delete_resource(&name).await?;
+        let deadline = Instant::now() + Duration::from_secs(45);
+        while !self.flows(&name).await?.is_empty() {
+            ensure!(
+                Instant::now() < deadline,
+                "{alias} left managed flows behind"
+            );
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        self.streams.remove(alias);
+        Ok(())
+    }
+
+    async fn undrive(&mut self, alias: &str) -> Result<()> {
         if let Some(name) = self.producers.remove(alias) {
             docker(&["rm", "-f", &name]).await?;
             self.containers.retain(|n| n != &name);
@@ -819,17 +970,6 @@ impl Bench {
             docker(&["rm", "-f", &probe.container]).await?;
             self.containers.retain(|n| n != &probe.container);
         }
-        let name = self.name(alias)?.to_string();
-        self.delete_resource(&name).await?;
-        let deadline = Instant::now() + Duration::from_secs(45);
-        while !self.flows(&name).await?.is_empty() {
-            ensure!(
-                Instant::now() < deadline,
-                "{alias} left managed flows behind"
-            );
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-        self.streams.remove(alias);
         Ok(())
     }
 
@@ -880,11 +1020,17 @@ impl Bench {
                 "cleanup_action",
                 json!({"detail": format!("restoring {service}")}),
             );
+            if self.paused.contains(service)
+                && let Err(error) = docker(&["unpause", &format!("ow-{service}")]).await
+            {
+                errors.push(format!("unpause {service}: {error:#}"));
+            }
             if let Err(error) = docker(&["start", &format!("ow-{service}")]).await {
                 errors.push(format!("restore {service}: {error:#}"));
             }
         }
         self.stopped.clear();
+        self.paused.clear();
         self.consumers.clear();
         for container in &self.containers {
             let _ = self.report.event(

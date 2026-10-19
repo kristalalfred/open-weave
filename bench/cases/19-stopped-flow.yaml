@@ -1,0 +1,52 @@
+name: stopped-flow
+description: A stopped managed flow is restarted without changing its identity or interrupting another stream.
+steps:
+  - do: apply
+    stream: main
+    file: ../manifests/basic.yaml
+  - do: drive
+    stream: main
+  - do: apply
+    stream: other
+    file: ../manifests/reverse.yaml
+  - do: drive
+    stream: other
+  - do: await
+    stream: main
+    status: flowing
+  - do: await
+    stream: other
+    status: flowing
+  - do: snapshot
+    stream: main
+    as_name: established
+  - do: snapshot
+    stream: other
+    as_name: isolated
+  - do: observe
+    receivers: [other/output]
+    seconds: 20
+    during:
+      - do: runtime
+        stream: main
+        node: 2
+        action: stop
+      - do: flows
+        stream: main
+        nodes: {strom-node-1: 1, strom-node-2: 1}
+        timeout_secs: 45
+      - do: await
+        stream: main
+        status: flowing
+        timeout_secs: 45
+  - do: unchanged
+    snapshot: established
+  - do: unchanged
+    snapshot: isolated
+  - do: observe
+    receivers: [main/output, other/output]
+    seconds: 10
+  - do: delete
+    stream: main
+  - do: delete
+    stream: other

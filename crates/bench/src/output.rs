@@ -506,11 +506,23 @@ fn count_steps(steps: &[Step]) -> usize {
 
 fn step_label(step: &Step) -> String {
     match step {
-        Step::Apply { file, stream } => format!(
-            "apply {stream} from {}",
+        Step::Apply {
+            file,
+            stream,
+            expect,
+            ..
+        } => format!(
+            "apply {stream} from {} (HTTP {expect})",
             file.file_name().unwrap_or_default().to_string_lossy()
         ),
         Step::Drive { stream } => format!("attach producer and consumers to {stream}"),
+        Step::Undrive { stream } => format!("remove producer and consumers from {stream}"),
+        Step::Runtime {
+            stream,
+            node,
+            action,
+        } => format!("{action:?} {stream} flows on node {node}").to_lowercase(),
+        Step::AwaitControl { status, .. } => format!("await controller HTTP {status}"),
         Step::Flows { stream, nodes, .. } => format!(
             "verify {stream} runtime hops: {}",
             nodes
@@ -562,9 +574,9 @@ fn step_label(step: &Step) -> String {
 fn step_clock(active: &ActiveStep, now: Instant) -> String {
     let elapsed = now.duration_since(active.started);
     let limit = match &active.step {
-        Step::Await { timeout_secs, .. } | Step::Flows { timeout_secs, .. } => {
-            Some((*timeout_secs, "timeout"))
-        }
+        Step::Await { timeout_secs, .. }
+        | Step::Flows { timeout_secs, .. }
+        | Step::AwaitControl { timeout_secs, .. } => Some((*timeout_secs, "timeout")),
         Step::Observe { seconds, .. } => Some((*seconds, "minimum")),
         Step::Wait { seconds } => Some((*seconds, "wait")),
         _ => None,

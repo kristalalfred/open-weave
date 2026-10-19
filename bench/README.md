@@ -58,19 +58,24 @@ and audio progress throughout its window, including while its `during` actions
 execute.
 It fails on gaps above `max_gap_ms` or receiver restarts above `max_restarts`.
 Defaults are 3000 ms and zero restarts. These are sampled decoder measurements.
-They do not measure packet loss, picture quality, or delivery of the correct feed.
+Each feed has a distinct grayscale video marker and audio tone. Consumers check
+both identities after decoding. These synthetic checks do not measure packet
+loss, picture quality, end-to-end latency, or A/V synchronization.
 
 Cases use these actions:
 
 | Action | Inputs and check |
 |---|---|
-| `apply` | `file` relative to the case; `stream` is a case-local alias. |
+| `apply` | `file` relative to the case; `stream` is a case-local alias. `condition` is `current` (default), `absent`, `missing`, or `{snapshot: name}`; `expect` defaults to HTTP 202. |
 | `drive` | Start a producer and all destination consumers for `stream`. |
+| `undrive` | Remove a stream's producer and consumers without deleting its desired state. |
+| `runtime` | `stop` or `delete` a stream's managed flows on `node` 1 through 4. |
+| `await_control` | Require `/status` to answer HTTP `status` within `timeout_secs`. |
 | `producer`, `consumer` | Set `running` for a stream's producer or a `receiver` such as `main/output`. |
 | `await` | Wait for `status`, optional `destination`, `nodes` and `format_reason`, within `timeout_secs` (default 90). |
 | `flows` | Require running hop counts in `nodes`; omitted nodes must have zero. |
 | `observe` | Watch `receivers` for at least `seconds`; also watch until every `during` action finishes. |
-| `service` | `stop`, `start`, `restart`, or `kill` a bench control service, adapter, or Strom; `leader` selects the current controller leader. `start` and `restart` wait until the container runs and passes its healthcheck. |
+| `service` | `stop`, `start`, `restart`, `kill`, `pause`, or `unpause` a bench control service, Postgres, adapter, or Strom; `leader` selects the current controller leader. `start` and `restart` wait until the container runs and passes its healthcheck. |
 | `netem`, `clear_netem` | Apply individual `tc` tokens in `args`, or clear them, on `node1` through `node4`. |
 | `snapshot`, `unchanged` | Capture a stream's ETag, generation, and runtime flow identities with `as_name`; compare using `snapshot`. |
 | `delete` | Remove endpoints and the stream; wait for its managed flows to disappear. |
@@ -93,6 +98,7 @@ a result, its YAML, and service logs. The run has `summary.json`. The timeline
 includes API observations, Strom statistics, and decoder progress. SRT
 passphrases are redacted. The media image is pinned by digest, and its identity
 is recorded; `--media-image` overrides it. The runner pulls it when absent.
+Installed service image IDs are recorded separately.
 
 The corpus covers direct links, fan-out, concurrent feeds, controller
 failover, source reconnects, delay/loss, site partitions, relay replacement,

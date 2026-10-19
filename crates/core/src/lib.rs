@@ -3052,6 +3052,34 @@ mod tests {
     }
 
     #[test]
+    fn a_report_for_an_old_spec_cannot_confirm_a_new_spec() {
+        let mut desired = sample_hop();
+        let socket = SocketStatus {
+            condition: LinkCondition::Flowing,
+            resolved: None,
+            stats: None,
+        };
+        let status = HopStatus {
+            id: desired.id.clone(),
+            node_id: desired.node_id.clone(),
+            state: HopState::Provisioned,
+            ingress: socket.clone(),
+            merge_ingress: None,
+            egresses: desired
+                .egresses
+                .iter()
+                .map(|egress| EgressStatus {
+                    branch_id: egress.branch_id.clone(),
+                    status: socket.clone(),
+                })
+                .collect(),
+        };
+        assert!(status.conditions(&desired).is_some());
+        desired.ingress = SocketSpec::srt_listen(7001, 400);
+        assert_eq!(status.conditions(&desired), None);
+    }
+
+    #[test]
     fn a_merge_ingress_is_reported_exactly_when_desired() {
         let socket = |condition| SocketStatus {
             condition,

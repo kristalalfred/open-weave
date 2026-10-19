@@ -20,9 +20,26 @@ pub enum Step {
     Apply {
         file: PathBuf,
         stream: String,
+        #[serde(default)]
+        condition: WriteCondition,
+        #[serde(default = "accepted")]
+        expect: u16,
     },
     Drive {
         stream: String,
+    },
+    Undrive {
+        stream: String,
+    },
+    Runtime {
+        stream: String,
+        node: usize,
+        action: RuntimeAction,
+    },
+    AwaitControl {
+        status: u16,
+        #[serde(default = "default_timeout")]
+        timeout_secs: u64,
     },
     Flows {
         stream: String,
@@ -93,6 +110,29 @@ pub enum ServiceAction {
     Start,
     Restart,
     Kill,
+    Pause,
+    Unpause,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum WriteCondition {
+    #[default]
+    Current,
+    Absent,
+    Missing,
+    Snapshot(String),
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeAction {
+    Stop,
+    Delete,
+}
+
+fn accepted() -> u16 {
+    202
 }
 
 pub fn default_timeout() -> u64 {
@@ -133,8 +173,21 @@ fn validate_steps(
 ) -> Result<()> {
     for step in steps {
         match step {
-            Step::Apply { file, stream } => {
+            Step::Apply {
+                file,
+                stream,
+                condition,
+                expect,
+            } => {
                 validate_resource_id(stream)?;
+                ensure!((200..600).contains(expect), "invalid expected HTTP status");
+                ensure!(
+                    *expect < 300 || streams.contains(stream),
+                    "rejected writes require an existing stream"
+                );
+                if let WriteCondition::Snapshot(name) = condition {
+                    ensure!(snapshots.contains(name), "unknown snapshot {name}");
+                }
                 ensure!(
                     directory.join(file).is_file(),
                     "manifest {} missing",
@@ -148,8 +201,22 @@ fn validate_steps(
                 );
                 streams.insert(stream.clone());
             }
-            Step::Drive { stream } | Step::Producer { stream, .. } | Step::Delete { stream } => {
+            Step::Drive { stream }
+            | Step::Undrive { stream }
+            | Step::Producer { stream, .. }
+            | Step::Delete { stream } => {
                 ensure!(streams.contains(stream), "unknown stream {stream}");
+            }
+            Step::Runtime { stream, node, .. } => {
+                ensure!(streams.contains(stream), "unknown stream {stream}");
+                ensure!((1..=4).contains(node), "unknown runtime node {node}");
+            }
+            Step::AwaitControl {
+                status,
+                timeout_secs,
+            } => {
+                ensure!((200..600).contains(status), "invalid expected HTTP status");
+                ensure!(*timeout_secs > 0, "timeout_secs must be positive");
             }
             Step::Flows {
                 stream,
@@ -203,7 +270,12 @@ fn validate_steps(
                 ensure!(
                     matches!(
                         service.as_str(),
-                        "leader" | "controller" | "controller-2" | "northbound" | "southbound"
+                        "leader"
+                            | "controller"
+                            | "controller-2"
+                            | "northbound"
+                            | "southbound"
+                            | "postgres"
                     ) || ["adapter-", "strom-"].iter().any(|prefix| {
                         service
                             .strip_prefix(prefix)
@@ -280,7 +352,7 @@ mod tests {
     fn rejects_faults_outside_the_bench_and_shell_tokens() {
         for step in [
             Step::Service {
-                service: "postgres".into(),
+                service: "unrelated-postgres".into(),
                 action: ServiceAction::Stop,
             },
             Step::Netem {
@@ -316,5 +388,38 @@ mod tests {
             }
         }
         assert!(!names.is_empty());
+    }
+
+    #[test]
+    fn runtime_faults_and_preconditions_are_checked_before_execution() {
+        for yaml in [
+            "do: runtime\nstream: main\nnode: 5\naction: delete",
+            "do: await_control\nstatus: 503\ntimeout_secs: 0",
+            "do: await_control\nstatus: 700",
+        ] {
+            let step: Step = serde_norway::from_str(yaml).unwrap();
+            assert!(
+                validate_steps(
+                    &[step],
+                    Path::new("."),
+                    &mut BTreeSet::from(["main".into()]),
+                    &mut BTreeSet::new(),
+                    false
+                )
+                .is_err()
+            );
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/cases");
+        let step: Step = serde_norway::from_str("do: apply\nstream: main\nfile: ../manifests/basic.yaml\ncondition: {snapshot: missing}").unwrap();
+        assert!(
+            validate_steps(
+                &[step],
+                &root,
+                &mut BTreeSet::from(["main".into()]),
+                &mut BTreeSet::new(),
+                false
+            )
+            .is_err()
+        );
     }
 }

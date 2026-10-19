@@ -1,0 +1,29 @@
+name: jitter-reordering
+description: SRT keeps decoding under combined delay, jitter, loss, reordering and a bandwidth limit.
+steps:
+  - do: apply
+    stream: main
+    file: ../manifests/basic.yaml
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: observe
+    receivers: [main/output]
+    seconds: 30
+    during:
+      - do: netem
+        node: node2
+        args: [delay, 60ms, 20ms, distribution, normal, loss, "2%", reorder, "10%", "50%", rate, 4mbit]
+  - do: clear_netem
+    node: node2
+  - do: await
+    stream: main
+    status: flowing
+    timeout_secs: 45
+  - do: observe
+    receivers: [main/output]
+    seconds: 10
+  - do: delete
+    stream: main

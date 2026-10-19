@@ -1,0 +1,62 @@
+name: write-retries
+description: No-op retries preserve media and stale or missing preconditions cannot overwrite a stream.
+steps:
+  - do: apply
+    stream: main
+    file: ../manifests/basic.yaml
+  - do: drive
+    stream: main
+  - do: await
+    stream: main
+    status: flowing
+  - do: snapshot
+    stream: main
+    as_name: original
+  - do: observe
+    receivers: [main/output]
+    seconds: 10
+    during:
+      - do: apply
+        stream: main
+        file: ../manifests/reverse.yaml
+        condition: absent
+        expect: 412
+      - do: apply
+        stream: main
+        file: ../manifests/reverse.yaml
+        condition: missing
+        expect: 428
+      - do: apply
+        stream: main
+        file: ../manifests/basic.yaml
+        condition: {snapshot: original}
+      - do: apply
+        stream: main
+        file: ../manifests/basic.yaml
+        condition: {snapshot: original}
+  - do: unchanged
+    snapshot: original
+  - do: apply
+    stream: main
+    file: ../manifests/basic-latency.yaml
+    condition: {snapshot: original}
+  - do: await
+    stream: main
+    status: flowing
+    timeout_secs: 60
+  - do: snapshot
+    stream: main
+    as_name: updated
+  - do: observe
+    receivers: [main/output]
+    seconds: 10
+    during:
+      - do: apply
+        stream: main
+        file: ../manifests/basic.yaml
+        condition: {snapshot: original}
+        expect: 412
+  - do: unchanged
+    snapshot: updated
+  - do: delete
+    stream: main

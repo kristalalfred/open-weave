@@ -18,7 +18,8 @@ while :; do
   echo BENCH_ATTEMPT
   ffmpeg -hide_banner -nostdin -loglevel warning -re \
     -f lavfi -i testsrc2=size=640x360:rate=30 \
-    -f lavfi -i sine=frequency=1000:sample_rate=48000 \
+    -f lavfi -i "sine=frequency=$BENCH_FREQUENCY:sample_rate=48000" \
+    -vf "drawbox=x=0:y=0:w=64:h=64:color=$BENCH_COLOR:t=fill" \
     -c:v libx264 -preset ultrafast -tune zerolatency -b:v 1500k -pix_fmt yuv420p -g 30 \
     -c:a aac -b:a 128k -f mpegts "$BENCH_URL" 2>&1 &
   child=$!
@@ -33,7 +34,10 @@ trap 'kill -TERM "$child" 2>/dev/null; exit 0' TERM INT
 while :; do
   echo BENCH_ATTEMPT
   ffmpeg -hide_banner -nostdin -nostats -loglevel info -stats_period 0.25 -progress pipe:1 \
-    -i "$BENCH_URL" -map 0:v:0 -map 0:a:0 -af ashowinfo -f null - 2>&1 &
+    -i "$BENCH_URL" -map 0:v:0 -map 0:a:0 \
+    -vf "crop=32:32:16:16,signalstats,metadata=mode=print:key=lavfi.signalstats.YAVG" \
+    -af "ashowinfo,astats=metadata=1:reset=1,ametadata=mode=print:key=lavfi.astats.1.Zero_crossings_rate" \
+    -f null - 2>&1 &
   child=$!
   wait "$child"
   echo "BENCH_EXIT $?"
@@ -41,8 +45,40 @@ while :; do
 done
 "#;
 
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct Identity {
+    pub gray: u8,
+    pub frequency: u32,
+}
+
+impl Identity {
+    pub fn new(index: usize) -> Result<Self> {
+        ensure!(
+            index < 32,
+            "a media scenario supports at most 32 feed identities"
+        );
+        Ok(Self {
+            gray: 16 + index as u8 * 7,
+            frequency: 400 + index as u32 * 400,
+        })
+    }
+
+    pub fn color(self) -> String {
+        format!("0x{0:02x}{0:02x}{0:02x}", self.gray)
+    }
+
+    fn luma(self) -> f64 {
+        16.0 + f64::from(self.gray) * 219.0 / 255.0
+    }
+}
+
 #[derive(Default)]
 pub struct Progress {
+    identity: Option<Identity>,
+    video_identity_at: Option<Instant>,
+    audio_identity_at: Option<Instant>,
+    video_mismatches: u32,
+    audio_mismatches: u32,
     pub attempts: u64,
     pub frames: u64,
     pub media_us: u64,
@@ -69,6 +105,9 @@ impl Progress {
             "audio_idle_ms": self.last_audio_advance.map(|last| now.duration_since(last).as_millis()),
             "ended": self.ended,
             "observer_error": self.error,
+            "identity": self.identity,
+            "video_identity_idle_ms": self.video_identity_at.map(|last| now.duration_since(last).as_millis()),
+            "audio_identity_idle_ms": self.audio_identity_at.map(|last| now.duration_since(last).as_millis()),
         })
     }
 
@@ -80,6 +119,14 @@ impl Progress {
             self.pending_frames = 0;
             self.pending_media_us = 0;
             self.audio_us = -1.0;
+            self.video_identity_at = None;
+            self.audio_identity_at = None;
+            self.video_mismatches = 0;
+            self.audio_mismatches = 0;
+        } else if let Some(value) = line.split("lavfi.signalstats.YAVG=").nth(1) {
+            self.observe_identity(value, true, now);
+        } else if let Some(value) = line.split("lavfi.astats.1.Zero_crossings_rate=").nth(1) {
+            self.observe_identity(value, false, now);
         } else if line.contains("ashowinfo") {
             let fields = line.split_whitespace().collect::<Vec<_>>();
             let time = fields
@@ -118,6 +165,48 @@ impl Progress {
         }
     }
 
+    fn observe_identity(&mut self, value: &str, video: bool, now: Instant) {
+        let Some(identity) = self.identity else {
+            return;
+        };
+        let Ok(value) = value.trim().parse::<f64>() else {
+            return;
+        };
+        if !value.is_finite() {
+            return;
+        }
+        let (observed, expected, tolerance, last, mismatches, track) = if video {
+            (
+                value,
+                identity.luma(),
+                2.0,
+                &mut self.video_identity_at,
+                &mut self.video_mismatches,
+                "video",
+            )
+        } else {
+            (
+                value * 48000.0 / 2.0,
+                f64::from(identity.frequency),
+                120.0,
+                &mut self.audio_identity_at,
+                &mut self.audio_mismatches,
+                "audio",
+            )
+        };
+        if (observed - expected).abs() <= tolerance {
+            *last = Some(now);
+            *mismatches = 0;
+        } else {
+            *mismatches += 1;
+            if *mismatches >= 5 {
+                self.error = Some(format!(
+                    "wrong {track} feed: expected {expected:.1}, observed {observed:.1}"
+                ));
+            }
+        }
+    }
+
     pub fn healthy(&self, now: Instant, gap: Duration) -> bool {
         !self.ended
             && self.error.is_none()
@@ -128,11 +217,22 @@ impl Progress {
             && self
                 .last_audio_advance
                 .is_some_and(|last| now.duration_since(last) <= gap)
+            && self.identity.is_none_or(|_| {
+                self.video_identity_at
+                    .is_some_and(|last| now.duration_since(last) <= gap)
+                    && self
+                        .audio_identity_at
+                        .is_some_and(|last| now.duration_since(last) <= gap)
+            })
     }
 
     pub fn advanced_since(&self, since: Instant) -> bool {
         self.last_advance.is_some_and(|last| last > since)
             && self.last_audio_advance.is_some_and(|last| last > since)
+            && self.identity.is_none_or(|_| {
+                self.video_identity_at.is_some_and(|last| last > since)
+                    && self.audio_identity_at.is_some_and(|last| last > since)
+            })
     }
 }
 
@@ -143,7 +243,12 @@ pub struct Probe {
 }
 
 impl Probe {
-    pub fn follow(container: String, receiver: String, report: Report) -> Result<Self> {
+    pub fn follow(
+        container: String,
+        receiver: String,
+        identity: Identity,
+        report: Report,
+    ) -> Result<Self> {
         let mut child = Command::new("docker")
             .args(["logs", "--follow", &container])
             .stdout(std::process::Stdio::piped())
@@ -151,7 +256,10 @@ impl Probe {
             .kill_on_drop(true)
             .spawn()?;
         let output = child.stdout.take().unwrap();
-        let progress = Arc::new(Mutex::new(Progress::default()));
+        let progress = Arc::new(Mutex::new(Progress {
+            identity: Some(identity),
+            ..Progress::default()
+        }));
         let state = progress.clone();
         let name = container.clone();
         let task = tokio::spawn(async move {
@@ -207,6 +315,7 @@ impl Probe {
             "decoded_audio_samples": state.audio_samples,
             "max_progress_gap_ms": state.max_gap_ms,
             "observer_error": state.error,
+            "identity": state.identity,
         })
     }
 }
@@ -298,6 +407,22 @@ impl Watch {
             self.receiver,
             now.duration_since(self.last_audio_advance).as_millis()
         );
+        if state.identity.is_some() {
+            ensure!(
+                state
+                    .video_identity_at
+                    .is_some_and(|last| now.duration_since(last) <= gap),
+                "{} has no fresh video identity",
+                self.receiver
+            );
+            ensure!(
+                state
+                    .audio_identity_at
+                    .is_some_and(|last| now.duration_since(last) <= gap),
+                "{} has no fresh audio identity",
+                self.receiver
+            );
+        }
         Ok(())
     }
 }
@@ -408,6 +533,60 @@ mod tests {
             } else {
                 assert!(result.unwrap_err().to_string().contains("no decoded audio"));
             }
+        }
+    }
+
+    #[test]
+    fn decoding_requires_both_feed_identities() {
+        let now = Instant::now();
+        let identity = Identity::new(0).unwrap();
+        let mut state = Progress {
+            identity: Some(identity),
+            ..Progress::default()
+        };
+        progress(&mut state, 30, 1_000_000, now);
+        assert!(!state.healthy(now, Duration::from_secs(2)));
+        state.line(&format!("lavfi.signalstats.YAVG={}", identity.luma()), now);
+        assert!(!state.healthy(now, Duration::from_secs(2)));
+        state.line(
+            &format!(
+                "lavfi.astats.1.Zero_crossings_rate={}",
+                f64::from(identity.frequency) / 24000.0
+            ),
+            now,
+        );
+        assert!(state.healthy(now, Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn another_feeds_audio_or_video_fails_even_while_decoding() {
+        let now = Instant::now();
+        let expected = Identity::new(0).unwrap();
+        let other = Identity::new(1).unwrap();
+        for (track, line) in [
+            ("video", format!("lavfi.signalstats.YAVG={}", other.luma())),
+            (
+                "audio",
+                format!(
+                    "lavfi.astats.1.Zero_crossings_rate={}",
+                    f64::from(other.frequency) / 24000.0
+                ),
+            ),
+        ] {
+            let mut state = Progress {
+                identity: Some(expected),
+                ..Progress::default()
+            };
+            for frame in 1..=5 {
+                progress(&mut state, frame * 30, frame * 1_000_000, now);
+                state.line(&line, now);
+            }
+            assert!(
+                state
+                    .error
+                    .unwrap()
+                    .contains(&format!("wrong {track} feed"))
+            );
         }
     }
 }
