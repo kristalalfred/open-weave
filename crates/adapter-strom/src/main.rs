@@ -1499,6 +1499,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_start_of_an_adopted_flow_is_reported_as_failed() {
+        let desired = hop("weave-basic-sender", 7001);
+        let mut stopped = serde_json::to_value(flow_spec_from_hop(&desired).unwrap()).unwrap();
+        stopped["id"] = json!("id-stopped");
+        stopped["running"] = json!(false);
+        let starts = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let seen = starts.clone();
+        let app = Router::new()
+            .route(
+                "/api/flows",
+                get(move || {
+                    let stopped = stopped.clone();
+                    async move { Json(json!({ "flows": [stopped] })) }
+                }),
+            )
+            .route(
+                "/api/flows/{id}/start",
+                axum::routing::post(
+                    move |axum::extract::Path(id): axum::extract::Path<String>| {
+                        seen.lock().unwrap().push(id);
+                        async {
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(json!({ "error": "injected start failure" })),
+                            )
+                        }
+                    },
+                ),
+            )
+            .route(
+                "/api/flows/{id}/srt-stats",
+                get(|| async { Json(json!({ "stats": { "connections": {} } })) }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+        let strom = StromClient::new(format!("http://{addr}"));
+        let mut tracker = StallTracker::default();
+        let mut states = Vec::new();
+
+        for _ in 0..2 {
+            let flows = strom.list_flows().await.unwrap();
+            assert_eq!(flows.len(), 1);
+            assert!(!flows[0].running);
+            let statuses = reconcile(
+                &strom,
+                std::slice::from_ref(&desired),
+                &flows,
+                None,
+                &mut tracker,
+            )
+            .await;
+            assert_eq!(statuses.len(), 1);
+            assert_eq!(statuses[0].id, desired.id);
+            states.push(statuses[0].state);
+        }
+        server.abort();
+        let _ = server.await;
+
+        assert_eq!(*starts.lock().unwrap(), ["id-stopped", "id-stopped"]);
+        assert_eq!(
+            states,
+            [HopState::Failed, HopState::Failed],
+            "a rejected start must be reported as failed while the flow remains stopped"
+        );
+    }
+
+    #[tokio::test]
     async fn a_caller_ingress_left_unconnected_is_restarted_and_a_listener_is_not() {
         let unconnected = json!({
             "stats": { "connections": {
