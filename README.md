@@ -36,8 +36,9 @@ just bench down
 ```
 
 For the local timed-delivery demo, run `just timed-demo` with FFmpeg installed.
-`just timed-demo auto` calibrates latency; `just timed-demo fail` interrupts one
-relay for 15 seconds. `just timed-demo view` opens FFplay. See
+`just timed-demo auto` calibrates latency; `just timed-demo fail both` interrupts
+both relays. Restore them independently with `just timed-demo restore a` and
+`just timed-demo restore b`. `just timed-demo view` opens FFplay. See
 [the demo commands](bench/README.md#timed-delivery-demo).
 
 To run on your own hosts, see [`deploy/`](deploy/README.md).

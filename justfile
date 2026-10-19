@@ -43,8 +43,8 @@ run-strom-adapter *ARGS:
 run-node *ARGS:
     cargo run -p weave-media --bin weave-node -- {{ARGS}}
 
-timed-demo ACTION="run": build
-    cargo run -p weave-bench --bin weave-timed-demo -- {{ACTION}}
+timed-demo ACTION="run" *ARGS: build
+    cargo run -p weave-bench --bin weave-timed-demo -- {{ACTION}} {{ARGS}}
 
 cli *ARGS:
     cargo run -p weave-cli -- {{ARGS}}

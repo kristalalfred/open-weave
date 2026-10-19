@@ -2,13 +2,14 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
 use bytes::Bytes;
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use futures::{SinkExt, StreamExt};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use srt_tokio::SrtSocket;
 use tokio::net::UdpSocket;
@@ -20,23 +21,147 @@ const STREAM: &str = "timed-demo";
 #[derive(Parser)]
 #[command(
     name = "weave-timed-demo",
-    about = "Run an isolated local SRT timing demo with generated video, audio, and a controllable network path"
+    about = "Run an isolated local SRT timing demo with generated video, audio, and independently controllable relay paths"
 )]
 struct Args {
-    #[arg(value_enum, default_value_t = Action::Run, help = "Run the demo, inspect it, change its latency mode, interrupt the direct path, view the program, or stop")]
-    action: Action,
+    #[command(subcommand)]
+    action: Option<Action>,
+}
+
+#[derive(Subcommand)]
+enum Action {
+    #[command(about = "Start the local media demo")]
+    Run,
+    #[command(about = "Show delivery status and decoded media progress")]
+    Status,
+    #[command(about = "Select fixed 500 ms delivery")]
+    Fixed,
+    #[command(about = "Calibrate and lock delivery latency")]
+    Auto,
+    #[command(about = "Pause relay paths until restored or the optional timeout expires")]
+    Fail {
+        #[arg(value_enum, default_value_t = RelayTarget::A, help = "Relay paths to pause")]
+        path: RelayTarget,
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Restore these paths automatically after this many seconds")]
+        seconds: Option<u64>,
+    },
+    #[command(about = "Resume relay paths")]
+    Restore {
+        #[arg(value_enum, default_value_t = RelayTarget::Both, help = "Relay paths to resume")]
+        path: RelayTarget,
+    },
+    #[command(about = "Open the video and audio preview")]
+    View,
+    #[command(about = "Stop the local demo")]
+    Stop,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
-enum Action {
-    Run,
-    Status,
-    Fixed,
-    Auto,
-    Fail,
-    Restore,
-    View,
-    Stop,
+enum RelayTarget {
+    A,
+    B,
+    Both,
+}
+
+impl RelayTarget {
+    fn paths(self) -> &'static [&'static str] {
+        match self {
+            Self::A => &["a"],
+            Self::B => &["b"],
+            Self::Both => &["a", "b"],
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct Fault {
+    restore_at_unix_ms: Option<u64>,
+}
+
+fn unix_ms() -> Result<u64> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_millis()
+        .try_into()?)
+}
+
+fn change_paths(path: RelayTarget, fail: bool, seconds: Option<u64>) -> Result<()> {
+    let root = root();
+    ensure!(root.join("run.lock").exists(), "timed demo is not running");
+    let restore_at_unix_ms = seconds
+        .map(|seconds| {
+            unix_ms()?
+                .checked_add(seconds.checked_mul(1_000).context("timeout is too large")?)
+                .context("timeout is too large")
+        })
+        .transpose()?;
+    for path in path.paths() {
+        let target = root.join(format!("fault-{path}.json"));
+        if fail {
+            let temporary = target.with_extension(format!("{}.tmp", std::process::id()));
+            std::fs::write(
+                &temporary,
+                serde_json::to_vec(&Fault { restore_at_unix_ms })?,
+            )?;
+            if let Err(error) = std::fs::rename(&temporary, &target) {
+                let _ = std::fs::remove_file(&temporary);
+                return Err(error.into());
+            }
+        } else {
+            match std::fs::remove_file(&target) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        println!(
+            "Relay {path}: {} requested",
+            if fail { "pause" } else { "restore" }
+        );
+    }
+    Ok(())
+}
+
+fn apply_faults(resources: &Resources, paused: &mut [bool; 2]) -> Result<()> {
+    let now = unix_ms()?;
+    for (path, paused) in RelayTarget::Both.paths().iter().zip(paused) {
+        let fault = match std::fs::read(resources.root.join(format!("fault-{path}.json"))) {
+            Ok(bytes) => Some(serde_json::from_slice::<Fault>(&bytes)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        let requested = fault.is_some_and(|fault| {
+            fault
+                .restore_at_unix_ms
+                .is_none_or(|deadline| now < deadline)
+        });
+        if requested == *paused {
+            continue;
+        }
+        let name = format!("relay-{path}");
+        let relay = &resources
+            .children
+            .iter()
+            .find(|(id, _)| id == &name)
+            .context("relay process")?
+            .1;
+        ensure!(
+            Command::new("kill")
+                .args([
+                    if requested { "-STOP" } else { "-CONT" },
+                    &relay.id().to_string()
+                ])
+                .status()?
+                .success(),
+            "changing relay {path} state failed"
+        );
+        *paused = requested;
+        println!(
+            "Relay {path} {}",
+            if requested { "paused" } else { "restored" }
+        );
+    }
+    Ok(())
 }
 
 fn root() -> PathBuf {
@@ -60,7 +185,9 @@ impl Drop for Resources {
         }
         let _ = std::fs::remove_file(self.root.join("run.lock"));
         let _ = std::fs::remove_file(self.root.join("stop"));
-        let _ = std::fs::remove_file(self.root.join("fault"));
+        for path in RelayTarget::Both.paths() {
+            let _ = std::fs::remove_file(self.root.join(format!("fault-{path}.json")));
+        }
     }
 }
 
@@ -250,11 +377,14 @@ async fn run(client: &Client) -> Result<()> {
         tasks: vec![],
     };
     let _ = std::fs::remove_file(root.join("stop"));
-    std::fs::write(root.join("fault"), "0")?;
+    for path in RelayTarget::Both.paths() {
+        let _ = std::fs::remove_file(root.join(format!("fault-{path}.json")));
+    }
     let binaries = std::env::current_exe()?
         .parent()
         .context("demo binary directory")?
         .to_owned();
+    let node_ttl = u64::MAX.to_string();
     resources.child(
         "controller",
         &binaries.join("weave-controller"),
@@ -264,7 +394,7 @@ async fn run(client: &Client) -> Result<()> {
             "--interval-secs",
             "1",
             "--node-ttl-secs",
-            "120",
+            &node_ttl,
         ],
     )?;
     resources.child(
@@ -433,54 +563,18 @@ async fn run(client: &Client) -> Result<()> {
         ],
     )?;
     println!("Timed media demo: http://127.0.0.1:39082/ui");
-    println!("Commands: just timed-demo status | auto | fixed | fail | restore | view | stop");
+    println!(
+        "Commands: just timed-demo status | auto | fixed | fail [a|b|both] | restore [a|b|both] | view | stop"
+    );
     println!(
         "The demo uses one shared host clock. Decoder and display latency are outside the managed timing boundary."
     );
-    let mut fault_started: Option<Instant> = None;
+    let mut paused = [false; 2];
     loop {
         if root.join("stop").exists() {
             return Ok(());
         }
-        let requested =
-            std::fs::read_to_string(root.join("fault")).is_ok_and(|value| value.trim() == "1");
-        if requested && fault_started.is_none() {
-            let relay = &resources
-                .children
-                .iter()
-                .find(|(name, _)| name == "relay-a")
-                .context("direct relay process")?
-                .1;
-            ensure!(
-                Command::new("kill")
-                    .args(["-STOP", &relay.id().to_string()])
-                    .status()?
-                    .success(),
-                "pausing relay failed"
-            );
-            fault_started = Some(Instant::now());
-            println!("First relay paused; automatic restore in 15 seconds");
-        }
-        if fault_started
-            .is_some_and(|started| !requested || started.elapsed() >= Duration::from_secs(15))
-        {
-            let relay = &resources
-                .children
-                .iter()
-                .find(|(name, _)| name == "relay-a")
-                .context("direct relay process")?
-                .1;
-            ensure!(
-                Command::new("kill")
-                    .args(["-CONT", &relay.id().to_string()])
-                    .status()?
-                    .success(),
-                "restoring relay failed"
-            );
-            std::fs::write(root.join("fault"), "0")?;
-            fault_started = None;
-            println!("First relay restored");
-        }
+        apply_faults(&resources, &mut paused)?;
         for (name, child) in &mut resources.children {
             if let Some(status) = child.try_wait()? {
                 bail!(
@@ -508,14 +602,13 @@ async fn main() -> Result<()> {
         .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_secs(5))
         .build()?;
-    match args.action {
+    match args.action.unwrap_or(Action::Run) {
         Action::Run => tokio::select! {
             result = run(&client) => result,
             result = weave_core::shutdown::signal() => result.context("waiting for demo shutdown"),
         },
-        Action::Auto | Action::Fixed => {
-            change_policy(&client, matches!(args.action, Action::Auto)).await
-        }
+        Action::Auto => change_policy(&client, true).await,
+        Action::Fixed => change_policy(&client, false).await,
         Action::Status => {
             println!(
                 "{}",
@@ -530,29 +623,8 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Action::Fail | Action::Restore => {
-            ensure!(
-                root().join("run.lock").exists(),
-                "timed demo is not running"
-            );
-            std::fs::write(
-                root().join("fault"),
-                if matches!(args.action, Action::Fail) {
-                    "1"
-                } else {
-                    "0"
-                },
-            )?;
-            println!(
-                "First relay path {}",
-                if matches!(args.action, Action::Fail) {
-                    "blocked"
-                } else {
-                    "restored"
-                }
-            );
-            Ok(())
-        }
+        Action::Fail { path, seconds } => change_paths(path, true, seconds),
+        Action::Restore { path } => change_paths(path, false, None),
         Action::Stop => {
             std::fs::write(root().join("stop"), "stop")?;
             Ok(())

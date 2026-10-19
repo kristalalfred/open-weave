@@ -236,16 +236,20 @@ The dashboard is <http://127.0.0.1:39082/ui>. This leaves the Compose bench alon
 just timed-demo status
 just timed-demo auto
 just timed-demo fixed
-just timed-demo fail
-just timed-demo restore
+just timed-demo fail both
+just timed-demo restore a
+just timed-demo restore b
 just timed-demo view
 just timed-demo stop
 ```
 
 Fixed mode targets 500 ms. Auto measures each input and locks a target between
-80 and 500 ms. Calibration temporarily suspends output. `fail` pauses the first
-relay for 15 seconds, then restores it automatically. The decoder should keep
-progressing from the other path. Status prints timing counters and the latest
+80 and 500 ms. Calibration temporarily suspends output. `fail` accepts `a`, `b`
+or `both` and defaults to `a`. Paths stay paused until restored; `--seconds 15`
+restores them automatically after 15 seconds. `restore` accepts the same paths
+and defaults to both. With both paths paused, decoding stops. Restoring either
+path resumes delivery; restoring the other recovers redundancy.
+Status prints timing counters and the latest
 decoded video and audio evidence. Logs and generated configs are in
 `.demo/timed/`. Stop removes only the demo's processes.
 
