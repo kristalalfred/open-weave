@@ -201,7 +201,7 @@ impl Progress {
             *mismatches += 1;
             if *mismatches >= 5 {
                 self.error = Some(format!(
-                    "wrong {track} feed: expected {expected:.1}, observed {observed:.1}"
+                    "{track} identity mismatch: expected {expected:.1}, observed {observed:.1}"
                 ));
             }
         }
@@ -585,7 +585,7 @@ mod tests {
                 state
                     .error
                     .unwrap()
-                    .contains(&format!("wrong {track} feed"))
+                    .contains(&format!("{track} identity mismatch"))
             );
         }
     }

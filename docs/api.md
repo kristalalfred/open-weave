@@ -274,7 +274,7 @@ before its body is checked, and both shipped nodes then register again.
   "details": [{
     "field": "protocol_version",
     "code": "unsupported",
-    "message": "reported 4; supported 5"
+    "message": "reported 6; supported 7"
   }]
 }
 ```
@@ -331,8 +331,8 @@ cannot hide another. A hop with a `merge_ingress` reports it in a
 Each report carries `revision`, the lowercase SHA-256 of `open-weave hop` plus
 a zero byte followed by the hop's JSON with object keys sorted recursively.
 Array order is preserved and JSON has no whitespace. A report for another
-revision cannot confirm the current hop. The Strom adapter reports a revision
-only when its observed flow matches that desired hop.
+revision cannot confirm the current hop. The Strom adapter leaves the revision
+empty for an existing flow whose settings do not match the desired hop.
 
 ### Inventory
 

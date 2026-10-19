@@ -7,21 +7,21 @@ steps:
   - do: drive
     stream: main
   - do: apply
-    stream: other
+    stream: main-backup
     file: ../manifests/reverse.yaml
   - do: drive
-    stream: other
+    stream: main-backup
   - do: await
     stream: main
     status: flowing
   - do: await
-    stream: other
+    stream: main-backup
     status: flowing
   - do: snapshot
-    stream: other
+    stream: main-backup
     as_name: isolated
   - do: observe
-    receivers: [other/output]
+    receivers: [main-backup/output]
     seconds: 20
     during:
       - do: undrive
@@ -44,7 +44,37 @@ steps:
         stream: main
         status: flowing
   - do: observe
-    receivers: [other/output]
+    receivers: [main-backup/output]
+    seconds: 20
+    during:
+      - do: undrive
+        stream: main
+      - do: apply
+        stream: main
+        file: ../manifests/fanout.yaml
+      - do: drive
+        stream: main
+      - do: await
+        stream: main
+        status: flowing
+      - do: flows
+        stream: main
+        nodes: {strom-node-1: 2, strom-node-2: 1}
+      - do: undrive
+        stream: main
+      - do: apply
+        stream: main
+        file: ../manifests/basic.yaml
+      - do: drive
+        stream: main
+      - do: await
+        stream: main
+        status: flowing
+      - do: flows
+        stream: main
+        nodes: {strom-node-1: 1, strom-node-2: 1}
+  - do: observe
+    receivers: [main-backup/output]
     seconds: 20
     during:
       - do: delete
@@ -62,4 +92,4 @@ steps:
   - do: delete
     stream: main
   - do: delete
-    stream: other
+    stream: main-backup

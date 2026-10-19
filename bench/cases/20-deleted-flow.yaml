@@ -1,5 +1,5 @@
 name: deleted-flow
-description: A deleted sender flow is recreated and decodes again without interrupting another stream.
+description: A deleted sender flow is recreated and decodes again without interrupting a similarly named stream.
 steps:
   - do: apply
     stream: main
@@ -7,21 +7,21 @@ steps:
   - do: drive
     stream: main
   - do: apply
-    stream: other
+    stream: main-backup
     file: ../manifests/reverse.yaml
   - do: drive
-    stream: other
+    stream: main-backup
   - do: await
     stream: main
     status: flowing
   - do: await
-    stream: other
+    stream: main-backup
     status: flowing
   - do: snapshot
-    stream: other
+    stream: main-backup
     as_name: isolated
   - do: observe
-    receivers: [other/output]
+    receivers: [main-backup/output]
     seconds: 20
     during:
       - do: runtime
@@ -39,9 +39,9 @@ steps:
   - do: unchanged
     snapshot: isolated
   - do: observe
-    receivers: [main/output, other/output]
+    receivers: [main/output, main-backup/output]
     seconds: 10
   - do: delete
     stream: main
   - do: delete
-    stream: other
+    stream: main-backup

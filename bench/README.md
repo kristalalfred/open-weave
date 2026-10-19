@@ -59,7 +59,8 @@ execute.
 It fails on gaps above `max_gap_ms` or receiver restarts above `max_restarts`.
 Defaults are 3000 ms and zero restarts. These are sampled decoder measurements.
 Each feed has a distinct grayscale video marker and audio tone. Consumers check
-both identities after decoding. These synthetic checks do not measure packet
+both identities after decoding. A mismatch can indicate routing errors or
+damaged media. These synthetic checks do not measure packet
 loss, picture quality, end-to-end latency, or A/V synchronization.
 
 Cases use these actions:

@@ -63,6 +63,7 @@ pub struct Bench {
     image: String,
     identities: BTreeMap<String, media::Identity>,
     streams: BTreeMap<String, StreamDefinition>,
+    flow_shapes: BTreeMap<String, Vec<StreamDefinition>>,
     producers: BTreeMap<String, String>,
     pub consumers: BTreeMap<String, Probe>,
     containers: Vec<String>,
@@ -108,6 +109,7 @@ impl Bench {
             image,
             identities: BTreeMap::new(),
             streams: BTreeMap::new(),
+            flow_shapes: BTreeMap::new(),
             producers: BTreeMap::new(),
             consumers: BTreeMap::new(),
             containers: Vec::new(),
@@ -271,12 +273,15 @@ impl Bench {
                 node,
                 action,
             } => {
-                let name = self.name(stream)?.to_string();
+                let shapes = self
+                    .flow_shapes
+                    .get(self.name(stream)?)
+                    .context("unknown flow owner")?;
                 let flows = self
                     .flows_on(*node)
                     .await?
                     .into_iter()
-                    .filter(|flow| flow.name.starts_with(&format!("weave-{name}-")))
+                    .filter(|flow| shapes.iter().any(|spec| owns_flow(spec, &flow.name)))
                     .collect::<Vec<_>>();
                 ensure!(!flows.is_empty(), "no {stream} flows on node {node}");
                 let client = StromClient::with_timeout(
@@ -503,11 +508,22 @@ impl Bench {
                 }
             }
         };
+        let shapes = self.flow_shapes.entry(spec.name.clone()).or_default();
+        let new_shape = !shapes.contains(&spec);
+        if new_shape {
+            shapes.push(spec.clone());
+        }
         if (200..300).contains(&expected) {
-            self.streams.insert(alias.to_string(), spec);
+            self.streams.insert(alias.to_string(), spec.clone());
         }
         let response = request.send().await?;
         let status = response.status().as_u16();
+        if (400..500).contains(&status) && new_shape {
+            self.flow_shapes
+                .get_mut(&spec.name)
+                .unwrap()
+                .retain(|shape| shape != &spec);
+        }
         let body = redact(&response.text().await?);
         self.report.event(
             "write_response",
@@ -524,6 +540,23 @@ impl Bench {
         let name = self.name(alias)?;
         let deadline = Instant::now() + Duration::from_secs(90);
         loop {
+            let reconciled =
+                self.get::<read::StatusResponse>("/status")
+                    .await
+                    .is_ok_and(|status| {
+                        status.streams().iter().any(|stream| {
+                            stream.name == name
+                                && stream.observed_generation == Some(stream.generation)
+                        })
+                    });
+            if !reconciled {
+                ensure!(
+                    Instant::now() < deadline,
+                    "discovery timed out waiting for {alias}'s current generation"
+                );
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                continue;
+            }
             let response = self
                 .http
                 .get(format!("{}/streams/{name}/endpoints", self.url))
@@ -889,6 +922,7 @@ impl Bench {
     }
 
     async fn flows(&self, name: &str) -> Result<Vec<FlowIdentity>> {
+        let shapes = self.flow_shapes.get(name).context("unknown flow owner")?;
         let mut flows = Vec::new();
         for node in 1..=4 {
             if self.stopped.contains(&format!("strom-{node}")) {
@@ -898,7 +932,7 @@ impl Bench {
                 self.flows_on(node)
                     .await?
                     .into_iter()
-                    .filter(|f| f.name.starts_with(&format!("weave-{name}-"))),
+                    .filter(|f| shapes.iter().any(|spec| owns_flow(spec, &f.name))),
             );
         }
         flows.sort_by(|a, b| (&a.node, &a.name).cmp(&(&b.node, &b.name)));
@@ -942,6 +976,7 @@ impl Bench {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
         self.streams.remove(alias);
+        self.flow_shapes.remove(&name);
         Ok(())
     }
 
@@ -1093,14 +1128,41 @@ pub fn media_url(endpoint: &read::EndpointAddr, spec: &StreamTransport) -> Resul
     };
     let mut url = reqwest::Url::parse(&endpoint.url)?;
     ensure!(url.scheme() == "srt", "expected SRT endpoint");
+    let latency_us = u64::from(spec.latency.unwrap_or(200)) * 1000;
     url.query_pairs_mut()
         .append_pair("mode", "caller")
-        .append_pair("latency", &spec.latency.unwrap_or(200).to_string());
+        .append_pair("latency", &latency_us.to_string());
     if let Some(passphrase) = &spec.passphrase {
         url.query_pairs_mut()
             .append_pair("passphrase", passphrase.expose());
     }
     Ok(url.to_string())
+}
+
+fn owns_flow(stream: &StreamDefinition, name: &str) -> bool {
+    if name == format!("weave-{}-sender", stream.name) {
+        return true;
+    }
+    stream.destinations.iter().any(|destination| {
+        if destination.node().is_some()
+            && name == format!("weave-{}-receiver-{}", stream.name, destination.id)
+        {
+            return true;
+        }
+        (1..=destination.paths).any(|path| {
+            let branch = if path == 1 {
+                destination.id.clone()
+            } else {
+                format!("{}.2", destination.id)
+            };
+            name.strip_prefix(&format!("weave-{}-bridge-{branch}-", stream.name))
+                .is_some_and(|position| {
+                    position
+                        .parse::<usize>()
+                        .is_ok_and(|parsed| parsed.to_string() == position)
+                })
+        })
+    })
 }
 
 fn ready(state: &Value) -> bool {
@@ -1199,6 +1261,60 @@ pub fn telemetry(bench: &Bench) -> tokio::task::JoinHandle<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ffmpeg_srt_urls_convert_declared_milliseconds_to_microseconds() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/manifests/basic.yaml");
+        let stream = crate::scenario::read_manifest(&root).unwrap();
+        let endpoint: read::EndpointAddr = serde_json::from_value(
+            json!({ "node": "strom-node-1", "url": "srt://127.0.0.1:20000" }),
+        )
+        .unwrap();
+        let url =
+            reqwest::Url::parse(&media_url(&endpoint, &stream.destinations[0].endpoint).unwrap())
+                .unwrap();
+        assert_eq!(
+            url.query_pairs()
+                .find(|(name, _)| name == "latency")
+                .unwrap()
+                .1,
+            "1000000"
+        );
+        let url = reqwest::Url::parse(&media_url(&endpoint, &stream.source).unwrap()).unwrap();
+        assert_eq!(
+            url.query_pairs()
+                .find(|(name, _)| name == "latency")
+                .unwrap()
+                .1,
+            "200000"
+        );
+    }
+
+    #[test]
+    fn flow_faults_do_not_select_a_stream_with_a_shared_name_prefix() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/manifests/basic.yaml");
+        let mut stream = crate::scenario::read_manifest(&root).unwrap();
+        stream.name = "feed".into();
+        for name in [
+            "weave-feed-sender",
+            "weave-feed-receiver-output",
+            "weave-feed-bridge-output-0",
+        ] {
+            assert!(owns_flow(&stream, name), "{name}");
+        }
+        for name in [
+            "weave-feed-backup-sender",
+            "weave-feed-backup-receiver-output",
+            "weave-feed-receiver-other",
+            "weave-feed-bridge-output-0-extra",
+            "weave-feed-bridge-output-00",
+            "weave-feed-bridge-output.2-0",
+        ] {
+            assert!(!owns_flow(&stream, name), "{name}");
+        }
+        stream.destinations[0].paths = 2;
+        assert!(owns_flow(&stream, "weave-feed-bridge-output.2-0"));
+    }
 
     #[test]
     fn a_started_container_is_ready_only_once_its_healthcheck_passes() {
