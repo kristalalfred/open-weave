@@ -17,6 +17,7 @@ in [Webhooks](webhooks.md).
 | `WEAVE_NODE_FORGET_SECS` | controller | `300` | Seconds without a heartbeat before an offline node is removed. |
 | `WEAVE_LEASE_TTL_SECS` | controller | `10` | Seconds the lease lasts without a renewal. |
 | `WEAVE_NODE_CONFIG` | Strom adapter | none | Node config path, or `--config`. The adapter does not start without one. |
+| `WEAVE_NODE_CONFIG` | native SRT node | none | Native node config path, or `--config`. |
 | `WEAVE_NORTHBOUND_URL` | `weave` | `http://127.0.0.1:9080` | Northbound base URL, or `--url`. |
 | `SSL_CERT_FILE` | `weave`, services, Strom adapter | unset | PEM file that replaces the platform certificate store for every outbound HTTPS request. |
 | `RUST_LOG` | services, Strom adapter | `info` | Log level. |
@@ -64,7 +65,8 @@ others stand by. Without `DATABASE_URL` there is no lease and one controller.
 Streams, stream sets, node registrations, generations, revisions and ETags live
 in Postgres, as do the hops nodes report and the conditions the last tick
 computed. A heartbeat writes the node's registration when its status, a hop's
-state or a socket's condition changes. Rates and addresses alone write nothing.
+state, a socket's condition or timed-delivery readiness changes. Rates,
+addresses and delivery counters alone write nothing.
 A tick writes each node it marks `offline` and each stream whose conditions
 changed. A failed write is tried again on the next tick.
 
@@ -75,12 +77,12 @@ as heard at the takeover. A restart with Postgres works the same way.
 
 ### Schema version
 
-The `schema_version` table records the database schema version. A controller
-connecting to an empty database creates the tables and records version `1`. A
-database with the tables and no version, from a build before the table existed,
-gets `1` recorded and its data left as it is. A database at any other version is
-refused at startup with an error naming both versions, and nothing in it
-changes. No migrations exist yet.
+The `schema_version` table records version `2`. Empty and unversioned databases
+are initialized at that version. Version `1` migrates transactionally by adding
+`streams.source_revision`, seeded from each stream's current revision. Existing
+stream definitions, generations and ETags are preserved. Other versions are
+refused without changing the database. Back up the database before upgrading;
+older controllers refuse version `2`.
 
 ### Proxies
 
@@ -101,14 +103,14 @@ start.
   proxy returns `503 not_leader`, and when none can be reached,
   `502 controller_unreachable`.
 
-While no controller leads, the Strom adapter and the browser node get `503` or
+While no controller leads, the shipped nodes get `503` or
 `502` from southbound, keep every hop they run, and register again once a
 leader answers. Each registration sends `node.registered`.
 
 ## Releases
 
 Each `v*` tag publishes the image `ghcr.io/kristalalfred/open-weave` for
-linux/amd64 and linux/arm64, and a GitHub release with the five binaries for
+linux/amd64 and linux/arm64, and a GitHub release with the six binaries for
 x86_64 and aarch64 Linux and aarch64 macOS. The tag must be `v` followed by the
 workspace version. A tag with a pre-release part, such as `v0.1.0-rc.1`, makes a
 pre-release and moves neither `latest` nor `0.1`. The image and binary builds also run, without publishing, on every push to

@@ -44,6 +44,8 @@ pub struct Link {
 
 #[derive(Debug, thiserror::Error)]
 pub enum MappingError {
+    #[error("Strom does not implement timed delivery")]
+    TimedDelivery,
     #[error("unknown Strom hop profile {0}")]
     UnknownProfile(String),
     #[error("hop profile {profile} does not match {ingress} to {egress}")]
@@ -69,6 +71,9 @@ pub enum MappingError {
 }
 
 pub fn flow_spec_from_hop(hop: &DesiredHop) -> Result<FlowSpec, MappingError> {
+    if hop.delivery.is_some() || hop.sockets().any(|socket| matches!(socket, SocketSpec::Srt(socket) if socket.params().payload != weave_core::PayloadKind::Raw)) {
+        return Err(MappingError::TimedDelivery);
+    }
     if hop.merge_ingress.is_some() {
         return Err(MappingError::MergeIngress);
     }
@@ -808,6 +813,7 @@ mod tests {
 
     fn demo_ingress_hop(id: &str) -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: id.to_string(),
             node_id: "strom-node-1".to_string(),
             profile_id: "srt-forward".to_string(),
@@ -824,6 +830,7 @@ mod tests {
 
     fn demo_recv_hop(id: &str) -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: id.to_string(),
             node_id: "strom-node-2".to_string(),
             profile_id: "srt-forward".to_string(),
@@ -1075,6 +1082,7 @@ mod tests {
 
     fn whip_gateway_hop() -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: "weave-alice-cam-receiver-studio".to_string(),
             node_id: "strom-node-2".to_string(),
             profile_id: "whip-to-srt".to_string(),
@@ -1088,6 +1096,7 @@ mod tests {
 
     fn whep_gateway_hop() -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: "weave-alice-return-sender".to_string(),
             node_id: "strom-node-2".to_string(),
             profile_id: "srt-to-whep".to_string(),
@@ -1308,6 +1317,7 @@ mod tests {
 
     fn rist_sender_hop() -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: "weave-feed-sender".to_string(),
             node_id: "strom-node-1".to_string(),
             profile_id: "srt-to-rist".to_string(),
@@ -1327,6 +1337,7 @@ mod tests {
 
     fn rist_receiver_hop() -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: "weave-feed-receiver-studio".to_string(),
             node_id: "strom-node-2".to_string(),
             profile_id: "rist-to-srt".to_string(),

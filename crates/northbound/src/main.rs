@@ -547,6 +547,7 @@ mod tests {
             allow_cleartext_links: false,
             source: StreamTransport::Srt(node_ref("strom-node-1")),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "studio".to_string(),
                 paths: 1,
                 endpoint: StreamTransport::Srt(node_ref("strom-node-2")),

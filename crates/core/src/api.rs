@@ -60,6 +60,8 @@ pub struct StreamStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamDestinationStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<crate::DeliveryReport>,
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -90,6 +92,8 @@ pub struct StreamCondition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StreamConditionType {
+    TimingReady,
+    RedundancyReady,
     PlacementReady,
     NodesAvailable,
     HopsReady,
@@ -108,6 +112,15 @@ pub enum StreamConditionStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StreamConditionReason {
+    NotRequested,
+    TimedDeliveryUnsupported,
+    LatencyBudgetInfeasible,
+    ClockUnavailable,
+    TimingCalibrating,
+    TimingReady,
+    TimingDegraded,
+    RedundancyReady,
+    RedundancyDegraded,
     Placed,
     SinglePath,
     Disabled,

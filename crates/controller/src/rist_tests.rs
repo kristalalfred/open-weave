@@ -18,6 +18,7 @@ fn class(transport: Transport, roles: RoleSet) -> HopEndpointClass {
 
 fn profile(id: &str, ingress: HopEndpointClass, egress: HopEndpointClass) -> HopProfile {
     HopProfile {
+        timed_delivery: None,
         id: id.to_string(),
         ingress,
         egress,
@@ -107,6 +108,7 @@ fn stream(destinations: &[&str]) -> StreamDefinition {
         destinations: destinations
             .iter()
             .map(|id| StreamDestination {
+                delivery: None,
                 id: (*id).to_string(),
                 paths: 1,
                 endpoint: endpoint("studio"),

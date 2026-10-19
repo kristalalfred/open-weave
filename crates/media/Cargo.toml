@@ -1,0 +1,34 @@
+[package]
+name = "weave-media"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "SRT media node with timed redundant delivery for open-weave."
+
+[[bin]]
+name = "weave-node"
+path = "src/main.rs"
+
+[dependencies]
+weave-core = { workspace = true }
+tokio = { workspace = true, features = ["sync", "fs", "time"] }
+axum = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_norway = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+getrandom = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+bytes.workspace = true
+futures.workspace = true
+srt-tokio.workspace = true
+
+[lints]
+workspace = true

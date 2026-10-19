@@ -353,12 +353,19 @@ fn render_stream(stream: &read::StreamResource, statuses: &[read::StreamStatus])
 }
 
 fn render_destinations(destinations: &[read::StreamDestinationStatus]) -> String {
+    let timed = destinations
+        .iter()
+        .any(|destination| destination.delivery.is_some());
+    let mut headers = vec!["DESTINATION", "STATUS", "FORMAT", "ENDPOINT", "REASON"];
+    if timed {
+        headers.insert(2, "LATENCY");
+    }
     table(
-        &["DESTINATION", "STATUS", "FORMAT", "ENDPOINT", "REASON"],
+        &headers,
         destinations
             .iter()
             .map(|destination| {
-                vec![
+                let mut row = vec![
                     destination.id.clone(),
                     destination.status.to_string(),
                     format_result(&destination.conditions),
@@ -367,7 +374,29 @@ fn render_destinations(destinations: &[read::StreamDestinationStatus]) -> String
                         .as_ref()
                         .map_or_else(|| "-".to_string(), |endpoint| endpoint.url.clone()),
                     failing_reasons(&destination.conditions),
-                ]
+                ];
+                if timed {
+                    let latency = destination.delivery.as_ref().map_or_else(
+                        || "-".to_string(),
+                        |delivery| {
+                            delivery
+                                .get("selected_latency_ms")
+                                .and_then(serde_json::Value::as_u64)
+                                .map_or_else(
+                                    || {
+                                        delivery
+                                            .get("state")
+                                            .and_then(serde_json::Value::as_str)
+                                            .unwrap_or("unknown")
+                                            .to_string()
+                                    },
+                                    |ms| format!("{ms} ms"),
+                                )
+                        },
+                    );
+                    row.insert(2, latency);
+                }
+                row
             })
             .collect(),
     )
@@ -1499,6 +1528,7 @@ destinations:
                 accepts: None,
             }),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "studio".to_string(),
                 paths: 1,
                 endpoint: StreamTransport::Srt(SrtEndpoint {
@@ -2157,6 +2187,7 @@ destinations:
                 accepts: None,
             }),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "preview".to_string(),
                 paths: 1,
                 endpoint: StreamTransport::Srt(SrtEndpoint {

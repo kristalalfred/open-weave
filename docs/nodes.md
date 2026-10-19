@@ -37,6 +37,7 @@ capabilities:
 | `max_egresses` | Optional limit on egresses per hop. |
 | `accepts` | Optional. The media the ingress takes, in the shape of a destination's [`accepts`](streams.md#formats). |
 | `media_behavior` | `preserve` or `unknown` (default). Never inferred from transport or profile id. |
+| `timed_delivery` | Optional protocol, roles, latency limit, scheduling bound, clock domain and origin epoch. See [Timed delivery](timed-delivery.md). |
 | `merge` | Optional. The hop takes a second ingress of the `ingress` class, `merge_ingress`, and merges two [paths](streams.md#redundant-paths). |
 
 `preserve` declares that the complete application media payload, including
@@ -59,10 +60,12 @@ with no audio pads. An outside WHIP sender's tracks are the ones its declared
 
 | Node | Profiles |
 |---|---|
+| Native SRT | `srt-forward`, `srt-timed-origin`, `srt-timed-forward`, `srt-timed-receiver` |
 | Strom | `srt-forward`, `whip-to-srt`, `srt-to-whep`, `whip-to-whep`, `srt-to-rist`, `rist-to-srt` |
 | Browser | `camera-to-whip`, `whep-to-display`, each with one egress |
 
-Only Strom's `srt-forward` advertises `preserve`, with `accepts: {}`. All other
+All native SRT profiles and Strom's `srt-forward` advertise `preserve`, with
+`accepts: {}`. Only the native timed receiver advertises merge support. All other
 Strom profiles and both browser profiles advertise `unknown`. RIST packetization
 and WebRTC gateways do not establish output compatibility. Stored profiles
 without this metadata remain unknown until registration supplies it.
@@ -148,7 +151,7 @@ reported at another host is taken as a caller and holds no port.
 
 A node that a stored stream names as its source, a destination or a `via` relay
 is never removed and stays listed as `offline`. A removed node's next heartbeat
-gets `404 node_not_found`, and both shipped nodes then register again. For a
+gets `404 node_not_found`, and shipped nodes then register again. For a
 node loaded from the store, both intervals count from the controller's start, or
 from the moment it took the lease.
 
@@ -159,3 +162,9 @@ The controller never dials a node's registered endpoint. A browser node
 registers `browser://<id>` as a placeholder. See
 [`nodes/browser/README.md`](../nodes/browser/README.md) for the browser node and
 [Strom adapter](strom.md) for Strom.
+
+The native runtime starts with `just run-node --config examples/native-node.yaml`.
+It uses `node` topology and control settings, plus an explicit clock provider.
+The example uses a shared host clock for local testing. Separate hosts need
+externally supplied synchronization evidence as described in
+[Timed delivery](timed-delivery.md#clock-configuration).

@@ -92,7 +92,7 @@ jobs:
         run: |
           name="open-weave-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}"
           mkdir "$name"
-          for b in weave weave-northbound weave-southbound weave-controller weave-adapter-strom; do
+          for b in weave weave-northbound weave-southbound weave-controller weave-adapter-strom weave-node; do
             cp "target/${{ matrix.target }}/release/$b" "$name/"
           done
           cp LICENSE README.md "$name/"

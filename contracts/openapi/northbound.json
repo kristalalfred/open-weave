@@ -1145,6 +1145,7 @@
                           {
                             "type": "string",
                             "enum": [
+                              "native_srt",
                               "strom",
                               "nmos",
                               "mxl_domain",
@@ -1172,6 +1173,61 @@
                   "items": {
                     "type": "object",
                     "properties": {
+                      "timed_delivery": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "properties": {
+                          "protocol": {
+                            "type": "string"
+                          },
+                          "roles": {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "origin",
+                                    "forward",
+                                    "receiver"
+                                  ]
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
+                            }
+                          },
+                          "max_latency_ms": {
+                            "type": "integer",
+                            "format": "uint32",
+                            "minimum": 0
+                          },
+                          "scheduling_error_bound_us": {
+                            "type": "integer",
+                            "format": "uint32",
+                            "minimum": 0
+                          },
+                          "clock_domain": {
+                            "type": "string"
+                          },
+                          "origin_epoch": {
+                            "type": "integer",
+                            "format": "uint64",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "protocol",
+                          "roles",
+                          "max_latency_ms",
+                          "scheduling_error_bound_us",
+                          "clock_domain",
+                          "origin_epoch"
+                        ]
+                      },
                       "media_behavior": {
                         "anyOf": [
                           {
@@ -1875,6 +1931,8 @@
                               {
                                 "type": "string",
                                 "enum": [
+                                  "timing_ready",
+                                  "redundancy_ready",
                                   "placement_ready",
                                   "nodes_available",
                                   "hops_ready",
@@ -1907,6 +1965,15 @@
                               {
                                 "type": "string",
                                 "enum": [
+                                  "not_requested",
+                                  "timed_delivery_unsupported",
+                                  "latency_budget_infeasible",
+                                  "clock_unavailable",
+                                  "timing_calibrating",
+                                  "timing_ready",
+                                  "timing_degraded",
+                                  "redundancy_ready",
+                                  "redundancy_degraded",
                                   "placed",
                                   "single_path",
                                   "disabled",
@@ -1993,6 +2060,203 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "delivery": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "state": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "awaiting_input",
+                                      "calibrating",
+                                      "ready",
+                                      "degraded",
+                                      "failed"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "reason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "awaiting_input",
+                                      "calibrating",
+                                      "timely",
+                                      "single_path",
+                                      "clock_unavailable",
+                                      "clock_uncertainty_exceeded",
+                                      "clock_discontinuity",
+                                      "deadline_missed",
+                                      "scheduling_violation",
+                                      "record_conflict",
+                                      "output_unavailable",
+                                      "output_backpressure",
+                                      "buffer_exhausted",
+                                      "latency_budget_infeasible"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "selected_latency_ms": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "format": "uint32",
+                                "minimum": 0
+                              },
+                              "timing_ready": {
+                                "type": "boolean"
+                              },
+                              "redundancy_ready": {
+                                "type": "boolean"
+                              },
+                              "clock_uncertainty_us": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "format": "uint32",
+                                "minimum": 0
+                              },
+                              "buffer_records": {
+                                "type": "integer",
+                                "format": "uint64",
+                                "minimum": 0
+                              },
+                              "buffer_bytes": {
+                                "type": "integer",
+                                "format": "uint64",
+                                "minimum": 0
+                              },
+                              "minimum_release_age_us": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "format": "uint64",
+                                "minimum": 0
+                              },
+                              "maximum_release_age_us": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "format": "uint64",
+                                "minimum": 0
+                              },
+                              "counters": {
+                                "type": "object",
+                                "properties": {
+                                  "released": {
+                                    "type": "integer",
+                                    "format": "uint64",
+                                    "minimum": 0
+                                  },
+                                  "duplicates": {
+                                    "type": "integer",
+                                    "format": "uint64",
+                                    "minimum": 0
+                                  },
+                                  "late_arrivals": {
+                                    "type": "integer",
+                                    "format": "uint64",
+                                    "minimum": 0
+                                  },
+                                  "unrecovered": {
+                                    "type": "integer",
+                                    "format": "uint64",
+                                    "minimum": 0
+                                  },
+                                  "scheduling_violations": {
+                                    "type": "integer",
+                                    "format": "uint64",
+                                    "minimum": 0
+                                  },
+                                  "buffer_drops": {
+                                    "type": "integer",
+                                    "format": "uint64",
+                                    "minimum": 0
+                                  },
+                                  "invalid_records": {
+                                    "type": "integer",
+                                    "format": "uint64",
+                                    "minimum": 0
+                                  }
+                                },
+                                "required": [
+                                  "released",
+                                  "duplicates",
+                                  "late_arrivals",
+                                  "unrecovered",
+                                  "scheduling_violations",
+                                  "buffer_drops",
+                                  "invalid_records"
+                                ]
+                              },
+                              "paths": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "received": {
+                                      "type": "integer",
+                                      "format": "uint64",
+                                      "minimum": 0
+                                    },
+                                    "late": {
+                                      "type": "integer",
+                                      "format": "uint64",
+                                      "minimum": 0
+                                    },
+                                    "latest_age_us": {
+                                      "type": [
+                                        "integer",
+                                        "null"
+                                      ],
+                                      "format": "uint64",
+                                      "minimum": 0
+                                    },
+                                    "qualified": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": [
+                                    "received",
+                                    "late",
+                                    "latest_age_us",
+                                    "qualified"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reason",
+                              "selected_latency_ms",
+                              "timing_ready",
+                              "redundancy_ready",
+                              "clock_uncertainty_us",
+                              "buffer_records",
+                              "buffer_bytes",
+                              "minimum_release_age_us",
+                              "maximum_release_age_us",
+                              "counters",
+                              "paths"
+                            ]
+                          },
                           "id": {
                             "type": "string",
                             "minLength": 1,
@@ -2036,6 +2300,8 @@
                                     {
                                       "type": "string",
                                       "enum": [
+                                        "timing_ready",
+                                        "redundancy_ready",
                                         "placement_ready",
                                         "nodes_available",
                                         "hops_ready",
@@ -2068,6 +2334,15 @@
                                     {
                                       "type": "string",
                                       "enum": [
+                                        "not_requested",
+                                        "timed_delivery_unsupported",
+                                        "latency_budget_infeasible",
+                                        "clock_unavailable",
+                                        "timing_calibrating",
+                                        "timing_ready",
+                                        "timing_degraded",
+                                        "redundancy_ready",
+                                        "redundancy_degraded",
                                         "placed",
                                         "single_path",
                                         "disabled",
@@ -3298,6 +3573,99 @@
                   "format": "uint8",
                   "minimum": 1,
                   "maximum": 2
+                },
+                "delivery": {
+                  "anyOf": [
+                    {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "latency_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1,
+                              "maximum": 60000
+                            },
+                            "tolerance_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1,
+                              "maximum": 59999,
+                              "default": 5
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "fixed"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "mode",
+                            "latency_ms"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "min_latency_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 2,
+                              "maximum": 60000
+                            },
+                            "max_latency_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1,
+                              "maximum": 60000
+                            },
+                            "tolerance_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1,
+                              "maximum": 59999,
+                              "default": 5
+                            },
+                            "calibration_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1000,
+                              "maximum": 60000,
+                              "default": 5000
+                            },
+                            "max_late_ppm": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 0,
+                              "maximum": 100000,
+                              "default": 1000
+                            },
+                            "margin_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 0,
+                              "maximum": 59999,
+                              "default": 20
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "auto"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "mode",
+                            "min_latency_ms",
+                            "max_latency_ms"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -4450,6 +4818,8 @@
                     {
                       "type": "string",
                       "enum": [
+                        "timing_ready",
+                        "redundancy_ready",
                         "placement_ready",
                         "nodes_available",
                         "hops_ready",
@@ -4482,6 +4852,15 @@
                     {
                       "type": "string",
                       "enum": [
+                        "not_requested",
+                        "timed_delivery_unsupported",
+                        "latency_budget_infeasible",
+                        "clock_unavailable",
+                        "timing_calibrating",
+                        "timing_ready",
+                        "timing_degraded",
+                        "redundancy_ready",
+                        "redundancy_degraded",
                         "placed",
                         "single_path",
                         "disabled",
@@ -4535,6 +4914,203 @@
             "items": {
               "type": "object",
               "properties": {
+                "delivery": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "state": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "awaiting_input",
+                            "calibrating",
+                            "ready",
+                            "degraded",
+                            "failed"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "awaiting_input",
+                            "calibrating",
+                            "timely",
+                            "single_path",
+                            "clock_unavailable",
+                            "clock_uncertainty_exceeded",
+                            "clock_discontinuity",
+                            "deadline_missed",
+                            "scheduling_violation",
+                            "record_conflict",
+                            "output_unavailable",
+                            "output_backpressure",
+                            "buffer_exhausted",
+                            "latency_budget_infeasible"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "selected_latency_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint32",
+                      "minimum": 0
+                    },
+                    "timing_ready": {
+                      "type": "boolean"
+                    },
+                    "redundancy_ready": {
+                      "type": "boolean"
+                    },
+                    "clock_uncertainty_us": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint32",
+                      "minimum": 0
+                    },
+                    "buffer_records": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0
+                    },
+                    "buffer_bytes": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0
+                    },
+                    "minimum_release_age_us": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint64",
+                      "minimum": 0
+                    },
+                    "maximum_release_age_us": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint64",
+                      "minimum": 0
+                    },
+                    "counters": {
+                      "type": "object",
+                      "properties": {
+                        "released": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "duplicates": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "late_arrivals": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "unrecovered": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "scheduling_violations": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "buffer_drops": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "invalid_records": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "released",
+                        "duplicates",
+                        "late_arrivals",
+                        "unrecovered",
+                        "scheduling_violations",
+                        "buffer_drops",
+                        "invalid_records"
+                      ]
+                    },
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "received": {
+                            "type": "integer",
+                            "format": "uint64",
+                            "minimum": 0
+                          },
+                          "late": {
+                            "type": "integer",
+                            "format": "uint64",
+                            "minimum": 0
+                          },
+                          "latest_age_us": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "format": "uint64",
+                            "minimum": 0
+                          },
+                          "qualified": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "received",
+                          "late",
+                          "latest_age_us",
+                          "qualified"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reason",
+                    "selected_latency_ms",
+                    "timing_ready",
+                    "redundancy_ready",
+                    "clock_uncertainty_us",
+                    "buffer_records",
+                    "buffer_bytes",
+                    "minimum_release_age_us",
+                    "maximum_release_age_us",
+                    "counters",
+                    "paths"
+                  ]
+                },
                 "id": {
                   "type": "string",
                   "minLength": 1,
@@ -4578,6 +5154,8 @@
                           {
                             "type": "string",
                             "enum": [
+                              "timing_ready",
+                              "redundancy_ready",
                               "placement_ready",
                               "nodes_available",
                               "hops_ready",
@@ -4610,6 +5188,15 @@
                           {
                             "type": "string",
                             "enum": [
+                              "not_requested",
+                              "timed_delivery_unsupported",
+                              "latency_budget_infeasible",
+                              "clock_unavailable",
+                              "timing_calibrating",
+                              "timing_ready",
+                              "timing_degraded",
+                              "redundancy_ready",
+                              "redundancy_degraded",
                               "placed",
                               "single_path",
                               "disabled",
@@ -4843,6 +5430,20 @@
                         "null"
                       ],
                       "properties": {
+                        "payload": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "raw",
+                                "weave_timed_v1"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
                         "latency": {
                           "type": [
                             "integer",
@@ -4954,6 +5555,20 @@
                         "null"
                       ],
                       "properties": {
+                        "payload": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "raw",
+                                "weave_timed_v1"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
                         "latency": {
                           "type": [
                             "integer",
@@ -5067,6 +5682,20 @@
                           "null"
                         ],
                         "properties": {
+                          "payload": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "raw",
+                                  "weave_timed_v1"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
                           "latency": {
                             "type": [
                               "integer",
@@ -5127,6 +5756,174 @@
                       }
                     ]
                   }
+                },
+                "delivery": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "delivery_id": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "format": "uint8",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 16,
+                      "maxItems": 16
+                    },
+                    "epoch": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0
+                    },
+                    "clock_domain": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "origin",
+                            "forward",
+                            "receiver"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "policy": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "latency_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1,
+                                  "maximum": 60000
+                                },
+                                "tolerance_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1,
+                                  "maximum": 59999,
+                                  "default": 5
+                                },
+                                "mode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "const": "fixed"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "latency_ms",
+                                "tolerance_ms"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "min_latency_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 2,
+                                  "maximum": 60000
+                                },
+                                "max_latency_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1,
+                                  "maximum": 60000
+                                },
+                                "tolerance_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1,
+                                  "maximum": 59999,
+                                  "default": 5
+                                },
+                                "calibration_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1000,
+                                  "maximum": 60000,
+                                  "default": 5000
+                                },
+                                "max_late_ppm": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 0,
+                                  "maximum": 100000,
+                                  "default": 1000
+                                },
+                                "margin_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 0,
+                                  "maximum": 59999,
+                                  "default": 20
+                                },
+                                "mode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "const": "auto"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "min_latency_ms",
+                                "max_latency_ms",
+                                "tolerance_ms",
+                                "calibration_ms",
+                                "max_late_ppm",
+                                "margin_ms"
+                              ]
+                            },
+                            {
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paths": {
+                      "type": "integer",
+                      "format": "uint8",
+                      "minimum": 0,
+                      "maximum": 255
+                    }
+                  },
+                  "required": [
+                    "delivery_id",
+                    "epoch",
+                    "clock_domain",
+                    "role",
+                    "paths"
+                  ]
                 }
               },
               "required": [
@@ -6487,6 +7284,119 @@
                       "format": "uint8",
                       "minimum": 1,
                       "maximum": 2
+                    },
+                    "delivery": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "latency_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1,
+                                  "maximum": 60000
+                                },
+                                "tolerance_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1,
+                                  "maximum": 59999,
+                                  "default": 5
+                                },
+                                "mode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "const": "fixed"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "latency_ms",
+                                "tolerance_ms"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "min_latency_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 2,
+                                  "maximum": 60000
+                                },
+                                "max_latency_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1,
+                                  "maximum": 60000
+                                },
+                                "tolerance_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1,
+                                  "maximum": 59999,
+                                  "default": 5
+                                },
+                                "calibration_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 1000,
+                                  "maximum": 60000,
+                                  "default": 5000
+                                },
+                                "max_late_ppm": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 0,
+                                  "maximum": 100000,
+                                  "default": 1000
+                                },
+                                "margin_ms": {
+                                  "type": "integer",
+                                  "format": "uint32",
+                                  "minimum": 0,
+                                  "maximum": 59999,
+                                  "default": 20
+                                },
+                                "mode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "const": "auto"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "min_latency_ms",
+                                "max_latency_ms",
+                                "tolerance_ms",
+                                "calibration_ms",
+                                "max_late_ppm",
+                                "margin_ms"
+                              ]
+                            },
+                            {
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -8914,6 +9824,119 @@
                         "format": "uint8",
                         "minimum": 1,
                         "maximum": 2
+                      },
+                      "delivery": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "latency_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1,
+                                    "maximum": 60000
+                                  },
+                                  "tolerance_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1,
+                                    "maximum": 59999,
+                                    "default": 5
+                                  },
+                                  "mode": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "fixed"
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "mode",
+                                  "latency_ms",
+                                  "tolerance_ms"
+                                ]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "min_latency_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 2,
+                                    "maximum": 60000
+                                  },
+                                  "max_latency_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1,
+                                    "maximum": 60000
+                                  },
+                                  "tolerance_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1,
+                                    "maximum": 59999,
+                                    "default": 5
+                                  },
+                                  "calibration_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1000,
+                                    "maximum": 60000,
+                                    "default": 5000
+                                  },
+                                  "max_late_ppm": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 0,
+                                    "maximum": 100000,
+                                    "default": 1000
+                                  },
+                                  "margin_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 0,
+                                    "maximum": 59999,
+                                    "default": 20
+                                  },
+                                  "mode": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "auto"
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "mode",
+                                  "min_latency_ms",
+                                  "max_latency_ms",
+                                  "tolerance_ms",
+                                  "calibration_ms",
+                                  "max_late_ppm",
+                                  "margin_ms"
+                                ]
+                              },
+                              {
+                                "type": "object"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -11267,6 +12290,99 @@
                         "format": "uint8",
                         "minimum": 1,
                         "maximum": 2
+                      },
+                      "delivery": {
+                        "anyOf": [
+                          {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "latency_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1,
+                                    "maximum": 60000
+                                  },
+                                  "tolerance_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1,
+                                    "maximum": 59999,
+                                    "default": 5
+                                  },
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "fixed"
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "mode",
+                                  "latency_ms"
+                                ]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "min_latency_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 2,
+                                    "maximum": 60000
+                                  },
+                                  "max_latency_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1,
+                                    "maximum": 60000
+                                  },
+                                  "tolerance_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1,
+                                    "maximum": 59999,
+                                    "default": 5
+                                  },
+                                  "calibration_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 1000,
+                                    "maximum": 60000,
+                                    "default": 5000
+                                  },
+                                  "max_late_ppm": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 0,
+                                    "maximum": 100000,
+                                    "default": 1000
+                                  },
+                                  "margin_ms": {
+                                    "type": "integer",
+                                    "format": "uint32",
+                                    "minimum": 0,
+                                    "maximum": 59999,
+                                    "default": 20
+                                  },
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "auto"
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "mode",
+                                  "min_latency_ms",
+                                  "max_latency_ms"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -13566,6 +14682,119 @@
                             "format": "uint8",
                             "minimum": 1,
                             "maximum": 2
+                          },
+                          "delivery": {
+                            "anyOf": [
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "latency_ms": {
+                                        "type": "integer",
+                                        "format": "uint32",
+                                        "minimum": 1,
+                                        "maximum": 60000
+                                      },
+                                      "tolerance_ms": {
+                                        "type": "integer",
+                                        "format": "uint32",
+                                        "minimum": 1,
+                                        "maximum": 59999,
+                                        "default": 5
+                                      },
+                                      "mode": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "const": "fixed"
+                                          },
+                                          {
+                                            "type": "string"
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "mode",
+                                      "latency_ms",
+                                      "tolerance_ms"
+                                    ]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "min_latency_ms": {
+                                        "type": "integer",
+                                        "format": "uint32",
+                                        "minimum": 2,
+                                        "maximum": 60000
+                                      },
+                                      "max_latency_ms": {
+                                        "type": "integer",
+                                        "format": "uint32",
+                                        "minimum": 1,
+                                        "maximum": 60000
+                                      },
+                                      "tolerance_ms": {
+                                        "type": "integer",
+                                        "format": "uint32",
+                                        "minimum": 1,
+                                        "maximum": 59999,
+                                        "default": 5
+                                      },
+                                      "calibration_ms": {
+                                        "type": "integer",
+                                        "format": "uint32",
+                                        "minimum": 1000,
+                                        "maximum": 60000,
+                                        "default": 5000
+                                      },
+                                      "max_late_ppm": {
+                                        "type": "integer",
+                                        "format": "uint32",
+                                        "minimum": 0,
+                                        "maximum": 100000,
+                                        "default": 1000
+                                      },
+                                      "margin_ms": {
+                                        "type": "integer",
+                                        "format": "uint32",
+                                        "minimum": 0,
+                                        "maximum": 59999,
+                                        "default": 20
+                                      },
+                                      "mode": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "const": "auto"
+                                          },
+                                          {
+                                            "type": "string"
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "mode",
+                                      "min_latency_ms",
+                                      "max_latency_ms",
+                                      "tolerance_ms",
+                                      "calibration_ms",
+                                      "max_late_ppm",
+                                      "margin_ms"
+                                    ]
+                                  },
+                                  {
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -16011,6 +17240,119 @@
                               "format": "uint8",
                               "minimum": 1,
                               "maximum": 2
+                            },
+                            "delivery": {
+                              "anyOf": [
+                                {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "latency_ms": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 1,
+                                          "maximum": 60000
+                                        },
+                                        "tolerance_ms": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 1,
+                                          "maximum": 59999,
+                                          "default": 5
+                                        },
+                                        "mode": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "const": "fixed"
+                                            },
+                                            {
+                                              "type": "string"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "mode",
+                                        "latency_ms",
+                                        "tolerance_ms"
+                                      ]
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "min_latency_ms": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 2,
+                                          "maximum": 60000
+                                        },
+                                        "max_latency_ms": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 1,
+                                          "maximum": 60000
+                                        },
+                                        "tolerance_ms": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 1,
+                                          "maximum": 59999,
+                                          "default": 5
+                                        },
+                                        "calibration_ms": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 1000,
+                                          "maximum": 60000,
+                                          "default": 5000
+                                        },
+                                        "max_late_ppm": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 0,
+                                          "maximum": 100000,
+                                          "default": 1000
+                                        },
+                                        "margin_ms": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 0,
+                                          "maximum": 59999,
+                                          "default": 20
+                                        },
+                                        "mode": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "const": "auto"
+                                            },
+                                            {
+                                              "type": "string"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "mode",
+                                        "min_latency_ms",
+                                        "max_latency_ms",
+                                        "tolerance_ms",
+                                        "calibration_ms",
+                                        "max_late_ppm",
+                                        "margin_ms"
+                                      ]
+                                    },
+                                    {
+                                      "type": "object"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [

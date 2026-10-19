@@ -19,6 +19,9 @@ mod scale_tests;
 #[cfg(test)]
 mod second_path_tests;
 mod store;
+mod timed;
+#[cfg(test)]
+mod timed_tests;
 mod webhook;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -845,7 +848,12 @@ async fn reconcile_tick(state: &AppState) {
     for node in forgotten {
         state.emit(EventType::NodeForgotten, node);
     }
-    let mut outcome = reconcile(definitions, &observed, &state.keys);
+    let source_revisions = streams
+        .iter()
+        .map(|(name, stream)| (name.clone(), stream.source_revision))
+        .collect();
+    let mut outcome =
+        reconcile_with_revisions(definitions, &observed, &state.keys, &source_revisions);
     for status in &mut outcome.streams {
         let stored = streams
             .get(&status.name)
@@ -1026,6 +1034,7 @@ fn unreconciled_stream_status(stored: &StoredStream) -> StreamStatus {
             .destinations
             .iter()
             .map(|destination| StreamDestinationStatus {
+                delivery: None,
                 id: destination.id.clone(),
                 status: PathStatus::Pending,
                 nodes: Vec::new(),
@@ -1882,18 +1891,33 @@ async fn plan_stream(
         return invalid_request("stream validation failed", issues);
     }
 
-    let mut streams: BTreeMap<String, StreamDefinition> = state
-        .streams
-        .read()
-        .await
+    let stored = state.streams.read().await;
+    let source_revisions = stored
+        .iter()
+        .map(|(name, stored)| {
+            let revision = if name != &stream.name || stored.spec.source == stream.source {
+                stored.source_revision
+            } else {
+                0
+            };
+            (name.clone(), revision)
+        })
+        .collect();
+    let mut streams: BTreeMap<String, StreamDefinition> = stored
         .iter()
         .map(|(name, stream)| (name.clone(), stream.spec.clone()))
         .collect();
+    drop(stored);
     streams.insert(stream.name.clone(), stream.clone());
     let nodes = state.nodes.read().await;
     let observed = observed_state(&nodes);
     drop(nodes);
-    let mut outcome = reconcile(streams.into_values().collect(), &observed, &state.keys);
+    let mut outcome = reconcile_with_revisions(
+        streams.into_values().collect(),
+        &observed,
+        &state.keys,
+        &source_revisions,
+    );
     let endpoints = outcome.endpoints.remove(&stream.name);
     let planned = outcome
         .streams
@@ -2275,6 +2299,15 @@ type HopReport<'a> = (
     weave_core::LinkCondition,
     Option<weave_core::LinkCondition>,
     Vec<(&'a str, weave_core::LinkCondition)>,
+    Option<DeliveryKey>,
+);
+
+type DeliveryKey = (
+    weave_core::DeliveryState,
+    weave_core::DeliveryReason,
+    Option<u32>,
+    bool,
+    bool,
 );
 
 fn reported(registration: &NodeRegistration) -> (NodeStatus, Vec<HopReport<'_>>) {
@@ -2294,6 +2327,15 @@ fn reported(registration: &NodeRegistration) -> (NodeStatus, Vec<HopReport<'_>>)
                         .iter()
                         .map(|egress| (egress.branch_id.as_str(), egress.status.condition))
                         .collect(),
+                    hop.delivery.as_ref().map(|report| {
+                        (
+                            report.state,
+                            report.reason,
+                            report.selected_latency_ms,
+                            report.timing_ready,
+                            report.redundancy_ready,
+                        )
+                    }),
                 )
             })
             .collect(),
@@ -2477,6 +2519,10 @@ fn placement_failed_conditions(
         compatibility.aggregate().reason
     } else if matches!(error, PlacementError::CleartextLink { .. }) {
         StreamConditionReason::CleartextNotAllowed
+    } else if matches!(error, PlacementError::TimedUnsupported { .. }) {
+        StreamConditionReason::TimedDeliveryUnsupported
+    } else if matches!(error, PlacementError::LatencyBudget { .. }) {
+        StreamConditionReason::LatencyBudgetInfeasible
     } else {
         StreamConditionReason::PlacementFailed
     };
@@ -2601,10 +2647,20 @@ fn destination_stream(stream: &StreamDefinition, id: &str) -> StreamDefinition {
     }
 }
 
+#[cfg(test)]
 fn reconcile(
+    streams: Vec<StreamDefinition>,
+    observed: &ObservedState,
+    keys: &LinkKeys,
+) -> ReconcileOutcome {
+    reconcile_with_revisions(streams, observed, keys, &BTreeMap::new())
+}
+
+fn reconcile_with_revisions(
     mut streams: Vec<StreamDefinition>,
     observed: &ObservedState,
     keys: &LinkKeys,
+    source_revisions: &BTreeMap<String, u64>,
 ) -> ReconcileOutcome {
     streams.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -2645,6 +2701,7 @@ fn reconcile(
                     .destinations
                     .iter()
                     .map(|destination| StreamDestinationStatus {
+                        delivery: None,
                         id: destination.id.clone(),
                         status: PathStatus::Idle,
                         nodes: Vec::new(),
@@ -2670,7 +2727,14 @@ fn reconcile(
             &mut stream_ports,
             keys,
         )
-        .and_then(|planned| hop_ids.claim(&planned.path).map(|()| planned));
+        .and_then(|mut planned| {
+            timed::bind(
+                &mut planned.path.hops,
+                stream,
+                source_revisions.get(&stream.name).copied().unwrap_or(0),
+            );
+            hop_ids.claim(&planned.path).map(|()| planned)
+        });
         let status = match placed {
             Ok(planned) => {
                 ports = stream_ports;
@@ -2693,7 +2757,7 @@ fn reconcile(
                     .find(|id| offline.contains(id.as_str()))
                     .cloned();
                 let compatibility = compatibility::evaluate(stream, Some(&path), &observed.nodes);
-                let status = if offline_node.is_some()
+                let mut status = if offline_node.is_some()
                     || compatibility.aggregate().status == StreamConditionStatus::False
                 {
                     PathStatus::Degraded
@@ -2710,7 +2774,7 @@ fn reconcile(
                         None
                     }
                 };
-                let destination_statuses = stream
+                let destination_statuses: Vec<StreamDestinationStatus> = stream
                     .destinations
                     .iter()
                     .map(|destination| {
@@ -2736,16 +2800,42 @@ fn reconcile(
                                 .iter()
                                 .filter(|shortfall| shortfall.destination == destination.id),
                         );
+                        let delivery = destination.delivery.as_ref().and_then(|_| {
+                            let receiver = path.hops.iter().find(|hop| {
+                                hop.id == path::receiver_hop_id(&stream.name, &destination.id)
+                            })?;
+                            let current = |hop: &DesiredHop| {
+                                reports
+                                    .get(&(hop.id.as_str(), hop.node_id.as_str()))
+                                    .filter(|report| report.revision == hop.revision())
+                                    .and_then(|report| report.delivery.as_ref())
+                            };
+                            let origin = path.hops.iter().find(|hop| {
+                                hop.delivery.as_ref().is_some_and(|timing| {
+                                    timing.role == weave_core::DeliveryRole::Origin
+                                })
+                            });
+                            timed::effective_report(current(receiver), origin.and_then(current))
+                        });
+                        let mut conditions = placed_conditions(
+                            compatibility.for_stream(&destination_stream),
+                            branch_status,
+                            offline_node.as_deref(),
+                            single_path.as_deref(),
+                        );
+                        let status = if destination.delivery.is_some() {
+                            conditions
+                                .extend(timed::conditions(delivery.as_ref(), destination.paths));
+                            timed::status(status, delivery.as_ref(), destination.paths)
+                        } else {
+                            status
+                        };
                         StreamDestinationStatus {
+                            delivery,
                             id: destination.id.clone(),
                             status,
                             nodes,
-                            conditions: placed_conditions(
-                                compatibility.for_stream(&destination_stream),
-                                branch_status,
-                                offline_node.as_deref(),
-                                single_path.as_deref(),
-                            ),
+                            conditions,
                             endpoint: endpoints.as_ref().and_then(|endpoints| {
                                 endpoints
                                     .destinations
@@ -2756,6 +2846,26 @@ fn reconcile(
                         }
                     })
                     .collect();
+                for candidate in [
+                    PathStatus::Failed,
+                    PathStatus::Degraded,
+                    PathStatus::Pending,
+                ] {
+                    if destination_statuses
+                        .iter()
+                        .any(|destination| destination.status == candidate)
+                    {
+                        status = candidate;
+                        break;
+                    }
+                }
+                let mut conditions = placed_conditions(
+                    compatibility.aggregate(),
+                    path_status,
+                    offline_node.as_deref(),
+                    single_path_detail(&planned.single_path).as_deref(),
+                );
+                conditions.extend(timed::aggregate(&destination_statuses));
                 stream_statuses.push(StreamStatus {
                     format_policy: stream.format_policy,
                     name: stream.name.clone(),
@@ -2765,12 +2875,7 @@ fn reconcile(
                     nodes,
                     ingress: endpoints.as_ref().and_then(|value| value.ingress.clone()),
                     destinations: destination_statuses,
-                    conditions: placed_conditions(
-                        compatibility.aggregate(),
-                        path_status,
-                        offline_node.as_deref(),
-                        single_path_detail(&planned.single_path).as_deref(),
-                    ),
+                    conditions,
                 });
                 status
             }
@@ -2788,6 +2893,7 @@ fn reconcile(
                         .destinations
                         .iter()
                         .map(|destination| StreamDestinationStatus {
+                            delivery: None,
                             id: destination.id.clone(),
                             status: PathStatus::Pending,
                             nodes: Vec::new(),
@@ -2896,6 +3002,7 @@ mod tests {
             roles: RoleSet::both(),
         });
         HopProfile {
+            timed_delivery: None,
             id: "srt-forward".to_string(),
             ingress: srt.clone(),
             egress: srt,
@@ -2974,6 +3081,7 @@ mod tests {
             allow_cleartext_links: false,
             source: srt_endpoint(source, 200),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "studio".to_string(),
                 paths: 1,
                 endpoint: srt_endpoint(destination, 1000),
@@ -2987,6 +3095,7 @@ mod tests {
 
     fn stored_stream(spec: StreamDefinition) -> StoredStream {
         StoredStream {
+            source_revision: 1,
             spec,
             generation: 1,
             revision: 1,
@@ -3367,6 +3476,7 @@ mod tests {
     fn two_destination_stream(name: &str) -> StreamDefinition {
         let mut stream = stream(name);
         stream.destinations.push(StreamDestination {
+            delivery: None,
             id: "preview".to_string(),
             paths: 1,
             endpoint: srt_endpoint("strom-node-3", 1000),
@@ -3949,6 +4059,7 @@ mod tests {
             .get_mut("strom-node-1")
             .unwrap()
             .hop_status = vec![weave_core::HopStatus {
+            delivery: None,
             id: "weave-basic-sender".to_string(),
             node_id: "strom-node-1".to_string(),
             revision,
@@ -4064,6 +4175,7 @@ mod tests {
             .get_mut("strom-node-1")
             .unwrap()
             .hop_status = vec![HopStatus {
+            delivery: None,
             id: "weave-basic-sender".to_string(),
             node_id: "strom-node-1".to_string(),
             revision,
@@ -4521,6 +4633,7 @@ mod tests {
         let running = hops
             .iter()
             .map(|hop| weave_core::HopStatus {
+                delivery: None,
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
                 revision: hop.revision(),
@@ -4608,6 +4721,7 @@ mod tests {
 
         let mut running = idle;
         running.hop_status = vec![weave_core::HopStatus {
+            delivery: None,
             id: bridge.to_string(),
             node_id: "relay-b".to_string(),
             revision: String::new(),
@@ -4741,6 +4855,7 @@ mod tests {
             }),
         };
         let hop = |condition, rate_mbps| HopStatus {
+            delivery: None,
             id: "weave-basic-sender".to_string(),
             node_id: "strom-node-1".to_string(),
             revision: String::new(),
@@ -4907,6 +5022,7 @@ mod tests {
         let (state, mem) = mem_state();
         let app = open_router(state);
         let status_for = |node_id: &str| weave_core::HopStatus {
+            delivery: None,
             id: "weave-basic-sender".to_string(),
             node_id: node_id.to_string(),
             revision: String::new(),
@@ -4966,6 +5082,7 @@ mod tests {
         let mut browser = node_registration("browser-a1b2", "browser");
         browser.node.endpoint = "browser://browser-a1b2".to_string();
         browser.node.capabilities.hop_profiles = vec![HopProfile {
+            timed_delivery: None,
             id: "camera-to-whip".to_string(),
             ingress: HopEndpointClass::Device(weave_core::DeviceClass {
                 device: weave_core::DeviceKind::Capture,
@@ -4992,6 +5109,7 @@ mod tests {
 
         let mut strom = node_registration("strom-node-2", "172.27.0.10");
         strom.node.capabilities.hop_profiles.push(HopProfile {
+            timed_delivery: None,
             id: "whip-to-srt".to_string(),
             ingress: HopEndpointClass::Transport(TransportClass {
                 transport: Transport::Whip,
@@ -5600,6 +5718,7 @@ mod tests {
         };
         hops.iter()
             .map(|hop| HopStatus {
+                delivery: None,
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
                 revision: hop.revision(),
@@ -6299,6 +6418,7 @@ mod tests {
             conditions: conditions.clone(),
             ingress: None,
             destinations: vec![StreamDestinationStatus {
+                delivery: None,
                 id: "studio".to_string(),
                 status: PathStatus::AwaitingInput,
                 nodes: Vec::new(),
@@ -6494,6 +6614,7 @@ mod tests {
                     .unwrap()
                     .hop_status
                     .push(HopStatus {
+                        delivery: None,
                         id: hop.id.clone(),
                         node_id: hop.node_id.clone(),
                         revision: hop.revision(),
@@ -6598,6 +6719,7 @@ mod tests {
         };
         studio.via = vec!["relay-node".to_string()];
         definition.destinations.push(StreamDestination {
+            delivery: None,
             id: "partner".to_string(),
             paths: 1,
             endpoint: StreamTransport::Srt(SrtEndpoint {
@@ -7384,6 +7506,7 @@ mod key_exposure_tests {
             })
         };
         let profile = |id: &str, merge| HopProfile {
+            timed_delivery: None,
             id: id.to_string(),
             ingress: srt(),
             egress: srt(),
@@ -7436,6 +7559,7 @@ mod key_exposure_tests {
             allow_cleartext_links: false,
             source: endpoint("node-a", PRODUCER_KEY),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "studio".to_string(),
                 paths,
                 endpoint: endpoint("node-b", CONSUMER_KEY),

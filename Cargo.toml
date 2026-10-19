@@ -9,6 +9,7 @@ members = [
     "crates/adapter-strom",
     "crates/strom",
     "crates/bench",
+    "crates/media",
 ]
 
 [workspace.package]
@@ -43,6 +44,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 anyhow = "1"
 thiserror = "2"
 async-trait = "0.1"
+bytes = "1"
+futures = "0.3"
+srt-tokio = "0.4.4"
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors"] }
 http-body-util = "0.1"

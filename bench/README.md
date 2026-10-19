@@ -224,3 +224,32 @@ for its Node.js requests. CLI recipes use `SSL_CERT_FILE`, and curl recipes use
 The endpoint-discovery script and host browser recipe use the published plain
 HTTP ports. Controller dashboards are unauthenticated and the bench publishes
 ports on all interfaces. Keep this stack off public networks.
+
+## Timed delivery demo
+
+`just timed-demo` builds and runs an isolated local control plane and four native
+SRT nodes. It needs FFmpeg on `PATH`; preview also needs FFplay. Generated H264
+video and AAC audio travel over two encrypted relayed paths and feed a decoder.
+The dashboard is <http://127.0.0.1:39082/ui>. This leaves the Compose bench alone.
+
+```sh
+just timed-demo status
+just timed-demo auto
+just timed-demo fixed
+just timed-demo fail
+just timed-demo restore
+just timed-demo view
+just timed-demo stop
+```
+
+Fixed mode targets 500 ms. Auto measures each input and locks a target between
+80 and 500 ms. Calibration temporarily suspends output. `fail` pauses the first
+relay for 15 seconds, then restores it automatically. The decoder should keep
+progressing from the other path. Status prints timing counters and the latest
+decoded video and audio evidence. Logs and generated configs are in
+`.demo/timed/`. Stop removes only the demo's processes.
+
+All nodes share this host's clock. Release ages cover managed ingress to output
+queue submission, excluding final transport, decoding and display. This demo
+does not verify clock synchronization across hosts. See
+[Timed delivery](../docs/timed-delivery.md) for the contract and clock providers.

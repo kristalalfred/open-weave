@@ -28,6 +28,16 @@ const TRANSPORT_PREFERENCE: [Transport; 4] = [
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PlacementError {
+    #[error("node {node} has no compatible timed delivery profile")]
+    TimedUnsupported { node: String },
+    #[error(
+        "destination {destination} has {configured_ms} ms of configured internal buffering, which cannot fit its {budget_ms} ms delivery budget"
+    )]
+    LatencyBudget {
+        destination: String,
+        configured_ms: u64,
+        budget_ms: u32,
+    },
     #[error("{detail}")]
     FormatBlocked {
         detail: String,
@@ -796,6 +806,7 @@ fn derive_on(
     }
 
     let sender_node = source_node(&source)?;
+    let timing = crate::timed::origin(stream, nodes)?;
     let sender_id = sender_hop_id(&stream.name);
     let source_station = Station {
         node_id: sender_node.to_string(),
@@ -813,6 +824,23 @@ fn derive_on(
     let mut destinations: Vec<_> = stream.destinations.iter().collect();
     destinations.sort_by(|left, right| left.id.cmp(&right.id));
     for destination in destinations {
+        let eligible_nodes = destination
+            .delivery
+            .as_ref()
+            .and(timing.as_ref())
+            .map(|origin| crate::timed::eligible(nodes, sender_node, destination, origin));
+        let branch_nodes = eligible_nodes.as_deref().unwrap_or(nodes);
+        relays.reachable.clear();
+        if destination.delivery.is_some()
+            && !branch_nodes.iter().any(|node| {
+                Some(node.id.as_str()) == destination.node()
+                    && !node.capabilities.hop_profiles.is_empty()
+            })
+        {
+            return Err(PlacementError::TimedUnsupported {
+                node: destination.node().unwrap_or_default().to_string(),
+            });
+        }
         let branch_id = destination.id.clone();
         let dest = read_endpoint(&destination.endpoint)?;
         let latency = dest.latency.unwrap_or(DEFAULT_SINK_LATENCY);
@@ -827,11 +855,12 @@ fn derive_on(
             &destination.id,
             &source_station,
             &dest,
-            nodes,
+            branch_nodes,
             &ports,
             &mut relays,
             &second_path_relays,
         )?;
+        crate::timed::check_budget(destination, chain.bridges.len() + 1, latency)?;
 
         let mut hops: Vec<DesiredHop> = Vec::with_capacity(chain.bridges.len() + 1);
         let mut upstream = LinkEnd {
@@ -843,7 +872,7 @@ fn derive_on(
 
         for bridge in &chain.bridges {
             let (up_socket, hop, attachments) =
-                plan_hop(&upstream, bridge, latency, nodes, &mut ports, keys)?;
+                plan_hop(&upstream, bridge, latency, branch_nodes, &mut ports, keys)?;
             sender_attachments.get_or_insert(attachments.upstream);
             push_egress(&mut sender_egresses, &mut hops, &branch_id, up_socket);
             hops.push(hop);
@@ -892,7 +921,7 @@ fn derive_on(
 
             ChainTerminal::Receiver(receiver) => {
                 let (up_socket, mut hop, attachments) =
-                    plan_hop(&upstream, receiver, latency, nodes, &mut ports, keys)?;
+                    plan_hop(&upstream, receiver, latency, branch_nodes, &mut ports, keys)?;
                 push_egress(&mut sender_egresses, &mut hops, &branch_id, up_socket);
                 let socket = match dest.terminal {
                     Terminal::Srt => {
@@ -941,16 +970,42 @@ fn derive_on(
                             .iter()
                             .map(|bridge| bridge.station.node_id.clone())
                             .collect(),
+                        delivery: destination.delivery.as_ref().and(timing.as_ref()).map(
+                            |origin| {
+                                let mut receiver = origin.clone();
+                                receiver.role = weave_core::DeliveryRole::Receiver;
+                                receiver.policy.clone_from(&destination.delivery);
+                                receiver.paths = destination.paths;
+                                receiver
+                            },
+                        ),
                     });
                 }
                 hops.push(hop);
             }
         }
 
+        if destination.delivery.is_some()
+            && let Some(origin) = &timing
+        {
+            for hop in &mut hops {
+                crate::timed::decorate(hop, origin, Some(destination));
+            }
+            for egress in sender_egresses
+                .iter_mut()
+                .filter(|egress| egress.branch_id == branch_id)
+            {
+                crate::timed::set_payload(
+                    &mut egress.socket,
+                    weave_core::PayloadKind::WeaveTimedV1,
+                );
+            }
+        }
         downstream.extend(hops);
     }
 
     let sender = DesiredHop {
+        delivery: timing,
         id: sender_id.clone(),
         node_id: sender_node.to_string(),
         profile_id: String::new(),
@@ -991,6 +1046,7 @@ fn derive_on(
     for hop in &mut hops {
         hop.tracks.clone_from(&tracks);
     }
+    crate::timed::bind(&mut hops, stream, 0);
     single_path.sort_by(|left, right| left.destination.cmp(&right.destination));
     *committed_ports = ports;
 
@@ -1040,6 +1096,7 @@ fn carries_destination(branch_id: &str, destination: &str) -> bool {
 }
 
 struct FirstPath {
+    delivery: Option<weave_core::TimedHop>,
     destination: String,
     latency: u32,
     sender_attachments: Vec<String>,
@@ -1049,16 +1106,39 @@ struct FirstPath {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn place_second_path<'n>(
+fn place_second_path(
     stream: &str,
     first: &FirstPath,
     source: &Station,
     hops: &mut Vec<DesiredHop>,
-    nodes: &'n [NodeDescriptor],
+    nodes: &[NodeDescriptor],
     committed_ports: &mut PortAllocator,
     keys: &LinkKeys,
-    relays: &mut RelayCache<'n>,
+    relays: &mut RelayCache,
 ) -> Result<(), PlacementError> {
+    let eligible;
+    let nodes = if let Some(origin) = &first.delivery {
+        let destination = weave_core::StreamDestination {
+            id: first.destination.clone(),
+            paths: 2,
+            delivery: origin.policy.clone(),
+            endpoint: weave_core::StreamTransport::Srt(weave_core::SrtEndpoint {
+                node: Some(first.receiver.node_id.clone()),
+                remote: None,
+                via: vec![],
+                network: None,
+                latency: Some(first.latency),
+                passphrase: None,
+                format: None,
+                accepts: None,
+            }),
+        };
+        eligible = crate::timed::eligible(nodes, &source.node_id, &destination, origin);
+        &eligible[..]
+    } else {
+        nodes
+    };
+    relays.reachable.clear();
     let receiver_node = find_node(nodes, &first.receiver.node_id).ok_or_else(|| {
         PlacementError::NodeNotRegistered {
             node: first.receiver.node_id.clone(),
@@ -1068,7 +1148,9 @@ fn place_second_path<'n>(
         .capabilities
         .hop_profiles
         .iter()
-        .any(|profile| profile.merge)
+        .any(|profile| {
+            profile.merge && (first.delivery.is_some() || profile.timed_delivery.is_none())
+        })
     {
         return Err(PlacementError::NoMergeProfile {
             node: receiver_node.id.clone(),
@@ -1105,6 +1187,18 @@ fn place_second_path<'n>(
             role: HopRole::Bridge,
         })
         .collect();
+    if let Some(timing) = &first.delivery
+        && let Some(policy) = &timing.policy
+    {
+        let configured_ms = (bridges.len() as u64 + 1) * u64::from(first.latency);
+        if configured_ms >= u64::from(policy.maximum_ms().saturating_sub(policy.tolerance_ms())) {
+            return Err(PlacementError::LatencyBudget {
+                destination: first.destination.clone(),
+                configured_ms,
+                budget_ms: policy.maximum_ms(),
+            });
+        }
+    }
 
     let sender_id = sender_hop_id(stream);
     let mut sender_egresses = Vec::with_capacity(1);
@@ -1155,9 +1249,22 @@ fn place_second_path<'n>(
             hop: receiver_id.clone(),
         })?;
     let mut sender_hop = hops[0].clone();
+    if first.delivery.is_some() {
+        for egress in &mut sender_egresses {
+            crate::timed::set_payload(&mut egress.socket, weave_core::PayloadKind::WeaveTimedV1);
+        }
+    }
     sender_hop.egresses.extend(sender_egresses);
     let mut receiver_hop = hops[receiver_index].clone();
     receiver_hop.merge_ingress = Some(link.downstream);
+    if let Some(timing) = &first.delivery {
+        if let Some(socket) = &mut receiver_hop.merge_ingress {
+            crate::timed::set_payload(socket, weave_core::PayloadKind::WeaveTimedV1);
+        }
+        for hop in &mut new_hops {
+            crate::timed::decorate(hop, timing, None);
+        }
+    }
     for hop in [&mut sender_hop, &mut receiver_hop]
         .into_iter()
         .chain(new_hops.iter_mut())
@@ -1187,18 +1294,19 @@ fn can_dial_network(
         .any(|attachment| attachment.network == network && attachment.dial))
 }
 
-fn pick_remote_relay<'n>(
+fn pick_remote_relay(
     upstream: &Station,
     network: &str,
-    nodes: &'n [NodeDescriptor],
+    nodes: &[NodeDescriptor],
     ports: &PortAllocator,
-    relays: &mut RelayCache<'n>,
+    relays: &mut RelayCache,
     bridge: &str,
 ) -> Result<String, PlacementError> {
     let keep = relays.running(bridge).to_vec();
     let candidates = relays
         .reachable_from(upstream, nodes)
         .iter()
+        .filter_map(|(id, link)| find_node(nodes, id).map(|node| (node, link)))
         .filter(|(node, _)| {
             node.topology
                 .attachments
@@ -1224,7 +1332,7 @@ fn pick_remote_relay<'n>(
                         port_listener_at(link, Listener::Downstream, SocketAt::ingress(bridge))
                             .into_iter()
                             .collect();
-                    (*node, listeners)
+                    (node, listeners)
                 })
         });
     match relay_with_ports(candidates, &ScratchPorts::new(ports), &keep, &[]) {
@@ -1273,7 +1381,8 @@ fn select_profile(hop: &DesiredHop, nodes: &[NodeDescriptor]) -> Result<String, 
     let mut profiles: Vec<_> = node.capabilities.hop_profiles.iter().collect();
     profiles.sort_by(|left, right| left.id.cmp(&right.id));
     if let Some(profile) = profiles.into_iter().find(|profile| {
-        profile.ingress.matches_socket(&hop.ingress)
+        crate::timed::profile_matches(hop, profile)
+            && profile.ingress.matches_socket(&hop.ingress)
             && hop
                 .merge_ingress
                 .as_ref()
@@ -1316,6 +1425,7 @@ fn plan_hop(
     Ok((
         link.upstream,
         DesiredHop {
+            delivery: None,
             id: hop.id.clone(),
             node_id: hop.station.node_id.clone(),
             profile_id: String::new(),
@@ -1387,14 +1497,14 @@ struct LinkEnd<'a> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn chain_hops<'a, 'n>(
+fn chain_hops<'a>(
     stream: &str,
     destination_id: &str,
     source: &Station,
     dest: &Endpoint<'a>,
-    nodes: &'n [NodeDescriptor],
+    nodes: &[NodeDescriptor],
     ports: &PortAllocator,
-    relays: &mut RelayCache<'n>,
+    relays: &mut RelayCache,
     shun: &[String],
 ) -> Result<Chain<'a>, PlacementError> {
     let mut ports = ScratchPorts::new(ports);
@@ -1452,12 +1562,12 @@ fn chain_hops<'a, 'n>(
     Ok(Chain { bridges, terminal })
 }
 
-struct RelayCache<'n> {
-    reachable: HashMap<Station, Vec<(&'n NodeDescriptor, LinkChoice)>>,
+struct RelayCache {
+    reachable: HashMap<Station, Vec<(String, LinkChoice)>>,
     reports: Arc<HopReports>,
 }
 
-impl<'n> RelayCache<'n> {
+impl RelayCache {
     fn new(reports: Arc<HopReports>) -> Self {
         Self {
             reachable: HashMap::new(),
@@ -1482,8 +1592,8 @@ impl<'n> RelayCache<'n> {
     fn reachable_from(
         &mut self,
         upstream: &Station,
-        nodes: &'n [NodeDescriptor],
-    ) -> &[(&'n NodeDescriptor, LinkChoice)] {
+        nodes: &[NodeDescriptor],
+    ) -> &[(String, LinkChoice)] {
         self.reachable.entry(upstream.clone()).or_insert_with(|| {
             nodes
                 .iter()
@@ -1491,7 +1601,7 @@ impl<'n> RelayCache<'n> {
                 .filter_map(|node| {
                     station_link(upstream, &Station::relay(&node.id), nodes)
                         .ok()
-                        .map(|link| (node, link))
+                        .map(|link| (node.id.clone(), link))
                 })
                 .collect()
         })
@@ -1499,15 +1609,15 @@ impl<'n> RelayCache<'n> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn relay_before<'n>(
+fn relay_before(
     chain: &mut Vec<Station>,
     (stream, branch): (&str, &str),
     source: &Station,
     next: &Station,
-    nodes: &'n [NodeDescriptor],
+    nodes: &[NodeDescriptor],
     (avoid_relays, shun): (&[String], &[String]),
     ports: &mut ScratchPorts,
-    relays: &mut RelayCache<'n>,
+    relays: &mut RelayCache,
 ) -> Result<(), PlacementError> {
     let upstream = chain.last().unwrap_or(source);
     if let Err(failure) = station_link(upstream, next, nodes) {
@@ -1536,15 +1646,16 @@ fn pick_relay<'n>(
     failure: LinkFailure,
     (avoid, shun): (&[String], &[String]),
     ports: &ScratchPorts,
-    relays: &mut RelayCache<'n>,
+    relays: &mut RelayCache,
     (bridge, branch): (&str, &str),
 ) -> Result<(&'n NodeDescriptor, Vec<u16>), PlacementError> {
     let keep = relays.running(bridge).to_vec();
     let candidates = relays
         .reachable_from(upstream, nodes)
         .iter()
-        .filter(|(node, _)| node.id != downstream.node_id && !avoid.contains(&node.id))
-        .filter_map(|(node, ingress)| {
+        .filter(|(id, _)| id != &downstream.node_id && !avoid.contains(id))
+        .filter_map(|(id, ingress)| {
+            let node = find_node(nodes, id)?;
             let relay = Station::relay(&node.id);
             let egress = station_link(&relay, downstream, nodes).ok()?;
             let ingress_role = role_for_end(ingress.listener, Listener::Downstream);
@@ -1571,7 +1682,7 @@ fn pick_relay<'n>(
                                 SocketAt::egress(bridge, branch),
                             ))
                             .collect();
-                    (*node, listeners)
+                    (node, listeners)
                 })
         });
     match relay_with_ports(candidates, ports, &keep, shun) {
@@ -1949,6 +2060,7 @@ fn rist_sockets(
 
 fn srt_params(latency: u32, passphrase: Option<Passphrase>) -> SrtParams {
     SrtParams {
+        payload: weave_core::PayloadKind::Raw,
         latency: Some(latency),
         pbkeylen: passphrase.is_some().then_some(SRT_PBKEYLEN),
         passphrase,
@@ -2418,6 +2530,7 @@ mod contract_tests {
 
     fn srt_profile(id: &str) -> HopProfile {
         HopProfile {
+            timed_delivery: None,
             id: id.to_string(),
             ingress: class(Transport::Srt, weave_core::RoleSet::both()),
             egress: class(Transport::Srt, weave_core::RoleSet::both()),
@@ -2476,6 +2589,7 @@ mod contract_tests {
 
     fn destination(id: &str, node: &str) -> StreamDestination {
         StreamDestination {
+            delivery: None,
             id: id.to_string(),
             paths: 1,
             endpoint: srt_endpoint(node),
@@ -2579,6 +2693,7 @@ mod contract_tests {
             capabilities: NodeCapabilities {
                 adapters: Vec::new(),
                 hop_profiles: vec![HopProfile {
+                    timed_delivery: None,
                     id: "camera-to-whip".to_string(),
                     ingress: HopEndpointClass::Device(DeviceClass {
                         device: DeviceKind::Capture,
@@ -2606,6 +2721,7 @@ mod contract_tests {
             base_url: "https://media.example/whip".to_string(),
         });
         strom.capabilities.hop_profiles.push(HopProfile {
+            timed_delivery: None,
             id: "whip-to-srt".to_string(),
             ingress: class(
                 Transport::Whip,
@@ -2664,6 +2780,7 @@ mod contract_tests {
         let mut browser = nodes.remove(0);
         browser.id = "browser".to_string();
         browser.capabilities.hop_profiles = vec![HopProfile {
+            timed_delivery: None,
             id: "capture-to-srt".to_string(),
             ingress: HopEndpointClass::Device(DeviceClass {
                 device: DeviceKind::Capture,
@@ -2700,6 +2817,7 @@ mod contract_tests {
     fn profile_mismatch_fails_before_desired_state() {
         let mut nodes = shared_nodes();
         nodes[0].capabilities.hop_profiles = vec![HopProfile {
+            timed_delivery: None,
             id: "srt-to-whep".to_string(),
             ingress: class(Transport::Srt, weave_core::RoleSet::both()),
             egress: class(
@@ -2786,6 +2904,7 @@ mod contract_tests {
             .hops
             .iter()
             .map(|hop| HopStatus {
+                delivery: None,
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
                 revision: hop.revision(),
@@ -3005,6 +3124,7 @@ mod contract_tests {
             "consumer-passphrase",
         );
         definition.destinations.push(StreamDestination {
+            delivery: None,
             id: "uplink".to_string(),
             paths: 1,
             endpoint: StreamTransport::Srt(SrtEndpoint {
@@ -3165,6 +3285,7 @@ mod tests {
         max_egresses: Option<usize>,
     ) -> HopProfile {
         HopProfile {
+            timed_delivery: None,
             id: id.to_string(),
             ingress,
             egress,
@@ -3294,6 +3415,7 @@ mod tests {
 
     fn dest(id: &str, endpoint: SrtEndpoint) -> StreamDestination {
         StreamDestination {
+            delivery: None,
             id: id.to_string(),
             paths: 1,
             endpoint: StreamTransport::Srt(endpoint),
@@ -3609,6 +3731,7 @@ mod tests {
         let nodes = nodes_with_a_public_network();
 
         let observed = vec![HopStatus {
+            delivery: None,
             id: receiver_hop_id("contribution", "studio"),
             node_id: "strom-node-2".to_string(),
             revision: String::new(),
@@ -3802,6 +3925,7 @@ mod tests {
             .hops
             .iter()
             .map(|hop| HopStatus {
+                delivery: None,
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
                 revision: hop.revision(),
@@ -4722,6 +4846,7 @@ mod tests {
 
     fn device_dest(id: &str, node: &str) -> StreamDestination {
         StreamDestination {
+            delivery: None,
             id: id.to_string(),
             paths: 1,
             endpoint: device_ref(node),

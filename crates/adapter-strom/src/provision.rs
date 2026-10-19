@@ -377,6 +377,7 @@ mod tests {
 
     fn hop(id: &str) -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: id.to_string(),
             node_id: "strom-node-1".to_string(),
             profile_id: "srt-forward".to_string(),
@@ -956,6 +957,7 @@ mod tests {
 
     fn whip_gateway_hop() -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: "weave-alice-cam-receiver-studio".to_string(),
             node_id: "strom-node-2".to_string(),
             profile_id: "whip-to-srt".to_string(),

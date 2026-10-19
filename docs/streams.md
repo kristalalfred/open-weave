@@ -86,8 +86,9 @@ attachment on that network counts as used, and two paths that both dial out of
 one node leave over different networks.
 
 A second path is placed only when the receiver has a hop profile with
-`merge: true` (see [Nodes](nodes.md#hop-profiles)). No shipped node advertises
-`merge`, and the Strom adapter refuses a hop with a `merge_ingress`.
+`merge: true` (see [Nodes](nodes.md#hop-profiles)). The native SRT node advertises a timed merger for destinations with an explicit
+[`delivery` policy](timed-delivery.md). Strom and browser nodes do not merge;
+the Strom adapter refuses a hop with a `merge_ingress`.
 
 When the second path cannot be placed, the stream is placed with one.
 `placement_ready` on the stream and on the destination stays `true` with reason

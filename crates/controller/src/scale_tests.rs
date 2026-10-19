@@ -61,6 +61,7 @@ fn registration(id: &str, attachments: Vec<NetworkAttachment>) -> NodeRegistrati
             capabilities: NodeCapabilities {
                 adapters: Vec::new(),
                 hop_profiles: vec![HopProfile {
+                    timed_delivery: None,
                     id: "srt-forward".to_string(),
                     ingress: srt(),
                     egress: srt(),
@@ -117,6 +118,7 @@ fn fan_out_stream(receivers: usize) -> StreamDefinition {
         source: endpoint("source"),
         destinations: (0..receivers)
             .map(|index| StreamDestination {
+                delivery: None,
                 id: receiver_id(index),
                 paths: 1,
                 endpoint: endpoint(&receiver_id(index)),
@@ -273,6 +275,7 @@ fn one_destination_stream(name: &str) -> StreamDefinition {
         allow_cleartext_links: false,
         source: endpoint("source"),
         destinations: vec![StreamDestination {
+            delivery: None,
             id: "studio".to_string(),
             paths: 1,
             endpoint: endpoint("studio"),
@@ -291,6 +294,7 @@ fn flowing() -> SocketStatus {
 fn running(hops: &[DesiredHop]) -> Vec<HopStatus> {
     hops.iter()
         .map(|hop| HopStatus {
+            delivery: None,
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
             revision: hop.revision(),

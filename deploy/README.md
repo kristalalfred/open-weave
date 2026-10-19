@@ -16,7 +16,7 @@ root and set `WEAVE_IMAGE=open-weave:local` in each kit's `.env`. Build or load
 the image on each host that runs a kit.
 
 The image holds `weave`, `weave-northbound`, `weave-southbound`,
-`weave-controller` and `weave-adapter-strom`, runs as uid 10001 and starts under
+`weave-controller`, `weave-adapter-strom` and `weave-node`, runs as uid 10001 and starts under
 `tini`.
 
 ## Control plane

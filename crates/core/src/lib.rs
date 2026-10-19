@@ -1,6 +1,7 @@
 pub mod api;
 pub mod auth;
 pub mod contracts;
+pub mod delivery;
 pub mod logging;
 pub mod media;
 pub mod read;
@@ -14,6 +15,11 @@ use std::{collections::BTreeMap, ops::Deref};
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
+
+pub use delivery::{
+    DeliveryCapability, DeliveryCounters, DeliveryPathReport, DeliveryPolicy, DeliveryReason,
+    DeliveryReport, DeliveryRole, DeliveryState, PayloadKind, TimedHop,
+};
 
 pub use api::{
     AcceptedState, ApiError, ApiErrorCode, Health, NodeAccepted, PlanStatus, RunningStatus,
@@ -45,7 +51,7 @@ pub const ROUTE_STREAM_SET: &str = "/stream-sets/{owner}";
 pub const ROUTE_STREAM_SETS: &str = "/stream-sets";
 pub const ROUTE_STREAMS: &str = "/streams";
 
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 8;
 
 #[must_use]
 pub fn protocol_compatible(version: u32) -> bool {
@@ -71,6 +77,7 @@ mod contract_tests {
 
     fn destination(id: &str, node: &str) -> StreamDestination {
         StreamDestination {
+            delivery: None,
             id: id.to_string(),
             paths: 1,
             endpoint: endpoint(node),
@@ -122,6 +129,7 @@ mod contract_tests {
         let socket = SocketSpec::Srt(SrtSocket::Listen {
             port: 7001,
             params: SrtParams {
+                payload: crate::PayloadKind::Raw,
                 latency: Some(200),
                 passphrase: Some(Passphrase::new("correct horse battery")),
                 pbkeylen: Some(32),
@@ -368,6 +376,8 @@ pub struct StreamDestination {
     #[serde(default = "one_path", skip_serializing_if = "is_one_path")]
     #[schemars(range(min = 1, max = 2))]
     pub paths: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<DeliveryPolicy>,
     #[serde(flatten)]
     pub endpoint: StreamTransport,
 }
@@ -589,6 +599,8 @@ pub struct DesiredHop {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracks: Option<Vec<Track>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<TimedHop>,
 }
 
 impl DesiredHop {
@@ -612,6 +624,7 @@ impl DesiredHop {
             merge_ingress,
             egresses,
             tracks: _,
+            delivery: _,
         } = self;
         std::iter::once(ingress)
             .chain(merge_ingress)
@@ -628,6 +641,7 @@ impl DesiredHop {
             merge_ingress,
             egresses,
             tracks: _,
+            delivery: _,
         } = self;
         std::iter::once(ingress)
             .chain(merge_ingress)
@@ -1192,6 +1206,8 @@ impl std::fmt::Display for DeviceKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct SrtParams {
+    #[serde(default, skip_serializing_if = "PayloadKind::is_raw")]
+    pub payload: PayloadKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency: Option<u32>,
 
@@ -1247,6 +1263,8 @@ pub struct HopStatus {
     pub merge_ingress: Option<SocketStatus>,
     #[serde(default)]
     pub egresses: Vec<EgressStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<DeliveryReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -1486,6 +1504,8 @@ impl NodeCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HopProfile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timed_delivery: Option<DeliveryCapability>,
     #[serde(default)]
     pub media_behavior: MediaBehavior,
     #[schemars(
@@ -1783,6 +1803,7 @@ pub struct AdapterDescriptor {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AdapterKind {
+    NativeSrt,
     Strom,
     Nmos,
     MxlDomain,
@@ -2064,6 +2085,7 @@ mod tests {
 
     fn sample_hop() -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: "weave-contribution-sender".to_string(),
             node_id: "strom-node-1".to_string(),
             profile_id: "srt-forward".to_string(),
@@ -2125,6 +2147,7 @@ mod tests {
     #[test]
     fn hop_status_round_trips_with_optional_fields_absent() {
         let status = HopStatus {
+            delivery: None,
             id: "weave-contribution-sender".to_string(),
             node_id: "strom-node-1".to_string(),
             revision: String::new(),
@@ -2352,6 +2375,7 @@ mod tests {
             socket: SocketSpec::srt_connect("172.31.0.11", 7003, 1000),
         });
         let status = HopStatus {
+            delivery: None,
             id: "weave-a".to_string(),
             node_id: "n1".to_string(),
             revision: desired.revision(),
@@ -2401,6 +2425,7 @@ mod tests {
             stats: None,
         };
         let mut status = HopStatus {
+            delivery: None,
             id: desired.id.clone(),
             node_id: desired.node_id.clone(),
             revision: desired.revision(),
@@ -2583,6 +2608,7 @@ mod tests {
             allow_cleartext_links: false,
             source: StreamTransport::Srt(source),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "studio".to_string(),
                 paths: 1,
                 endpoint: StreamTransport::Srt(destination),
@@ -2646,6 +2672,7 @@ mod tests {
         relaxed.accepts = Some(FormatConstraint::default());
 
         let destination = |id: &str, endpoint: &SrtEndpoint| StreamDestination {
+            delivery: None,
             id: id.to_string(),
             paths: 1,
             endpoint: StreamTransport::Srt(endpoint.clone()),
@@ -2786,6 +2813,7 @@ mod tests {
                 network: None,
             }),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "studio".to_string(),
                 paths: 1,
                 endpoint: StreamTransport::Srt(SrtEndpoint {
@@ -3077,6 +3105,7 @@ mod tests {
             stats: None,
         };
         let status = HopStatus {
+            delivery: None,
             id: desired.id.clone(),
             node_id: desired.node_id.clone(),
             revision: desired.revision(),
@@ -3121,6 +3150,7 @@ mod tests {
         let mut desired = sample_hop();
         desired.merge_ingress = Some(SocketSpec::srt_listen(7004, 1000));
         let mut status = HopStatus {
+            delivery: None,
             id: desired.id.clone(),
             node_id: desired.node_id.clone(),
             revision: desired.revision(),

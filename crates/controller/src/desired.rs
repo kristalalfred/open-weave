@@ -38,6 +38,7 @@ mod tests {
 
     fn hop(id: &str, node_id: &str, branch_id: &str) -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: id.to_string(),
             node_id: node_id.to_string(),
             profile_id: "test-profile".to_string(),

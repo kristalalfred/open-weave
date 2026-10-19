@@ -18,6 +18,7 @@ fn srt_forward() -> HopProfile {
         })
     };
     HopProfile {
+        timed_delivery: None,
         id: "srt-forward".to_string(),
         ingress: srt(),
         egress: srt(),
@@ -134,6 +135,7 @@ fn named(name: &str, destinations: &[(&str, &str)]) -> StreamDefinition {
         destinations: destinations
             .iter()
             .map(|(id, node)| StreamDestination {
+                delivery: None,
                 id: (*id).to_string(),
                 paths: 1,
                 endpoint: endpoint(node, &[]),
@@ -183,6 +185,7 @@ fn reported(path: &Path, nodes: &[NodeDescriptor], state: HopState) -> Vec<HopSt
                 })
                 .map_or("0.0.0.0", |listener| listener.host.as_str());
             HopStatus {
+                delivery: None,
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
                 revision: hop.revision(),

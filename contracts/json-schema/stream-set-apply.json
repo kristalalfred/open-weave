@@ -1076,6 +1076,99 @@
                   "format": "uint8",
                   "minimum": 1,
                   "maximum": 2
+                },
+                "delivery": {
+                  "anyOf": [
+                    {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "latency_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1,
+                              "maximum": 60000
+                            },
+                            "tolerance_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1,
+                              "maximum": 59999,
+                              "default": 5
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "fixed"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "mode",
+                            "latency_ms"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "min_latency_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 2,
+                              "maximum": 60000
+                            },
+                            "max_latency_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1,
+                              "maximum": 60000
+                            },
+                            "tolerance_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1,
+                              "maximum": 59999,
+                              "default": 5
+                            },
+                            "calibration_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 1000,
+                              "maximum": 60000,
+                              "default": 5000
+                            },
+                            "max_late_ppm": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 0,
+                              "maximum": 100000,
+                              "default": 1000
+                            },
+                            "margin_ms": {
+                              "type": "integer",
+                              "format": "uint32",
+                              "minimum": 0,
+                              "maximum": 59999,
+                              "default": 20
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "auto"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "mode",
+                            "min_latency_ms",
+                            "max_latency_ms"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [

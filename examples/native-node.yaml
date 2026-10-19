@@ -1,0 +1,19 @@
+node:
+  id: native-node-1
+  southbound_url: http://127.0.0.1:8081
+  listen: 127.0.0.1:8191
+  topology:
+    attachments:
+      - id: wan
+        network: internet
+        dial: true
+        listeners:
+          srt:
+            host: 127.0.0.1
+            port_range: { start: 22000, end: 22999 }
+clock:
+  provider: shared_host
+  domain: local-demo
+  tai_offset_secs: 37
+media:
+  listen_ip: 127.0.0.1

@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     export "$linker_var=$gnu-gcc" "CC_$(echo "$triple" | tr '-' '_')=$gnu-gcc" && \
     cargo build --release --locked --bins --target "$triple" && \
     mkdir -p /out && \
-    for b in weave weave-northbound weave-southbound weave-controller weave-adapter-strom; do \
+    for b in weave weave-northbound weave-southbound weave-controller weave-adapter-strom weave-node; do \
         cp "target/$triple/release/$b" /out/; \
     done
 

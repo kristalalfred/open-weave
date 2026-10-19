@@ -77,6 +77,7 @@
                           {
                             "type": "string",
                             "enum": [
+                              "native_srt",
                               "strom",
                               "nmos",
                               "mxl_domain",
@@ -104,6 +105,61 @@
                   "items": {
                     "type": "object",
                     "properties": {
+                      "timed_delivery": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "properties": {
+                          "protocol": {
+                            "type": "string"
+                          },
+                          "roles": {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "origin",
+                                    "forward",
+                                    "receiver"
+                                  ]
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
+                            }
+                          },
+                          "max_latency_ms": {
+                            "type": "integer",
+                            "format": "uint32",
+                            "minimum": 0
+                          },
+                          "scheduling_error_bound_us": {
+                            "type": "integer",
+                            "format": "uint32",
+                            "minimum": 0
+                          },
+                          "clock_domain": {
+                            "type": "string"
+                          },
+                          "origin_epoch": {
+                            "type": "integer",
+                            "format": "uint64",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "protocol",
+                          "roles",
+                          "max_latency_ms",
+                          "scheduling_error_bound_us",
+                          "clock_domain",
+                          "origin_epoch"
+                        ]
+                      },
                       "media_behavior": {
                         "anyOf": [
                           {
@@ -753,6 +809,8 @@
                       {
                         "type": "string",
                         "enum": [
+                          "timing_ready",
+                          "redundancy_ready",
                           "placement_ready",
                           "nodes_available",
                           "hops_ready",
@@ -785,6 +843,15 @@
                       {
                         "type": "string",
                         "enum": [
+                          "not_requested",
+                          "timed_delivery_unsupported",
+                          "latency_budget_infeasible",
+                          "clock_unavailable",
+                          "timing_calibrating",
+                          "timing_ready",
+                          "timing_degraded",
+                          "redundancy_ready",
+                          "redundancy_degraded",
                           "placed",
                           "single_path",
                           "disabled",
@@ -869,6 +936,8 @@
                             {
                               "type": "string",
                               "enum": [
+                                "timing_ready",
+                                "redundancy_ready",
                                 "placement_ready",
                                 "nodes_available",
                                 "hops_ready",
@@ -901,6 +970,15 @@
                             {
                               "type": "string",
                               "enum": [
+                                "not_requested",
+                                "timed_delivery_unsupported",
+                                "latency_budget_infeasible",
+                                "clock_unavailable",
+                                "timing_calibrating",
+                                "timing_ready",
+                                "timing_degraded",
+                                "redundancy_ready",
+                                "redundancy_degraded",
                                 "placed",
                                 "single_path",
                                 "disabled",

@@ -120,6 +120,8 @@
                         {
                           "type": "string",
                           "enum": [
+                            "timing_ready",
+                            "redundancy_ready",
                             "placement_ready",
                             "nodes_available",
                             "hops_ready",
@@ -152,6 +154,15 @@
                         {
                           "type": "string",
                           "enum": [
+                            "not_requested",
+                            "timed_delivery_unsupported",
+                            "latency_budget_infeasible",
+                            "clock_unavailable",
+                            "timing_calibrating",
+                            "timing_ready",
+                            "timing_degraded",
+                            "redundancy_ready",
+                            "redundancy_degraded",
                             "placed",
                             "single_path",
                             "disabled",
@@ -238,6 +249,203 @@
                 "items": {
                   "type": "object",
                   "properties": {
+                    "delivery": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "awaiting_input",
+                                "calibrating",
+                                "ready",
+                                "degraded",
+                                "failed"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "awaiting_input",
+                                "calibrating",
+                                "timely",
+                                "single_path",
+                                "clock_unavailable",
+                                "clock_uncertainty_exceeded",
+                                "clock_discontinuity",
+                                "deadline_missed",
+                                "scheduling_violation",
+                                "record_conflict",
+                                "output_unavailable",
+                                "output_backpressure",
+                                "buffer_exhausted",
+                                "latency_budget_infeasible"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "selected_latency_ms": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "format": "uint32",
+                          "minimum": 0
+                        },
+                        "timing_ready": {
+                          "type": "boolean"
+                        },
+                        "redundancy_ready": {
+                          "type": "boolean"
+                        },
+                        "clock_uncertainty_us": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "format": "uint32",
+                          "minimum": 0
+                        },
+                        "buffer_records": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "buffer_bytes": {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "minimum_release_age_us": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "maximum_release_age_us": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "format": "uint64",
+                          "minimum": 0
+                        },
+                        "counters": {
+                          "type": "object",
+                          "properties": {
+                            "released": {
+                              "type": "integer",
+                              "format": "uint64",
+                              "minimum": 0
+                            },
+                            "duplicates": {
+                              "type": "integer",
+                              "format": "uint64",
+                              "minimum": 0
+                            },
+                            "late_arrivals": {
+                              "type": "integer",
+                              "format": "uint64",
+                              "minimum": 0
+                            },
+                            "unrecovered": {
+                              "type": "integer",
+                              "format": "uint64",
+                              "minimum": 0
+                            },
+                            "scheduling_violations": {
+                              "type": "integer",
+                              "format": "uint64",
+                              "minimum": 0
+                            },
+                            "buffer_drops": {
+                              "type": "integer",
+                              "format": "uint64",
+                              "minimum": 0
+                            },
+                            "invalid_records": {
+                              "type": "integer",
+                              "format": "uint64",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "released",
+                            "duplicates",
+                            "late_arrivals",
+                            "unrecovered",
+                            "scheduling_violations",
+                            "buffer_drops",
+                            "invalid_records"
+                          ]
+                        },
+                        "paths": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "received": {
+                                "type": "integer",
+                                "format": "uint64",
+                                "minimum": 0
+                              },
+                              "late": {
+                                "type": "integer",
+                                "format": "uint64",
+                                "minimum": 0
+                              },
+                              "latest_age_us": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "format": "uint64",
+                                "minimum": 0
+                              },
+                              "qualified": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "received",
+                              "late",
+                              "latest_age_us",
+                              "qualified"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "reason",
+                        "selected_latency_ms",
+                        "timing_ready",
+                        "redundancy_ready",
+                        "clock_uncertainty_us",
+                        "buffer_records",
+                        "buffer_bytes",
+                        "minimum_release_age_us",
+                        "maximum_release_age_us",
+                        "counters",
+                        "paths"
+                      ]
+                    },
                     "id": {
                       "type": "string",
                       "minLength": 1,
@@ -281,6 +489,8 @@
                               {
                                 "type": "string",
                                 "enum": [
+                                  "timing_ready",
+                                  "redundancy_ready",
                                   "placement_ready",
                                   "nodes_available",
                                   "hops_ready",
@@ -313,6 +523,15 @@
                               {
                                 "type": "string",
                                 "enum": [
+                                  "not_requested",
+                                  "timed_delivery_unsupported",
+                                  "latency_budget_infeasible",
+                                  "clock_unavailable",
+                                  "timing_calibrating",
+                                  "timing_ready",
+                                  "timing_degraded",
+                                  "redundancy_ready",
+                                  "redundancy_degraded",
                                   "placed",
                                   "single_path",
                                   "disabled",

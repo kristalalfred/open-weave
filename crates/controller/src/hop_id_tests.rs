@@ -25,6 +25,7 @@ fn node(id: &str, network: &str) -> NodeDescriptor {
         capabilities: NodeCapabilities {
             adapters: Vec::new(),
             hop_profiles: vec![HopProfile {
+                timed_delivery: None,
                 id: "srt-forward".to_string(),
                 ingress: srt(),
                 egress: srt(),
@@ -79,6 +80,7 @@ fn stream(name: &str, source: &str, destinations: &[(&str, &str)]) -> StreamDefi
         destinations: destinations
             .iter()
             .map(|(id, node)| StreamDestination {
+                delivery: None,
                 id: (*id).to_string(),
                 paths: 1,
                 endpoint: endpoint(node),

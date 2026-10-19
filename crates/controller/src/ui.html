@@ -346,6 +346,11 @@ function renderStreams(streams) {
       ...stream.destinations.map(d => h("div", null,
         `${d.id}: ` + d.conditions.filter(c => c.type === "format_compatible")
           .map(c => `${c.status} (${c.reason}): ${c.detail}`).join("; "))),
+      ...stream.destinations.filter(d => d.delivery).map(d => h("div", null,
+        `${d.id}: ${d.delivery.selected_latency_ms == null ? d.delivery.state : d.delivery.selected_latency_ms + " ms"}` +
+        ` · timing ${d.delivery.timing_ready ? "ready" : d.delivery.reason}` +
+        ` · redundancy ${d.delivery.redundancy_ready ? "ready" : "degraded"}` +
+        ` · released ${d.delivery.counters.released}, missed ${d.delivery.counters.unrecovered}, late copies ${d.delivery.counters.late_arrivals}`)),
       stream.hops.length ? renderPath(stream) : null,
     )
   ));

@@ -253,7 +253,7 @@ registration declares.
 `weave_core::PROTOCOL_VERSION`:
 
 ```json
-{ "protocol_version": 7, "node": { "id": "strom-node-1", "...": "..." } }
+{ "protocol_version": 8, "node": { "id": "strom-node-1", "...": "..." } }
 ```
 
 The controller accepts only the version it speaks. Any other value, including an
@@ -265,7 +265,7 @@ The controller reads only `protocol_version` and `node.id` before it answers
 depends on the rest of the body. It then checks the body against this version's
 shape and answers `400 invalid_json` naming the first field that does not fit.
 A heartbeat from a node the controller does not know gets `404 node_not_found`
-before its body is checked, and both shipped nodes then register again.
+before its body is checked, and shipped nodes then register again.
 
 ```json
 {
@@ -274,7 +274,7 @@ before its body is checked, and both shipped nodes then register again.
   "details": [{
     "field": "protocol_version",
     "code": "unsupported",
-    "message": "reported 6; supported 7"
+    "message": "reported 7; supported 8"
   }]
 }
 ```

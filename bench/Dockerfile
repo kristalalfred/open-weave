@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     find crates examples -type f -exec touch {} + && \
     cargo build --bins && \
     mkdir -p /out && \
-    for b in weave weave-northbound weave-southbound weave-controller weave-adapter-strom; do \
+    for b in weave weave-northbound weave-southbound weave-controller weave-adapter-strom weave-node; do \
         cp "target/debug/$b" /out/; \
     done
 

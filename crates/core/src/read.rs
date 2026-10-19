@@ -225,6 +225,8 @@ pub struct StreamStatus {
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct StreamDestinationStatus {
+    #[serde(default)]
+    pub delivery: Option<serde_json::Value>,
     pub id: String,
     pub status: Open<PathStatus>,
     pub nodes: Vec<String>,

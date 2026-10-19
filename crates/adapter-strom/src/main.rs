@@ -394,6 +394,7 @@ fn pending_statuses(desired: &[DesiredHop], listener_host: Option<&str>) -> Vec<
     desired
         .iter()
         .map(|hop| HopStatus {
+            delivery: None,
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
             revision: hop.revision(),
@@ -481,6 +482,9 @@ async fn reconcile(
     for flow_id in &plan.start {
         if let Err(error) = flow_api.start_flow(flow_id).await {
             tracing::warn!(flow_id = %flow_id, error = %ErrorChain(&error), "starting adopted flow failed");
+            if let Some(flow) = flows.iter().find(|flow| &flow.id == flow_id) {
+                failed.insert(flow.name.clone());
+            }
         }
     }
 
@@ -625,6 +629,7 @@ async fn hop_statuses(
         }
 
         statuses.push(HopStatus {
+            delivery: None,
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
             revision: if flow.is_none_or(|flow| !provision::flow_drifted(flow, hop)) {
@@ -805,6 +810,7 @@ fn transport_class(transport: Transport, roles: RoleSet) -> HopEndpointClass {
 fn strom_hop_profiles() -> Vec<HopProfile> {
     vec![
         HopProfile {
+            timed_delivery: None,
             id: "srt-forward".to_string(),
             ingress: transport_class(Transport::Srt, RoleSet::both()),
             egress: transport_class(Transport::Srt, RoleSet::both()),
@@ -814,6 +820,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             accepts: Some(FormatConstraint::default()),
         },
         HopProfile {
+            timed_delivery: None,
             id: "whip-to-srt".to_string(),
             ingress: transport_class(Transport::Whip, RoleSet::only(SocketRole::Listen)),
             egress: transport_class(Transport::Srt, RoleSet::both()),
@@ -823,6 +830,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             accepts: Some(whip_input_accepts()),
         },
         HopProfile {
+            timed_delivery: None,
             id: "srt-to-whep".to_string(),
             ingress: transport_class(Transport::Srt, RoleSet::both()),
             egress: transport_class(Transport::Whep, RoleSet::only(SocketRole::Listen)),
@@ -832,6 +840,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             accepts: None,
         },
         HopProfile {
+            timed_delivery: None,
             id: "whip-to-whep".to_string(),
             ingress: transport_class(Transport::Whip, RoleSet::only(SocketRole::Listen)),
             egress: transport_class(Transport::Whep, RoleSet::only(SocketRole::Listen)),
@@ -841,6 +850,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             accepts: Some(whip_input_accepts()),
         },
         HopProfile {
+            timed_delivery: None,
             id: "srt-to-rist".to_string(),
             ingress: transport_class(Transport::Srt, RoleSet::both()),
             egress: transport_class(Transport::Rist, RoleSet::only(SocketRole::Connect)),
@@ -850,6 +860,7 @@ fn strom_hop_profiles() -> Vec<HopProfile> {
             accepts: None,
         },
         HopProfile {
+            timed_delivery: None,
             id: "rist-to-srt".to_string(),
             ingress: transport_class(Transport::Rist, RoleSet::only(SocketRole::Listen)),
             egress: transport_class(Transport::Srt, RoleSet::both()),
@@ -1367,6 +1378,7 @@ mod tests {
 
     fn hop(id: &str, port: u16) -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: id.to_string(),
             node_id: "strom-node-1".to_string(),
             profile_id: "srt-forward".to_string(),
@@ -1608,6 +1620,7 @@ mod tests {
 
     fn whip_to_srt_hop() -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: "weave-browser-cam-receiver-output".to_string(),
             node_id: "strom-node-1".to_string(),
             profile_id: "whip-to-srt".to_string(),
@@ -1627,6 +1640,7 @@ mod tests {
 
     fn srt_to_whep_hop() -> DesiredHop {
         DesiredHop {
+            delivery: None,
             id: "weave-browser-return-sender".to_string(),
             node_id: "strom-node-1".to_string(),
             profile_id: "srt-to-whep".to_string(),

@@ -77,6 +77,13 @@
               "null"
             ],
             "properties": {
+              "payload": {
+                "type": "string",
+                "enum": [
+                  "raw",
+                  "weave_timed_v1"
+                ]
+              },
               "latency": {
                 "type": [
                   "integer",
@@ -176,6 +183,13 @@
               "null"
             ],
             "properties": {
+              "payload": {
+                "type": "string",
+                "enum": [
+                  "raw",
+                  "weave_timed_v1"
+                ]
+              },
               "latency": {
                 "type": [
                   "integer",
@@ -277,6 +291,13 @@
                 "null"
               ],
               "properties": {
+                "payload": {
+                  "type": "string",
+                  "enum": [
+                    "raw",
+                    "weave_timed_v1"
+                  ]
+                },
                 "latency": {
                   "type": [
                     "integer",
@@ -332,6 +353,153 @@
             "video"
           ]
         }
+      },
+      "delivery": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "delivery_id": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minItems": 16,
+            "maxItems": 16
+          },
+          "epoch": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "clock_domain": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "origin",
+              "forward",
+              "receiver"
+            ]
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "latency_ms": {
+                        "type": "integer",
+                        "format": "uint32",
+                        "minimum": 1,
+                        "maximum": 60000
+                      },
+                      "tolerance_ms": {
+                        "type": "integer",
+                        "format": "uint32",
+                        "minimum": 1,
+                        "maximum": 59999,
+                        "default": 5
+                      },
+                      "mode": {
+                        "type": "string",
+                        "const": "fixed"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "mode",
+                      "latency_ms",
+                      "tolerance_ms"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "min_latency_ms": {
+                        "type": "integer",
+                        "format": "uint32",
+                        "minimum": 2,
+                        "maximum": 60000
+                      },
+                      "max_latency_ms": {
+                        "type": "integer",
+                        "format": "uint32",
+                        "minimum": 1,
+                        "maximum": 60000
+                      },
+                      "tolerance_ms": {
+                        "type": "integer",
+                        "format": "uint32",
+                        "minimum": 1,
+                        "maximum": 59999,
+                        "default": 5
+                      },
+                      "calibration_ms": {
+                        "type": "integer",
+                        "format": "uint32",
+                        "minimum": 1000,
+                        "maximum": 60000,
+                        "default": 5000
+                      },
+                      "max_late_ppm": {
+                        "type": "integer",
+                        "format": "uint32",
+                        "minimum": 0,
+                        "maximum": 100000,
+                        "default": 1000
+                      },
+                      "margin_ms": {
+                        "type": "integer",
+                        "format": "uint32",
+                        "minimum": 0,
+                        "maximum": 59999,
+                        "default": 20
+                      },
+                      "mode": {
+                        "type": "string",
+                        "const": "auto"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "mode",
+                      "min_latency_ms",
+                      "max_latency_ms",
+                      "tolerance_ms",
+                      "calibration_ms",
+                      "max_late_ppm",
+                      "margin_ms"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paths": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0,
+            "maximum": 255
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "delivery_id",
+          "epoch",
+          "clock_domain",
+          "role",
+          "paths"
+        ]
       }
     },
     "additionalProperties": false,

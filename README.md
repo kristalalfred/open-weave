@@ -3,7 +3,8 @@
 open-weave is a control plane for live media contribution. You declare the
 streams you want in a manifest. The controller plans the SRT, WHIP, WHEP and
 RIST links between your media nodes, and an adapter on each node builds them.
-No media passes through open-weave.
+No media passes through the control plane. The native `weave-node` runtime
+handles SRT media, including timed release and redundant path merging.
 
 ```yaml
 name: cam1-to-studio
@@ -33,6 +34,11 @@ just bench up
 just bench stream-up basic
 just bench down
 ```
+
+For the local timed-delivery demo, run `just timed-demo` with FFmpeg installed.
+`just timed-demo auto` calibrates latency; `just timed-demo fail` interrupts one
+relay for 15 seconds. `just timed-demo view` opens FFplay. See
+[the demo commands](bench/README.md#timed-delivery-demo).
 
 To run on your own hosts, see [`deploy/`](deploy/README.md).
 
@@ -74,6 +80,7 @@ weave CLI, apps ──▶ northbound ──▶ controller ◀── southbound �
   pull their node's desired hops.
 - **Adapters** translate hops into a runtime's own API.
   [`weave-adapter-strom`](crates/adapter-strom) drives Strom.
+  [`weave-node`](crates/media) runs SRT media directly.
   [`nodes/browser`](nodes/browser/README.md) is a node in a web page.
 
 Northbound and southbound are stateless proxies onto the controller. The
@@ -83,6 +90,8 @@ controller makes no outbound HTTP calls except configured webhooks.
 
 - [Streams](docs/streams.md): the manifest, endpoints, relays, redundant paths,
   encryption and formats.
+- [Timed delivery](docs/timed-delivery.md): fixed delay, automatic calibration
+  and redundant SRT merging.
 - [Nodes](docs/nodes.md): capabilities, topology, and how links, relays and ports
   are chosen.
 - [HTTP API](docs/api.md): routes, conditional writes, stream sets, status and

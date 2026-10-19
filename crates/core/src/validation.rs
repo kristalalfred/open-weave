@@ -106,6 +106,24 @@ pub fn validate_stream(stream: &StreamDefinition) -> Vec<ValidationIssue> {
         }
         validate_transport(&destination.endpoint, &path, false, &mut issues);
         validate_paths(destination, &path, &mut issues);
+        if let Some(delivery) = &destination.delivery {
+            for (field, message) in delivery.validate() {
+                issues.push(ValidationIssue::new(
+                    format!("{path}.delivery.{field}"),
+                    "invalid_range",
+                    message,
+                ));
+            }
+            if !matches!(&stream.source, StreamTransport::Srt(source) if source.node.is_some())
+                || !matches!(&destination.endpoint, StreamTransport::Srt(endpoint) if endpoint.node.is_some())
+            {
+                issues.push(ValidationIssue::new(
+                    format!("{path}.delivery"),
+                    "not_allowed",
+                    "timed delivery requires managed SRT source and destination endpoints",
+                ));
+            }
+        }
     }
 
     issues
@@ -163,6 +181,17 @@ pub fn validate_node(node: &NodeDescriptor) -> Vec<ValidationIssue> {
                 "invalid_range",
                 "max_egresses must be at least one",
             ));
+        }
+        if let Some(delivery) = &profile.timed_delivery {
+            let base = format!("node.capabilities.hop_profiles[{index}].timed_delivery");
+            if delivery.protocol != crate::delivery::TIMED_PROTOCOL
+                || delivery.roles.is_empty()
+                || delivery.max_latency_ms == 0
+                || delivery.origin_epoch == 0
+                || delivery.clock_domain.is_empty()
+            {
+                issues.push(ValidationIssue::new(base, "invalid_capability", "timed delivery requires the supported protocol, roles, positive limits, origin epoch and clock domain"));
+            }
         }
         if let Some(accepts) = &profile.accepts {
             validate_constraint(
@@ -540,6 +569,7 @@ mod tests {
 
     fn destination(id: &str, endpoint: StreamTransport) -> StreamDestination {
         StreamDestination {
+            delivery: None,
             id: id.to_string(),
             paths: 1,
             endpoint,
@@ -1052,6 +1082,7 @@ mod tests {
             capabilities: crate::NodeCapabilities {
                 adapters: Vec::new(),
                 hop_profiles: vec![crate::HopProfile {
+                    timed_delivery: None,
                     id: "srt-forward".to_string(),
                     ingress: class.clone(),
                     egress: class,
@@ -1143,6 +1174,7 @@ mod passphrase_tests {
                 accepts: None,
             }),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "studio".to_string(),
                 paths: 1,
                 endpoint: StreamTransport::Srt(SrtEndpoint {

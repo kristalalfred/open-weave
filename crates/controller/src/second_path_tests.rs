@@ -17,6 +17,7 @@ fn profile(id: &str, merge: bool) -> HopProfile {
         })
     };
     HopProfile {
+        timed_delivery: None,
         id: id.to_string(),
         ingress: srt(),
         egress: srt(),
@@ -101,6 +102,7 @@ fn stream(destinations: &[(&str, &str, u8)]) -> StreamDefinition {
         destinations: destinations
             .iter()
             .map(|(id, node, paths)| StreamDestination {
+                delivery: None,
                 id: (*id).to_string(),
                 paths: *paths,
                 endpoint: endpoint(node),
@@ -156,6 +158,7 @@ fn running(planned: &PlannedStream, nodes: &[NodeDescriptor]) -> Vec<HopStatus> 
                 })
                 .map_or("0.0.0.0", |listener| listener.host.as_str());
             HopStatus {
+                delivery: None,
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
                 revision: hop.revision(),

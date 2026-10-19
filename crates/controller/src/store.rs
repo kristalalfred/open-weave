@@ -11,6 +11,7 @@ pub struct StoredStream {
     pub spec: StreamDefinition,
     pub generation: u64,
     pub revision: u64,
+    pub source_revision: u64,
     pub owner: Option<String>,
 }
 
@@ -63,7 +64,7 @@ pub enum StoreError {
     SchemaVersion { found: i32, supported: i32 },
 }
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 fn positive_counter(value: i64, field: &'static str) -> Result<u64, StoreError> {
     if value <= 0 {
@@ -207,6 +208,27 @@ impl PgStore {
                 .await
                 .map_err(StoreError::Query)?;
         if let Some(found) = recorded {
+            if found == 1 {
+                sqlx::query("ALTER TABLE streams ADD COLUMN source_revision BIGINT")
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(StoreError::Query)?;
+                sqlx::query("UPDATE streams SET source_revision = revision")
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(StoreError::Query)?;
+                sqlx::query("ALTER TABLE streams ALTER COLUMN source_revision SET NOT NULL")
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(StoreError::Query)?;
+                sqlx::query("UPDATE schema_version SET version = $1 WHERE id")
+                    .bind(SCHEMA_VERSION)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(StoreError::Query)?;
+                transaction.commit().await.map_err(StoreError::Query)?;
+                return Ok(());
+            }
             if found != SCHEMA_VERSION {
                 return Err(StoreError::SchemaVersion {
                     found,
@@ -248,6 +270,18 @@ impl PgStore {
             .await
             .map_err(StoreError::Query)?;
         sqlx::query("ALTER TABLE streams ALTER COLUMN revision SET NOT NULL")
+            .execute(&mut *transaction)
+            .await
+            .map_err(StoreError::Query)?;
+        sqlx::query("ALTER TABLE streams ADD COLUMN IF NOT EXISTS source_revision BIGINT")
+            .execute(&mut *transaction)
+            .await
+            .map_err(StoreError::Query)?;
+        sqlx::query("UPDATE streams SET source_revision = revision WHERE source_revision IS NULL")
+            .execute(&mut *transaction)
+            .await
+            .map_err(StoreError::Query)?;
+        sqlx::query("ALTER TABLE streams ALTER COLUMN source_revision SET NOT NULL")
             .execute(&mut *transaction)
             .await
             .map_err(StoreError::Query)?;
@@ -470,7 +504,7 @@ impl PgStore {
         };
 
         let rows = sqlx::query(
-            "SELECT definition, generation, revision, owner
+            "SELECT definition, generation, revision, source_revision, owner
              FROM streams
              WHERE owner = $1 OR name = ANY($2)
              ORDER BY name
@@ -513,9 +547,10 @@ impl PgStore {
                         "UPDATE streams SET
                            definition = $2,
                            generation = generation + 1,
+                           source_revision = CASE WHEN definition->'source' = $2::jsonb->'source' THEN source_revision ELSE nextval('stream_revision_seq') END,
                            revision = nextval('stream_revision_seq')
                          WHERE name = $1 AND owner = $3
-                         RETURNING generation, revision, owner",
+                         RETURNING generation, revision, source_revision, owner",
                     )
                     .bind(name)
                     .bind(sqlx::types::Json(spec))
@@ -529,10 +564,10 @@ impl PgStore {
                 }
                 None => {
                     let row = sqlx::query(
-                        "INSERT INTO streams (name, definition, generation, revision, owner)
-                         VALUES ($1, $2, 1, nextval('stream_revision_seq'), $3)
+                        "INSERT INTO streams (name, definition, generation, revision, source_revision, owner)
+                         SELECT $1, $2, 1, value, value, $3 FROM (SELECT nextval('stream_revision_seq') AS value) counter
                          ON CONFLICT (name) DO NOTHING
-                         RETURNING generation, revision, owner",
+                         RETURNING generation, revision, source_revision, owner",
                     )
                     .bind(name)
                     .bind(sqlx::types::Json(spec))
@@ -618,7 +653,10 @@ fn streams_by_name(
 
 enum StreamUpdate {
     Unchanged(Box<StoredStream>),
-    Changed { generation: u64 },
+    Changed {
+        generation: u64,
+        source_revision: u64,
+    },
 }
 
 impl StreamUpdate {
@@ -641,6 +679,11 @@ impl StreamUpdate {
         }
         Ok(Self::Changed {
             generation: current.generation + 1,
+            source_revision: if current.spec.source == stream.source {
+                current.source_revision
+            } else {
+                0
+            },
         })
     }
 }
@@ -648,7 +691,7 @@ impl StreamUpdate {
 #[async_trait]
 impl StateStore for PgStore {
     async fn load_streams(&self) -> Result<Vec<StoredStream>, StoreError> {
-        sqlx::query("SELECT definition, generation, revision, owner FROM streams ORDER BY name")
+        sqlx::query("SELECT definition, generation, revision, source_revision, owner FROM streams ORDER BY name")
             .fetch_all(&self.pool)
             .await
             .map_err(StoreError::Query)?
@@ -666,6 +709,7 @@ impl StateStore for PgStore {
                stream_sets.revision AS set_revision,
                streams.definition,
                streams.generation,
+               streams.source_revision,
                streams.revision AS stream_revision
              FROM stream_sets
              LEFT JOIN streams ON streams.owner = stream_sets.owner
@@ -689,6 +733,11 @@ impl StateStore for PgStore {
                 .map_err(StoreError::Decode)?
                 .map(|spec| {
                     Ok(StoredStream {
+                        source_revision: positive_counter(
+                            row.try_get::<i64, _>("source_revision")
+                                .map_err(StoreError::Decode)?,
+                            "source revision",
+                        )?,
                         spec: spec.0,
                         generation: positive_counter(
                             row.try_get::<i64, _>("generation")
@@ -722,10 +771,10 @@ impl StateStore for PgStore {
         let mut transaction = self.pool.begin().await.map_err(StoreError::Query)?;
         self.fence(&mut transaction).await?;
         let row = sqlx::query(
-            "INSERT INTO streams (name, definition, generation, revision, owner)
-             VALUES ($1, $2, 1, nextval('stream_revision_seq'), NULL)
+            "INSERT INTO streams (name, definition, generation, revision, source_revision, owner)
+             SELECT $1, $2, 1, value, value, NULL FROM (SELECT nextval('stream_revision_seq') AS value) counter
              ON CONFLICT (name) DO NOTHING
-             RETURNING generation, revision, owner",
+             RETURNING generation, revision, source_revision, owner",
         )
         .bind(&stream.name)
         .bind(sqlx::types::Json(stream))
@@ -759,7 +808,7 @@ impl StateStore for PgStore {
         let mut transaction = self.pool.begin().await.map_err(StoreError::Query)?;
         self.fence(&mut transaction).await?;
         let current = sqlx::query(
-            "SELECT definition, generation, revision, owner FROM streams WHERE name = $1 FOR UPDATE",
+            "SELECT definition, generation, revision, source_revision, owner FROM streams WHERE name = $1 FOR UPDATE",
         )
         .bind(&stream.name)
         .fetch_optional(&mut *transaction)
@@ -770,15 +819,16 @@ impl StateStore for PgStore {
         .transpose()?;
         let generation = match StreamUpdate::resolve(current, stream, expected_revision)? {
             StreamUpdate::Unchanged(current) => return Ok(*current),
-            StreamUpdate::Changed { generation } => generation,
+            StreamUpdate::Changed { generation, .. } => generation,
         };
         let row = sqlx::query(
             "UPDATE streams SET
                definition = $2,
                generation = $3,
-               revision = nextval('stream_revision_seq')
+               source_revision = CASE WHEN definition->'source' = $2::jsonb->'source' THEN source_revision ELSE nextval('stream_revision_seq') END,
+                           revision = nextval('stream_revision_seq')
              WHERE name = $1
-             RETURNING generation, revision, owner",
+             RETURNING generation, revision, source_revision, owner",
         )
         .bind(&stream.name)
         .bind(sqlx::types::Json(stream))
@@ -948,6 +998,11 @@ fn stored_stream_from_row(
     use sqlx::Row;
 
     Ok(StoredStream {
+        source_revision: positive_counter(
+            row.try_get::<i64, _>("source_revision")
+                .map_err(StoreError::Decode)?,
+            "source revision",
+        )?,
         spec,
         generation: positive_counter(
             row.try_get::<i64, _>("generation")
@@ -965,9 +1020,20 @@ fn stored_stream_from_row(
     })
 }
 
-#[derive(Default)]
 pub struct MemStore {
     inner: std::sync::Mutex<MemInner>,
+    source_namespace: [u8; 16],
+}
+
+impl Default for MemStore {
+    fn default() -> Self {
+        let mut source_namespace = [0; 16];
+        getrandom::fill(&mut source_namespace).expect("generating in-memory source namespace");
+        Self {
+            inner: std::sync::Mutex::default(),
+            source_namespace,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -989,6 +1055,14 @@ struct MemInner {
 }
 
 impl MemStore {
+    fn source_revision(&self, revision: u64) -> u64 {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(self.source_namespace);
+        hash.update(revision.to_be_bytes());
+        u64::from_be_bytes(hash.finalize()[..8].try_into().unwrap()).max(1)
+    }
+
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -1057,11 +1131,15 @@ impl MemStore {
                 }
                 Some(current) => {
                     let generation = current.generation + 1;
+                    let source_revision =
+                        (current.spec.source == spec.source).then_some(current.source_revision);
                     inner.next_revision += 1;
                     let revision = inner.next_revision;
                     inner.streams.insert(
                         name.clone(),
                         StoredStream {
+                            source_revision: source_revision
+                                .unwrap_or_else(|| self.source_revision(revision)),
                             spec,
                             generation,
                             revision,
@@ -1076,6 +1154,7 @@ impl MemStore {
                     inner.streams.insert(
                         name.clone(),
                         StoredStream {
+                            source_revision: self.source_revision(revision),
                             spec,
                             generation: 1,
                             revision,
@@ -1192,6 +1271,7 @@ impl StateStore for MemStore {
         }
         inner.next_revision += 1;
         let stored = StoredStream {
+            source_revision: self.source_revision(inner.next_revision),
             spec: stream.clone(),
             generation: 1,
             revision: inner.next_revision,
@@ -1212,12 +1292,21 @@ impl StateStore for MemStore {
             inner.upsert_stream_calls += 1;
         }
         let current = inner.streams.get(&stream.name).cloned();
-        let generation = match StreamUpdate::resolve(current, stream, expected_revision)? {
-            StreamUpdate::Unchanged(current) => return Ok(*current),
-            StreamUpdate::Changed { generation } => generation,
-        };
+        let (generation, source_revision) =
+            match StreamUpdate::resolve(current, stream, expected_revision)? {
+                StreamUpdate::Unchanged(current) => return Ok(*current),
+                StreamUpdate::Changed {
+                    generation,
+                    source_revision,
+                } => (generation, source_revision),
+            };
         inner.next_revision += 1;
         let stored = StoredStream {
+            source_revision: if source_revision == 0 {
+                self.source_revision(inner.next_revision)
+            } else {
+                source_revision
+            },
             spec: stream.clone(),
             generation,
             revision: inner.next_revision,
@@ -1335,6 +1424,7 @@ pub(crate) mod tests {
                 passphrase: None,
             }),
             destinations: vec![StreamDestination {
+                delivery: None,
                 id: "studio".to_string(),
                 paths: 1,
                 endpoint: StreamTransport::Srt(SrtEndpoint {
@@ -1830,6 +1920,52 @@ pub(crate) mod tests {
         assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
         PgStore::connect(&url).await.expect("connect again");
         assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn version_one_migration_preserves_stream_state_and_seeds_source_revision() {
+        let url = fresh_database().await;
+        let store = leading_pg_store(&url).await;
+        let created = store.create_stream(&stream("kept")).await.unwrap();
+        run_sql(&url, "ALTER TABLE streams DROP COLUMN source_revision").await;
+        run_sql(&url, "UPDATE schema_version SET version = 1").await;
+        PgStore::connect(&url).await.unwrap();
+        let loaded = store.load_streams().await.unwrap().remove(0);
+        assert_eq!(loaded.spec, created.spec);
+        assert_eq!(loaded.generation, created.generation);
+        assert_eq!(loaded.revision, created.revision);
+        assert_eq!(loaded.source_revision, created.revision);
+        assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn pg_source_revision_tracks_source_changes_and_recreation() {
+        let store = leading_pg_store(&fresh_database().await).await;
+        let mut definition = stream("identity");
+        let created = store.create_stream(&definition).await.unwrap();
+        definition.destinations[0].paths = 2;
+        let changed = store
+            .update_stream(&definition, created.revision)
+            .await
+            .unwrap();
+        assert_eq!(changed.source_revision, created.source_revision);
+        assert_ne!(changed.revision, created.revision);
+        if let weave_core::StreamTransport::Srt(endpoint) = &mut definition.source {
+            endpoint.node = Some("replacement".into());
+        }
+        let replaced = store
+            .update_stream(&definition, changed.revision)
+            .await
+            .unwrap();
+        assert_ne!(replaced.source_revision, created.source_revision);
+        store
+            .delete_stream(&definition.name, replaced.revision)
+            .await
+            .unwrap();
+        let recreated = store.create_stream(&definition).await.unwrap();
+        assert_ne!(recreated.source_revision, replaced.source_revision);
     }
 
     #[tokio::test]

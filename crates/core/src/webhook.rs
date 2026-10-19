@@ -176,6 +176,7 @@ mod tests {
                 capabilities: NodeCapabilities {
                     adapters: Vec::new(),
                     hop_profiles: vec![HopProfile {
+                        timed_delivery: None,
                         id: "camera-to-whip".to_string(),
                         ingress: HopEndpointClass::Device(DeviceClass {
                             device: DeviceKind::Capture,
@@ -246,6 +247,7 @@ mod tests {
             conditions: vec![condition.clone()],
             ingress: Some(endpoint()),
             destinations: vec![crate::api::StreamDestinationStatus {
+                delivery: None,
                 id: "studio".to_string(),
                 status: PathStatus::AwaitingInput,
                 nodes: vec!["strom-node-2".to_string()],

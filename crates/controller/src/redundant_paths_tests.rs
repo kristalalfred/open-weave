@@ -20,6 +20,7 @@ fn class(transport: Transport, roles: RoleSet) -> HopEndpointClass {
 
 fn profile(id: &str, ingress: Transport, merge: bool) -> HopProfile {
     HopProfile {
+        timed_delivery: None,
         id: id.to_string(),
         ingress: class(ingress, RoleSet::both()),
         egress: class(Transport::Srt, RoleSet::both()),
@@ -98,6 +99,7 @@ fn endpoint(node: &str) -> StreamTransport {
 
 fn destination(id: &str, node: &str, paths: u8) -> StreamDestination {
     StreamDestination {
+        delivery: None,
         id: id.to_string(),
         paths,
         endpoint: endpoint(node),
@@ -363,6 +365,7 @@ fn reported(hops: &[DesiredHop], degraded_branch: Option<&str>) -> Vec<HopStatus
     };
     hops.iter()
         .map(|hop| HopStatus {
+            delivery: None,
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
             revision: hop.revision(),
