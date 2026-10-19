@@ -185,6 +185,7 @@ fn reported(path: &Path, nodes: &[NodeDescriptor], state: HopState) -> Vec<HopSt
             HopStatus {
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
+                revision: hop.revision(),
                 state,
                 ingress: socket(&hop.ingress, own_host),
                 merge_ingress: None,

@@ -1,6 +1,6 @@
 "use strict";
 
-const PROTOCOL_VERSION = 6;
+const PROTOCOL_VERSION = 7;
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 2000;
 const STALL_POLLS = 3;
@@ -152,7 +152,7 @@ async function pollDesired() {
   try {
     const response = await southbound("GET", `/nodes/${nodeId}/desired`);
     if (!response.ok) throw new Error(`desired: ${response.status}`);
-    reconcile(await response.json());
+    await reconcile(await response.json());
   } catch (error) {
     log(`desired: ${error.message}`);
   }
@@ -160,7 +160,7 @@ async function pollDesired() {
   render();
 }
 
-function reconcile(desired) {
+async function reconcile(desired) {
   const wanted = new Map(desired.map(spec => [spec.id, spec]));
   for (const [id, hop] of hops) {
     const spec = wanted.get(id);
@@ -172,9 +172,24 @@ function reconcile(desired) {
   for (const [id, spec] of wanted) {
     if (hops.has(id)) continue;
     const hop = Hop.from(spec);
+    hop.revision = await hopRevision(spec);
     hops.set(id, hop);
     hop.start();
   }
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function hopRevision(spec) {
+  const bytes = new TextEncoder().encode("open-weave hop\0" + canonicalJson(spec));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function hopStatuses() {
@@ -255,6 +270,7 @@ class Hop {
 
   constructor(spec) {
     this.spec = spec;
+    this.revision = "";
     this.pc = null;
     this.resource = null;
     this.error = null;
@@ -388,6 +404,7 @@ class Hop {
     const status = {
       id: this.spec.id,
       node_id: nodeId,
+      revision: this.revision,
       state: this.state(),
       ingress,
       egresses,

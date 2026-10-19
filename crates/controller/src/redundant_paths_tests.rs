@@ -365,6 +365,7 @@ fn reported(hops: &[DesiredHop], degraded_branch: Option<&str>) -> Vec<HopStatus
         .map(|hop| HopStatus {
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
+            revision: hop.revision(),
             state: HopState::Provisioned,
             ingress: socket(LinkCondition::Flowing),
             merge_ingress: hop

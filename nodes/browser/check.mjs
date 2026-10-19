@@ -155,6 +155,7 @@ async function checkDeclaredConstants(required) {
   if (pageSource === null) fail(`cannot read ${pagePath}`);
   checkHopStatusContract(pageSource, pagePath);
   checkIceServers(pageSource, pagePath);
+  await checkHopRevision(pageSource, pagePath);
   const coreSource = await read(corePath);
 
   for (const check of DRIFT_CHECKS) {
@@ -185,6 +186,7 @@ function checkHopStatusContract(source, path) {
     [/this\.spec\.egresses\.map/, "one status per desired egress"],
     [/branch_id: egress\.branch_id/, "each desired branch id"],
     [/\begresses,/, "the egresses status array"],
+    [/revision: this\.revision/, "the applied hop revision"],
   ]) {
     if (!pattern.test(status)) fail(`${path} Hop.status() does not report ${field}`);
   }
@@ -196,6 +198,26 @@ function checkHopStatusContract(source, path) {
     fail(`${path} still reports hop-level directional rates`);
   }
   console.log("browser hop status reports ingress and every identified egress branch");
+}
+
+async function checkHopRevision(source, path) {
+  const canonical = /^function canonicalJson\(value\) \{\n([\s\S]*?)\n\}$/m.exec(source)?.[1];
+  const revision = /^async function hopRevision\(spec\) \{\n([\s\S]*?)\n\}$/m.exec(source)?.[1];
+  if (!canonical || !revision) fail(`${path} has no canonical hop revision`);
+  const canonicalJson = new Function(`return function canonicalJson(value) {${canonical}}`)();
+  const hash = new Function("canonicalJson", `return async function(spec) {${revision}}`)(canonicalJson);
+  const first = { z: [1, { b: 2, a: "x" }], a: null };
+  const second = { a: null, z: [1, { a: "x", b: 2 }] };
+  const { createHash } = await import("node:crypto");
+  const expected = createHash("sha256").update('open-weave hop\0{"a":null,"z":[1,{"a":"x","b":2}]}').digest("hex");
+  if (await hash(first) !== expected || await hash(second) !== expected) fail(`${path} has an incompatible hop revision`);
+  const hop = {
+    id: "hop-a", node_id: "node-a", profile_id: "device", role: "sender",
+    ingress: { transport: "device", role: "capture" },
+    egresses: [{ branch_id: "studio", transport: "device", role: "display" }],
+  };
+  if (await hash(hop) !== "198617e1cc4b9ee43aa31d6755d19582d759073a5fe0dc7ccad8ff5e1b27d591") fail(`${path} does not match the Rust hop revision vector`);
+  console.log("browser hop revisions hash canonical JSON");
 }
 
 function checkIceServers(source, path) {

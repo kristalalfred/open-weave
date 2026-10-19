@@ -1312,7 +1312,8 @@ async fn get_view(State(state): State<AppState>) -> Json<SystemView> {
                 .map(|hop| {
                     let status = observed
                         .get(&(hop.id.as_str(), hop.node_id.as_str()))
-                        .copied();
+                        .copied()
+                        .filter(|status| status.revision == hop.revision());
                     let mut reported_egresses = HashMap::new();
                     for reported in status.into_iter().flat_map(|status| &status.egresses) {
                         reported_egresses
@@ -2269,6 +2270,7 @@ async fn node_heartbeat(
 
 type HopReport<'a> = (
     &'a str,
+    &'a str,
     weave_core::HopState,
     weave_core::LinkCondition,
     Option<weave_core::LinkCondition>,
@@ -2284,6 +2286,7 @@ fn reported(registration: &NodeRegistration) -> (NodeStatus, Vec<HopReport<'_>>)
             .map(|hop| {
                 (
                     hop.id.as_str(),
+                    hop.revision.as_str(),
                     hop.state,
                     hop.ingress.condition,
                     hop.merge_ingress.as_ref().map(|socket| socket.condition),
@@ -3937,6 +3940,7 @@ mod tests {
         }
 
         reconcile_tick(&state).await;
+        let revision = state.desired.read().await["strom-node-1"].hops[0].revision();
 
         state
             .nodes
@@ -3947,6 +3951,7 @@ mod tests {
             .hop_status = vec![weave_core::HopStatus {
             id: "weave-basic-sender".to_string(),
             node_id: "strom-node-1".to_string(),
+            revision,
             state: weave_core::HopState::Provisioned,
             ingress: weave_core::SocketStatus {
                 condition: weave_core::LinkCondition::Flowing,
@@ -4043,6 +4048,7 @@ mod tests {
                 .insert("basic".to_string(), stored_stream(stream("basic")));
         }
         reconcile_tick(&state).await;
+        let revision = state.desired.read().await["strom-node-1"].hops[0].revision();
         let egress = |condition| weave_core::EgressStatus {
             branch_id: "studio".to_string(),
             status: weave_core::SocketStatus {
@@ -4060,6 +4066,7 @@ mod tests {
             .hop_status = vec![HopStatus {
             id: "weave-basic-sender".to_string(),
             node_id: "strom-node-1".to_string(),
+            revision,
             state: weave_core::HopState::Provisioned,
             ingress: weave_core::SocketStatus {
                 condition: weave_core::LinkCondition::Flowing,
@@ -4516,6 +4523,7 @@ mod tests {
             .map(|hop| weave_core::HopStatus {
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
+                revision: hop.revision(),
                 state: weave_core::HopState::Provisioned,
                 ingress: weave_core::SocketStatus {
                     condition: weave_core::LinkCondition::Flowing,
@@ -4602,6 +4610,7 @@ mod tests {
         running.hop_status = vec![weave_core::HopStatus {
             id: bridge.to_string(),
             node_id: "relay-b".to_string(),
+            revision: String::new(),
             state: weave_core::HopState::Provisioned,
             ingress: weave_core::SocketStatus {
                 condition: weave_core::LinkCondition::Flowing,
@@ -4734,6 +4743,7 @@ mod tests {
         let hop = |condition, rate_mbps| HopStatus {
             id: "weave-basic-sender".to_string(),
             node_id: "strom-node-1".to_string(),
+            revision: String::new(),
             state: weave_core::HopState::Provisioned,
             ingress: socket(condition, rate_mbps),
             merge_ingress: None,
@@ -4775,6 +4785,17 @@ mod tests {
                 ),
                 4,
             ),
+            (
+                "new revision only",
+                heartbeat(
+                    NodeStatus::Degraded,
+                    vec![HopStatus {
+                        revision: "new-revision".to_string(),
+                        ..hop(weave_core::LinkCondition::Stalled, 0.0)
+                    }],
+                ),
+                5,
+            ),
         ] {
             let (status, _) = send(
                 &app,
@@ -4788,6 +4809,7 @@ mod tests {
         }
 
         let stored = mem.load_nodes().await.unwrap();
+        assert_eq!(stored[0].hop_status[0].revision, "new-revision");
         assert_eq!(stored[0].node.status, NodeStatus::Degraded);
         assert_eq!(
             stored[0].hop_status[0].ingress.condition,
@@ -4887,6 +4909,7 @@ mod tests {
         let status_for = |node_id: &str| weave_core::HopStatus {
             id: "weave-basic-sender".to_string(),
             node_id: node_id.to_string(),
+            revision: String::new(),
             state: weave_core::HopState::Provisioned,
             ingress: weave_core::SocketStatus {
                 condition: weave_core::LinkCondition::Flowing,
@@ -5579,6 +5602,7 @@ mod tests {
             .map(|hop| HopStatus {
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
+                revision: hop.revision(),
                 state: weave_core::HopState::Provisioned,
                 ingress: flowing(),
                 merge_ingress: hop.merge_ingress.as_ref().map(|_| flowing()),
@@ -5612,6 +5636,43 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::ACCEPTED, "{node_id}: {body}");
+    }
+
+    #[tokio::test]
+    async fn updated_settings_wait_for_reports_of_the_new_hop_revision() {
+        let (state, _) = mem_state();
+        two_nodes_and_basic(&state).await;
+        let app = open_router(state.clone());
+        reconcile_tick(&state).await;
+        for node in ["strom-node-1", "strom-node-2"] {
+            report_flowing(&app, node).await;
+        }
+        reconcile_tick(&state).await;
+        assert_eq!(
+            get_ok(&app, "/status").await["streams"][0]["status"],
+            "flowing"
+        );
+        {
+            let mut streams = state.streams.write().await;
+            let stored = streams.get_mut("basic").unwrap();
+            stored.generation += 1;
+            let StreamTransport::Srt(source) = &mut stored.spec.source else {
+                unreachable!()
+            };
+            source.latency = Some(400);
+        }
+        reconcile_tick(&state).await;
+        assert_eq!(
+            get_ok(&app, "/status").await["streams"][0]["status"],
+            "pending"
+        );
+        assert!(get_ok(&app, "/view").await["streams"][0]["hops"][0]["state"].is_null());
+        report_flowing(&app, "strom-node-1").await;
+        reconcile_tick(&state).await;
+        assert_eq!(
+            get_ok(&app, "/status").await["streams"][0]["status"],
+            "flowing"
+        );
     }
 
     async fn hydrated(store: Arc<MemStore>, webhooks: Option<Arc<webhook::Emitter>>) -> AppState {
@@ -6435,6 +6496,7 @@ mod tests {
                     .push(HopStatus {
                         id: hop.id.clone(),
                         node_id: hop.node_id.clone(),
+                        revision: hop.revision(),
                         state: weave_core::HopState::Provisioned,
                         ingress: weave_core::SocketStatus {
                             condition: weave_core::LinkCondition::Connecting,

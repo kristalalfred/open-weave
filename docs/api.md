@@ -253,7 +253,7 @@ registration declares.
 `weave_core::PROTOCOL_VERSION`:
 
 ```json
-{ "protocol_version": 6, "node": { "id": "strom-node-1", "...": "..." } }
+{ "protocol_version": 7, "node": { "id": "strom-node-1", "...": "..." } }
 ```
 
 The controller accepts only the version it speaks. Any other value, including an
@@ -328,6 +328,11 @@ matched by `branch_id` in any order. A missing, duplicate or unknown branch id
 makes the report incomplete, and the hop stays `pending`, so one healthy branch
 cannot hide another. A hop with a `merge_ingress` reports it in a
 `merge_ingress` field shaped like `ingress`, and is incomplete without it.
+Each report carries `revision`, the lowercase SHA-256 of `open-weave hop` plus
+a zero byte followed by the hop's JSON with object keys sorted recursively.
+Array order is preserved and JSON has no whitespace. A report for another
+revision cannot confirm the current hop. The Strom adapter reports a revision
+only when its observed flow matches that desired hop.
 
 ### Inventory
 

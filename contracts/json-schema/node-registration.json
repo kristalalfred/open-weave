@@ -621,6 +621,9 @@
           "node_id": {
             "type": "string"
           },
+          "revision": {
+            "type": "string"
+          },
           "state": {
             "type": "string",
             "enum": [
@@ -884,6 +887,7 @@
         "required": [
           "id",
           "node_id",
+          "revision",
           "state",
           "ingress"
         ]

@@ -180,7 +180,7 @@ pub fn diff_hops(desired: &[DesiredHop], flows: &[StromFlow]) -> HopPlan {
     }
 }
 
-fn flow_drifted(flow: &StromFlow, hop: &DesiredHop) -> bool {
+pub(crate) fn flow_drifted(flow: &StromFlow, hop: &DesiredHop) -> bool {
     let actual_srt = sorted(flow_srt_uris(flow));
     let actual_rist = sorted(flow_rist_endpoints(flow));
     let actual_ids = sorted(flow_endpoint_ids(flow));

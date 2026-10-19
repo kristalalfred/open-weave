@@ -170,6 +170,7 @@ fn reported(planned: &Hops, nodes: &[NodeDescriptor], failed: &[&str]) -> Vec<Ho
             HopStatus {
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
+                revision: hop.revision(),
                 state: if failed.contains(&hop.id.as_str()) {
                     HopState::Failed
                 } else {

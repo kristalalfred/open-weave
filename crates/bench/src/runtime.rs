@@ -69,7 +69,6 @@ pub struct Bench {
     services: BTreeSet<String>,
     impaired: BTreeSet<String>,
     stopped: BTreeSet<String>,
-    paused: BTreeSet<String>,
     snapshots: BTreeMap<String, Snapshot>,
     completed_media: Vec<Value>,
 }
@@ -115,7 +114,6 @@ impl Bench {
             services: BTreeSet::new(),
             impaired: BTreeSet::new(),
             stopped: BTreeSet::new(),
-            paused: BTreeSet::new(),
             snapshots: BTreeMap::new(),
             completed_media: Vec::new(),
         })
@@ -838,12 +836,7 @@ impl Bench {
             ServiceAction::Kill => {
                 self.stopped.remove(&actual);
             }
-            ServiceAction::Pause => {
-                self.paused.insert(actual);
-            }
-            ServiceAction::Unpause => {
-                self.paused.remove(&actual);
-            }
+            ServiceAction::Pause | ServiceAction::Unpause => (),
         }
         Ok(())
     }
@@ -1020,17 +1013,21 @@ impl Bench {
                 "cleanup_action",
                 json!({"detail": format!("restoring {service}")}),
             );
-            if self.paused.contains(service)
-                && let Err(error) = docker(&["unpause", &format!("ow-{service}")]).await
-            {
-                errors.push(format!("unpause {service}: {error:#}"));
+            let container = format!("ow-{service}");
+            match docker(&["inspect", "--format", "{{.State.Paused}}", &container]).await {
+                Ok(paused) if paused.trim() == "true" => {
+                    if let Err(error) = docker(&["unpause", &container]).await {
+                        errors.push(format!("unpause {service}: {error:#}"));
+                    }
+                }
+                Err(error) => errors.push(format!("inspect {service}: {error:#}")),
+                _ => (),
             }
             if let Err(error) = docker(&["start", &format!("ow-{service}")]).await {
                 errors.push(format!("restore {service}: {error:#}"));
             }
         }
         self.stopped.clear();
-        self.paused.clear();
         self.consumers.clear();
         for container in &self.containers {
             let _ = self.report.event(
@@ -1108,6 +1105,7 @@ pub fn media_url(endpoint: &read::EndpointAddr, spec: &StreamTransport) -> Resul
 
 fn ready(state: &Value) -> bool {
     state["Running"] == true
+        && state["Paused"] != true
         && state["Health"]["Status"]
             .as_str()
             .is_none_or(|health| health == "healthy")
@@ -1204,6 +1202,9 @@ mod tests {
 
     #[test]
     fn a_started_container_is_ready_only_once_its_healthcheck_passes() {
+        assert!(!ready(
+            &json!({"Running": true, "Paused": true, "Health": {"Status": "healthy"}})
+        ));
         assert!(!ready(
             &json!({"Running": true, "Health": {"Status": "starting"}})
         ));

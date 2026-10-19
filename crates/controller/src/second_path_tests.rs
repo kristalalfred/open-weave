@@ -158,6 +158,7 @@ fn running(planned: &PlannedStream, nodes: &[NodeDescriptor]) -> Vec<HopStatus> 
             HopStatus {
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
+                revision: hop.revision(),
                 state: HopState::Provisioned,
                 ingress: status(&hop.ingress, own_host),
                 merge_ingress: hop

@@ -293,6 +293,7 @@ fn running(hops: &[DesiredHop]) -> Vec<HopStatus> {
         .map(|hop| HopStatus {
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
+            revision: hop.revision(),
             state: HopState::Provisioned,
             ingress: flowing(),
             merge_ingress: None,

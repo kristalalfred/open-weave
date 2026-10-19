@@ -2029,28 +2029,30 @@ pub fn destination_path_status(
         .hops
         .iter()
         .filter_map(|hop| {
-            let egresses: Vec<_> = hop
+            if !hop
                 .egresses
                 .iter()
-                .filter(|egress| carries_destination(&egress.branch_id, destination_id))
-                .cloned()
-                .collect();
-            if egresses.is_empty() {
+                .any(|egress| carries_destination(&egress.branch_id, destination_id))
+            {
                 return None;
             }
-            let mut branch = hop.clone();
-            branch.egresses = egresses;
             Some(
                 observed
                     .iter()
                     .map(Borrow::<HopStatus>::borrow)
-                    .find(|status| status.id == branch.id && status.node_id == branch.node_id)
-                    .and_then(|status| {
-                        let mut branch_status = status.clone();
-                        branch_status.egresses.retain(|egress| {
-                            carries_destination(&egress.branch_id, destination_id)
-                        });
-                        branch_status.conditions(&branch)
+                    .find(|status| status.id == hop.id && status.node_id == hop.node_id)
+                    .and_then(|status| status.conditions(hop))
+                    .map(|mut conditions| {
+                        conditions.egresses = hop
+                            .egresses
+                            .iter()
+                            .zip(conditions.egresses)
+                            .filter_map(|(egress, condition)| {
+                                carries_destination(&egress.branch_id, destination_id)
+                                    .then_some(condition)
+                            })
+                            .collect();
+                        conditions
                     }),
             )
         })
@@ -2786,6 +2788,7 @@ mod contract_tests {
             .map(|hop| HopStatus {
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
+                revision: hop.revision(),
                 state: HopState::Provisioned,
                 ingress: SocketStatus {
                     condition: LinkCondition::Flowing,
@@ -3608,6 +3611,7 @@ mod tests {
         let observed = vec![HopStatus {
             id: receiver_hop_id("contribution", "studio"),
             node_id: "strom-node-2".to_string(),
+            revision: String::new(),
             state: HopState::Provisioned,
             ingress: SocketStatus {
                 condition: LinkCondition::Idle,
@@ -3800,6 +3804,7 @@ mod tests {
             .map(|hop| HopStatus {
                 id: hop.id.clone(),
                 node_id: hop.node_id.clone(),
+                revision: hop.revision(),
                 state: HopState::Provisioned,
                 ingress: SocketStatus {
                     condition: LinkCondition::Flowing,

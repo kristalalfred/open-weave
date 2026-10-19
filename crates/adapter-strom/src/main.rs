@@ -396,6 +396,7 @@ fn pending_statuses(desired: &[DesiredHop], listener_host: Option<&str>) -> Vec<
         .map(|hop| HopStatus {
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
+            revision: hop.revision(),
             state: HopState::Pending,
             ingress: idle(&hop.ingress),
             merge_ingress: None,
@@ -626,6 +627,11 @@ async fn hop_statuses(
         statuses.push(HopStatus {
             id: hop.id.clone(),
             node_id: hop.node_id.clone(),
+            revision: if flow.is_none_or(|flow| !provision::flow_drifted(flow, hop)) {
+                hop.revision()
+            } else {
+                String::new()
+            },
             state: hop_state(flow, failed.contains(&hop.id)),
             ingress,
             merge_ingress: None,
@@ -1453,6 +1459,31 @@ mod tests {
                 .map(|stats| stats.rate_mbps),
             Some(0.0)
         );
+    }
+
+    #[tokio::test]
+    async fn an_old_runtime_flow_cannot_acknowledge_new_desired_settings() {
+        let mut desired = hop("weave-basic-sender", 7001);
+        desired.ingress = SocketSpec::srt_listen(7001, 400);
+        for latency in [200, 400] {
+            let observed: StromFlow = serde_json::from_value(json!({
+                "id": "flow", "name": desired.id, "running": true,
+                "elements": [
+                    { "element_type": "srtsrc", "properties": { "uri": format!("srt://:7001?mode=listener&latency={latency}") } },
+                    { "element_type": "srtsink", "properties": { "uri": "srt://10.0.0.2:7002?mode=caller&latency=1000" } }
+                ]
+            })).unwrap();
+            let statuses = hop_statuses(
+                &RecordingFlowApi::default(),
+                &[desired.clone()],
+                &[observed],
+                None,
+                &std::collections::HashSet::new(),
+                &mut StallTracker::default(),
+            )
+            .await;
+            assert_eq!(statuses[0].revision == desired.revision(), latency == 400);
+        }
     }
 
     #[tokio::test]

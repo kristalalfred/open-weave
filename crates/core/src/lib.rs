@@ -45,7 +45,7 @@ pub const ROUTE_STREAM_SET: &str = "/stream-sets/{owner}";
 pub const ROUTE_STREAM_SETS: &str = "/stream-sets";
 pub const ROUTE_STREAMS: &str = "/streams";
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 
 #[must_use]
 pub fn protocol_compatible(version: u32) -> bool {
@@ -592,6 +592,16 @@ pub struct DesiredHop {
 }
 
 impl DesiredHop {
+    pub fn revision(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut value = serde_json::to_value(self).expect("desired hops serialize as JSON");
+        value.sort_all_objects();
+        let mut hash = Sha256::new();
+        hash.update(b"open-weave hop\0");
+        hash.update(serde_json::to_vec(&value).expect("JSON values serialize"));
+        format!("{:x}", hash.finalize())
+    }
+
     pub fn sockets(&self) -> impl Iterator<Item = &SocketSpec> {
         let Self {
             id: _,
@@ -1230,6 +1240,7 @@ impl std::fmt::Debug for Passphrase {
 pub struct HopStatus {
     pub id: String,
     pub node_id: String,
+    pub revision: String,
     pub state: HopState,
     pub ingress: SocketStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1260,6 +1271,9 @@ pub struct EgressStatus {
 impl HopStatus {
     #[must_use]
     pub fn conditions(&self, desired: &DesiredHop) -> Option<HopConditions> {
+        if self.revision != desired.revision() {
+            return None;
+        }
         let merge_ingress = match (&desired.merge_ingress, &self.merge_ingress) {
             (Some(_), Some(status)) => Some(status.condition),
             (None, None) => None,
@@ -2113,6 +2127,7 @@ mod tests {
         let status = HopStatus {
             id: "weave-contribution-sender".to_string(),
             node_id: "strom-node-1".to_string(),
+            revision: String::new(),
             state: HopState::Provisioned,
             ingress: SocketStatus {
                 condition: LinkCondition::Flowing,
@@ -2339,6 +2354,7 @@ mod tests {
         let status = HopStatus {
             id: "weave-a".to_string(),
             node_id: "n1".to_string(),
+            revision: desired.revision(),
             state: HopState::Provisioned,
             ingress: SocketStatus {
                 condition: LinkCondition::Flowing,
@@ -2387,6 +2403,7 @@ mod tests {
         let mut status = HopStatus {
             id: desired.id.clone(),
             node_id: desired.node_id.clone(),
+            revision: desired.revision(),
             state: HopState::Provisioned,
             ingress: socket.clone(),
             merge_ingress: None,
@@ -3062,6 +3079,7 @@ mod tests {
         let status = HopStatus {
             id: desired.id.clone(),
             node_id: desired.node_id.clone(),
+            revision: desired.revision(),
             state: HopState::Provisioned,
             ingress: socket.clone(),
             merge_ingress: None,
@@ -3080,6 +3098,20 @@ mod tests {
     }
 
     #[test]
+    fn hop_revisions_match_the_browser_canonical_json_vector() {
+        let hop: DesiredHop = serde_json::from_value(serde_json::json!({
+            "id": "hop-a", "node_id": "node-a", "profile_id": "device", "role": "sender",
+            "ingress": { "transport": "device", "role": "capture" },
+            "egresses": [{ "branch_id": "studio", "transport": "device", "role": "display" }]
+        }))
+        .unwrap();
+        assert_eq!(
+            hop.revision(),
+            "198617e1cc4b9ee43aa31d6755d19582d759073a5fe0dc7ccad8ff5e1b27d591"
+        );
+    }
+
+    #[test]
     fn a_merge_ingress_is_reported_exactly_when_desired() {
         let socket = |condition| SocketStatus {
             condition,
@@ -3091,6 +3123,7 @@ mod tests {
         let mut status = HopStatus {
             id: desired.id.clone(),
             node_id: desired.node_id.clone(),
+            revision: desired.revision(),
             state: HopState::Provisioned,
             ingress: socket(LinkCondition::Flowing),
             merge_ingress: None,
