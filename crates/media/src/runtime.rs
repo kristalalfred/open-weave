@@ -400,6 +400,15 @@ impl Actor {
             }
         };
         merger.calibrate(sample);
+        let output_latency_ns = self
+            .outputs
+            .values()
+            .map(SocketTask::latency)
+            .min()
+            .unwrap_or_default()
+            .as_nanos()
+            .try_into()
+            .unwrap_or(u64::MAX);
         let mut submitted = 0;
         loop {
             let current = match clock.sample() {
@@ -409,17 +418,21 @@ impl Actor {
                     break;
                 }
             };
-            let Some(record) = merger.take_due(current) else {
+            let Some(due) = merger.take_due(current, output_latency_ns) else {
                 break;
             };
             let mut result = Ok(());
             for output in self.outputs.values() {
-                if let Err(reason) = output.try_send(record.payload.clone(), clock.monotonic_ns()) {
+                if let Err(reason) = output.try_send_at(
+                    due.record.payload.clone(),
+                    clock.instant(due.target_monotonic_ns),
+                    clock.monotonic_ns(),
+                ) {
                     result = Err(reason);
                 }
             }
             match (result, clock.sample()) {
-                (Ok(()), Ok(after)) => merger.released(&record, after),
+                (Ok(()), Ok(after)) => merger.released(&due.record, after),
                 (Err(reason), _) | (_, Err(reason)) => {
                     merger.output_failed(reason, clock.monotonic_ns())
                 }

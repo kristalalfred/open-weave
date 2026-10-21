@@ -74,6 +74,10 @@ pub struct SocketTask {
     task: JoinHandle<()>,
 }
 
+fn configured_latency(spec: &SocketSpec) -> Duration {
+    Duration::from_millis(u64::from(spec.params().latency.unwrap_or(100)))
+}
+
 async fn connect(
     spec: &SocketSpec,
     bind_ip: IpAddr,
@@ -91,9 +95,7 @@ async fn connect(
     statistics.lock().unwrap().bound = true;
     let params = spec.params();
     let mut builder = SrtSocket::builder()
-        .latency(Duration::from_millis(u64::from(
-            params.latency.unwrap_or(100),
-        )))
+        .latency(configured_latency(spec))
         .socket(udp)
         .set(|options| options.sender.buffer_size = srt_tokio::options::ByteCount(8 * 1024 * 1024));
     if let Some(passphrase) = &params.passphrase {
@@ -264,9 +266,19 @@ impl SocketTask {
     }
 
     pub fn try_send(&self, bytes: Bytes, now_ns: u64) -> Result<(), DeliveryReason> {
+        self.try_send_at(bytes, Instant::now(), now_ns)
+    }
+
+    pub fn try_send_at(
+        &self,
+        bytes: Bytes,
+        source_time: Instant,
+        now_ns: u64,
+    ) -> Result<(), DeliveryReason> {
         let mut socket = self.socket.lock().unwrap();
         let socket = socket.as_mut().ok_or(DeliveryReason::OutputUnavailable)?;
-        if socket.try_send(Instant::now(), bytes.clone()).is_err() {
+        let source_time = source_time.max(socket.settings().socket_start_time);
+        if socket.try_send(source_time, bytes.clone()).is_err() {
             self.statistics.lock().unwrap().drops += 1;
             return Err(DeliveryReason::OutputBackpressure);
         }
@@ -332,8 +344,12 @@ impl SocketTask {
     }
 
     #[must_use]
-    pub fn negotiated_latency_ms(&self) -> Option<u64> {
-        self.statistics.lock().unwrap().negotiated_latency_ms
+    pub fn latency(&self) -> Duration {
+        self.statistics
+            .lock()
+            .unwrap()
+            .negotiated_latency_ms
+            .map_or_else(|| configured_latency(&self.spec), Duration::from_millis)
     }
 }
 

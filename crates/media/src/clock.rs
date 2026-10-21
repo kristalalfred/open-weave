@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use weave_core::DeliveryReason;
@@ -67,6 +67,11 @@ impl Clock {
     #[must_use]
     pub fn monotonic_ns(&self) -> u64 {
         self.started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64
+    }
+
+    #[must_use]
+    pub fn instant(&self, monotonic_ns: u64) -> Instant {
+        self.started + Duration::from_nanos(monotonic_ns)
     }
 
     pub async fn refresh(&self) {

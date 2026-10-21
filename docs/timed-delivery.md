@@ -183,9 +183,14 @@ clock failure stops timed stamping while untimed branches can continue.
 
 The receiver keeps a bounded ordered buffer, accepts the first valid copy,
 and discards matching duplicates. A missing earlier record cannot delay a
-later one past its original deadline. Expired records are dropped; the runtime
-never expands a fixed or calibrated delay, replays a backlog or manufactures
-replacement media. A gap can leave the original feed undecodable.
+later one past its original deadline. Each released payload carries its
+scheduled release time as its SRT source time, so the final connection's
+negotiated SRT latency absorbs late submission. A record submitted outside
+tolerance counts as a scheduling violation. A record still pending after its
+scheduled time plus that latency, or plus tolerance when larger, has expired
+and is dropped. The runtime never expands a fixed or calibrated delay, replays
+a backlog or manufactures replacement media. A gap can leave the original feed
+undecodable.
 
 Native defaults are 32,768 pending records, 32 MiB and a 1,000 microsecond
 scheduling bound. Configure these under `media.max_buffer_records`,

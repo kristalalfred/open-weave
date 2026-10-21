@@ -35,9 +35,9 @@ impl Default for BufferLimits {
     }
 }
 
-struct Pending {
-    record: Record,
-    target_monotonic_ns: u64,
+pub struct Pending {
+    pub record: Record,
+    pub target_monotonic_ns: u64,
 }
 
 struct Observation {
@@ -384,7 +384,7 @@ impl Merger {
             .map(|(_, pending)| pending.target_monotonic_ns)
     }
 
-    pub fn take_due(&mut self, clock: ClockSample) -> Option<Record> {
+    pub fn take_due(&mut self, clock: ClockSample, output_latency_ns: u64) -> Option<Pending> {
         if self.report.state == DeliveryState::Failed {
             return None;
         }
@@ -409,14 +409,17 @@ impl Merger {
             let tolerance_ns = u64::from(self.policy.tolerance_ms()) * NS_PER_MS;
             let age_ns = clock.tai_ns.saturating_sub(pending.record.origin_tai_ns);
             let error_ns = self.uncertainty_ns(&pending.record, clock);
+            let lateness_ns = clock
+                .monotonic_ns
+                .saturating_sub(pending.target_monotonic_ns);
             if age_ns.saturating_sub(error_ns) < budget_ns.saturating_sub(tolerance_ns)
-                || age_ns.saturating_add(error_ns) > budget_ns.saturating_add(tolerance_ns)
+                || lateness_ns > output_latency_ns.max(tolerance_ns)
             {
                 self.report.counters.unrecovered += 1;
                 self.violate(DeliveryReason::DeadlineMissed, clock.monotonic_ns);
                 continue;
             }
-            return Some(pending.record);
+            return Some(pending);
         }
     }
 
@@ -497,6 +500,8 @@ mod tests {
 
     use super::*;
 
+    const OUTPUT_NS: u64 = 120 * NS_PER_MS;
+
     fn clock(ms: u64) -> ClockSample {
         ClockSample {
             tai_ns: ms * NS_PER_MS,
@@ -533,13 +538,13 @@ mod tests {
         let mut merger = fixed();
         merger.ingest(record(0, 0), 0, clock(40));
         merger.ingest(record(0, 0), 1, clock(140));
-        assert!(merger.take_due(clock(499)).is_none());
-        let first = merger.take_due(clock(500)).unwrap();
-        merger.released(&first, clock(500));
+        assert!(merger.take_due(clock(499), OUTPUT_NS).is_none());
+        let first = merger.take_due(clock(500), OUTPUT_NS).unwrap();
+        merger.released(&first.record, clock(500));
         merger.ingest(record(1, 20), 1, clock(170));
-        let second = merger.take_due(clock(520)).unwrap();
-        assert_eq!(second.sequence, 1);
-        merger.released(&second, clock(520));
+        let second = merger.take_due(clock(520), OUTPUT_NS).unwrap();
+        assert_eq!(second.record.sequence, 1);
+        merger.released(&second.record, clock(520));
         let report = merger.report(520 * NS_PER_MS);
         assert_eq!(report.counters.released, 2);
         assert_eq!(report.counters.duplicates, 1);
@@ -552,13 +557,13 @@ mod tests {
     fn late_records_and_missing_sequences_do_not_shift_later_deadlines() {
         let mut merger = fixed();
         merger.ingest(record(0, 0), 0, clock(40));
-        let first = merger.take_due(clock(500)).unwrap();
-        merger.released(&first, clock(500));
+        let first = merger.take_due(clock(500), OUTPUT_NS).unwrap();
+        merger.released(&first.record, clock(500));
         merger.ingest(record(2, 40), 1, clock(510));
         merger.ingest(record(1, 20), 0, clock(530));
-        let next = merger.take_due(clock(540)).unwrap();
-        assert_eq!(next.sequence, 2);
-        merger.released(&next, clock(540));
+        let next = merger.take_due(clock(540), OUTPUT_NS).unwrap();
+        assert_eq!(next.record.sequence, 2);
+        merger.released(&next.record, clock(540));
         let report = merger.report(540 * NS_PER_MS);
         assert_eq!(report.counters.unrecovered, 1);
         assert_eq!(report.counters.late_arrivals, 1);
@@ -566,12 +571,23 @@ mod tests {
     }
 
     #[test]
-    fn scheduling_pauses_discard_stale_media_instead_of_bursting() {
+    fn late_releases_keep_their_schedule_until_the_output_latency_expires_them() {
         let mut merger = fixed();
         merger.ingest(record(0, 0), 0, clock(40));
         merger.ingest(record(1, 20), 0, clock(60));
-        assert!(merger.take_due(clock(700)).is_none());
-        assert_eq!(merger.report(700 * NS_PER_MS).counters.unrecovered, 2);
+        merger.ingest(record(2, 200), 0, clock(240));
+        let late = merger.take_due(clock(560), OUTPUT_NS).unwrap();
+        assert_eq!(late.target_monotonic_ns, 500 * NS_PER_MS);
+        merger.released(&late.record, clock(560));
+        let next = merger.take_due(clock(800), OUTPUT_NS).unwrap();
+        assert_eq!(next.record.sequence, 2);
+        assert_eq!(next.target_monotonic_ns, 700 * NS_PER_MS);
+        merger.released(&next.record, clock(800));
+        let report = merger.report(800 * NS_PER_MS);
+        assert_eq!(report.counters.released, 2);
+        assert_eq!(report.counters.unrecovered, 1);
+        assert_eq!(report.counters.scheduling_violations, 2);
+        assert!(!report.timing_ready);
     }
 
     #[test]
@@ -582,7 +598,7 @@ mod tests {
         conflict.payload = Bytes::from_static(b"different");
         merger.ingest(conflict, 1, clock(140));
         assert_eq!(merger.report(140 * NS_PER_MS).state, DeliveryState::Failed);
-        assert!(merger.take_due(clock(500)).is_none());
+        assert!(merger.take_due(clock(500), OUTPUT_NS).is_none());
         let mut merger = Merger::new(
             DeliveryPolicy::Fixed {
                 latency_ms: 500,
@@ -624,8 +640,8 @@ mod tests {
             Some(271)
         );
         merger.ingest(record(200, 1_400), 0, clock(1_440));
-        let next = merger.take_due(clock(1_671)).unwrap();
-        merger.released(&next, clock(1_671));
+        let next = merger.take_due(clock(1_671), OUTPUT_NS).unwrap();
+        merger.released(&next.record, clock(1_671));
         assert_eq!(merger.report(1_671 * NS_PER_MS).counters.unrecovered, 0);
         merger.calibrate(clock(10_000));
         assert_eq!(
@@ -671,18 +687,18 @@ mod tests {
         );
         merger.ingest(record(1, 20), 0, clock(60));
         merger.suspend(DeliveryReason::ClockDiscontinuity, 100 * NS_PER_MS);
-        assert!(merger.take_due(clock(520)).is_none());
+        assert!(merger.take_due(clock(520), OUTPUT_NS).is_none());
     }
 
     #[test]
     fn a_large_sequence_gap_can_recover_without_unbounded_buffering() {
         let mut merger = fixed();
         merger.ingest(record(0, 0), 0, clock(40));
-        let first = merger.take_due(clock(500)).unwrap();
-        merger.released(&first, clock(500));
+        let first = merger.take_due(clock(500), OUTPUT_NS).unwrap();
+        merger.released(&first.record, clock(500));
         merger.ingest(record(100_000, 10_000), 1, clock(10_040));
-        let next = merger.take_due(clock(10_500)).unwrap();
-        assert_eq!(next.sequence, 100_000);
+        let next = merger.take_due(clock(10_500), OUTPUT_NS).unwrap();
+        assert_eq!(next.record.sequence, 100_000);
         assert_eq!(
             merger.report(10_500 * NS_PER_MS).counters.unrecovered,
             99_999
