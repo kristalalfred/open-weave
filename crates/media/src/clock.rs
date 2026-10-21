@@ -33,7 +33,7 @@ pub struct ExternalClock {
 
 struct State {
     external: Option<ExternalClock>,
-    previous: Option<(u64, u64)>,
+    previous: Option<ClockSample>,
 }
 
 #[derive(Clone)]
@@ -132,21 +132,23 @@ impl Clock {
         let tai_ns = unix_ns
             .checked_add(u64::from(offset) * 1_000_000_000)
             .ok_or(DeliveryReason::ClockUnavailable)?;
-        if let Some((previous_tai, previous_mono)) = state.previous {
-            let expected = previous_tai.saturating_add(monotonic_ns.saturating_sub(previous_mono));
-            if tai_ns.abs_diff(expected)
-                > u64::from(uncertainty_ns).saturating_mul(2).max(2_000_000)
-            {
-                state.previous = Some((tai_ns, monotonic_ns));
-                return Err(DeliveryReason::ClockDiscontinuity);
-            }
-        }
-        state.previous = Some((tai_ns, monotonic_ns));
-        Ok(ClockSample {
+        let sample = ClockSample {
             tai_ns,
             monotonic_ns,
             uncertainty_ns,
-        })
+        };
+        let previous = state.previous.replace(sample);
+        if let Some(previous) = previous {
+            let expected = previous
+                .tai_ns
+                .saturating_add(monotonic_ns.saturating_sub(previous.monotonic_ns));
+            let allowed =
+                (u64::from(uncertainty_ns) + u64::from(previous.uncertainty_ns)).max(2_000_000);
+            if tai_ns.abs_diff(expected) > allowed {
+                return Err(DeliveryReason::ClockDiscontinuity);
+            }
+        }
+        Ok(sample)
     }
 }
 
@@ -187,11 +189,28 @@ mod tests {
         assert_eq!(clock.domain(), "shared-host:demo");
         let sample = clock.sample().unwrap();
         assert!(sample.uncertainty_ns >= 50_000);
-        clock.state.lock().unwrap().previous =
-            Some((sample.tai_ns + 1_000_000_000, sample.monotonic_ns));
+        clock.state.lock().unwrap().previous = Some(ClockSample {
+            tai_ns: sample.tai_ns + 1_000_000_000,
+            ..sample
+        });
         assert_eq!(
             clock.sample().unwrap_err(),
             DeliveryReason::ClockDiscontinuity
         );
+    }
+
+    #[test]
+    fn a_sample_widened_by_preemption_does_not_make_the_next_one_a_step() {
+        let clock = Clock::new(ClockConfig::SharedHost {
+            domain: "demo".into(),
+            tai_offset_secs: 37,
+        });
+        let sample = clock.sample().unwrap();
+        clock.state.lock().unwrap().previous = Some(ClockSample {
+            tai_ns: sample.tai_ns + 3_000_000,
+            uncertainty_ns: 3_050_000,
+            ..sample
+        });
+        assert!(clock.sample().is_ok());
     }
 }
