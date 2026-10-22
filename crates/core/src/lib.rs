@@ -1850,6 +1850,7 @@ pub struct AdapterDescriptor {
 pub enum AdapterKind {
     NativeSrt,
     Strom,
+    Spaghetti,
     Nmos,
     MxlDomain,
     MxlK8s,

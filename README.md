@@ -82,6 +82,9 @@ weave CLI, apps ──▶ northbound ──▶ controller ◀── southbound �
 - **Adapters** translate hops into a runtime's own API.
   [`weave-adapter-strom`](crates/adapter-strom) drives Strom.
   [`weave-node`](crates/media) runs SRT media directly.
+  [`weave-adapter-spaghetti`](crates/adapter-spaghetti) drives the
+  spaghetti audio router on a Mac: its running apps are inputs and its
+  output devices are outputs.
   [`nodes/browser`](nodes/browser/README.md) is a node in a web page.
 
 Northbound and southbound are stateless proxies onto the controller. The

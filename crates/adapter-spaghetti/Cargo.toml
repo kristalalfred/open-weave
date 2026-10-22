@@ -1,0 +1,31 @@
+[package]
+name = "weave-adapter-spaghetti"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "open-weave southbound adapter for the spaghetti macOS audio router."
+keywords = ["audio", "srt", "macos", "spaghetti"]
+categories = ["multimedia::audio", "network-programming"]
+
+[[bin]]
+name = "weave-adapter-spaghetti"
+path = "src/main.rs"
+
+[dependencies]
+weave-core = { workspace = true }
+weave-spaghetti = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+reqwest = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_norway = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -42,6 +42,7 @@
                       "enum": [
                         "native_srt",
                         "strom",
+                        "spaghetti",
                         "nmos",
                         "mxl_domain",
                         "mxl_k8s",

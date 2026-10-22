@@ -63,10 +63,12 @@ carries. Absent means unknown, and the hops carry both.
 | Native SRT | `srt-forward`, `srt-timed-origin`, `srt-timed-forward`, `srt-timed-receiver` |
 | Strom | `srt-forward`, `whip-to-srt`, `srt-to-whep`, `whip-to-whep`, `srt-to-rist`, `rist-to-srt` |
 | Browser | `camera-to-whip`, `whep-to-display`, each with one egress |
+| Spaghetti | `app-audio-to-srt` with up to eight egresses, `srt-to-speaker` with one |
 
 All native SRT profiles and Strom's `srt-forward` advertise `preserve`, with
 `accepts: {}`. Only the native timed receiver advertises merge support. All other
-Strom profiles and both browser profiles advertise `unknown`. RIST packetization
+Strom profiles, both browser profiles and both spaghetti profiles advertise
+`unknown`. `srt-to-speaker` accepts AAC audio in MPEG-TS. RIST packetization
 and WebRTC gateways do not establish output compatibility. Stored profiles
 without this metadata remain unknown until registration supplies it.
 
@@ -117,7 +119,10 @@ removes the stream's hops from desired state. When it returns, the stream is
 placed again.
 
 The browser node declares the input `camera` and the output `player`. The
-native SRT node and the Strom adapter declare none.
+spaghetti adapter declares each running app under `/Applications`,
+`/System/Applications` or `~/Applications` as an audio input, and each output
+device as an output, with ids made from their names. The native SRT node and
+the Strom adapter declare none.
 
 ## Topology
 
