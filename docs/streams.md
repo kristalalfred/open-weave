@@ -47,7 +47,7 @@ source:
   input: { node: alfreds-mac, id: music }
 destinations:
   - id: filip
-    output: { node: filips-mac, id: speakers }
+    output: { node: filips-mac, id: macbook-pro-speakers }
 ```
 `GET /streams/{name}/endpoints` (`weave get endpoints NAME`) reports the address
 or URL each peer dials.

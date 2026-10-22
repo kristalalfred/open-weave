@@ -1997,9 +1997,7 @@ pub struct NodeHeartbeat {
     )]
     pub node_id: String,
     pub status: NodeStatus,
-    #[serde(default)]
     pub inputs: Vec<NodeInput>,
-    #[serde(default)]
     pub outputs: Vec<NodeOutput>,
     #[serde(default)]
     pub endpoints: Vec<EndpointDescriptor>,
@@ -2233,10 +2231,25 @@ mod tests {
     fn heartbeat_parses_without_hop_status_field() {
         let heartbeat: NodeHeartbeat = serde_json::from_value(serde_json::json!({
             "node_id": "strom-node-1",
-            "status": "ready"
+            "status": "ready",
+            "inputs": [],
+            "outputs": []
         }))
-        .expect("parse legacy heartbeat");
+        .expect("parse heartbeat");
         assert!(heartbeat.hop_status.is_empty());
+    }
+
+    #[test]
+    fn a_heartbeat_must_say_what_inputs_and_outputs_the_node_has() {
+        let missing: Result<NodeHeartbeat, _> = serde_json::from_value(serde_json::json!({
+            "node_id": "strom-node-1",
+            "status": "ready",
+            "outputs": []
+        }));
+        assert!(
+            missing.is_err(),
+            "an absent inputs list would clear the node's inputs"
+        );
     }
 
     #[test]

@@ -64,7 +64,24 @@ pub enum StoreError {
     SchemaVersion { found: i32, supported: i32 },
 }
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
+
+const LOCAL_ENDPOINT_MIGRATION: [&str; 2] = [
+    "UPDATE streams
+        SET definition = jsonb_set(definition, '{source}', jsonb_build_object('input', definition->'source'->'device'))
+      WHERE definition->'source' ? 'device'",
+    "UPDATE streams
+        SET definition = jsonb_set(definition, '{destinations}', (
+              SELECT jsonb_agg(
+                       CASE WHEN destination ? 'device'
+                            THEN (destination - 'device') || jsonb_build_object('output', destination->'device')
+                            ELSE destination END
+                       ORDER BY position)
+                FROM jsonb_array_elements(definition->'destinations') WITH ORDINALITY AS t(destination, position)))
+      WHERE EXISTS (
+              SELECT 1 FROM jsonb_array_elements(definition->'destinations') AS destination
+               WHERE destination ? 'device')",
+];
 
 fn positive_counter(value: i64, field: &'static str) -> Result<u64, StoreError> {
     if value <= 0 {
@@ -208,33 +225,38 @@ impl PgStore {
                 .await
                 .map_err(StoreError::Query)?;
         if let Some(found) = recorded {
-            if found == 1 {
-                sqlx::query("ALTER TABLE streams ADD COLUMN source_revision BIGINT")
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(StoreError::Query)?;
-                sqlx::query("UPDATE streams SET source_revision = revision")
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(StoreError::Query)?;
-                sqlx::query("ALTER TABLE streams ALTER COLUMN source_revision SET NOT NULL")
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(StoreError::Query)?;
-                sqlx::query("UPDATE schema_version SET version = $1 WHERE id")
-                    .bind(SCHEMA_VERSION)
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(StoreError::Query)?;
-                transaction.commit().await.map_err(StoreError::Query)?;
+            if found == SCHEMA_VERSION {
                 return Ok(());
             }
-            if found != SCHEMA_VERSION {
+            if !(1..SCHEMA_VERSION).contains(&found) {
                 return Err(StoreError::SchemaVersion {
                     found,
                     supported: SCHEMA_VERSION,
                 });
             }
+            let mut steps: Vec<&str> = Vec::new();
+            if found < 2 {
+                steps.extend([
+                    "ALTER TABLE streams ADD COLUMN source_revision BIGINT",
+                    "UPDATE streams SET source_revision = revision",
+                    "ALTER TABLE streams ALTER COLUMN source_revision SET NOT NULL",
+                ]);
+            }
+            if found < 3 {
+                steps.extend(LOCAL_ENDPOINT_MIGRATION);
+            }
+            for step in steps {
+                sqlx::query(step)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(StoreError::Query)?;
+            }
+            sqlx::query("UPDATE schema_version SET version = $1 WHERE id")
+                .bind(SCHEMA_VERSION)
+                .execute(&mut *transaction)
+                .await
+                .map_err(StoreError::Query)?;
+            transaction.commit().await.map_err(StoreError::Query)?;
             return Ok(());
         }
         sqlx::query(
@@ -1921,6 +1943,55 @@ pub(crate) mod tests {
         PgStore::connect(&url).await.expect("connect");
         assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
         PgStore::connect(&url).await.expect("connect again");
+        assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn version_two_migration_renames_device_endpoints_to_inputs_and_outputs() {
+        let url = fresh_database().await;
+        let store = leading_pg_store(&url).await;
+        let kept = store.create_stream(&stream("kept")).await.unwrap();
+        run_sql(
+            &url,
+            r#"INSERT INTO streams (name, definition, generation, revision, source_revision)
+               VALUES ('cam', '{"name": "cam",
+                                "source": {"device": {"node": "browser-a1b2"}},
+                                "destinations": [
+                                  {"id": "studio", "srt": {"node": "strom-node-2"}},
+                                  {"id": "guest", "device": {"node": "browser-c3d4", "network": "internet"}}
+                                ]}', 1, 900, 900)"#,
+        )
+        .await;
+        run_sql(&url, "UPDATE schema_version SET version = 2").await;
+        PgStore::connect(&url).await.unwrap();
+
+        let loaded = store.load_streams().await.unwrap();
+        let cam = loaded.iter().find(|s| s.spec.name == "cam").unwrap();
+        assert_eq!(
+            cam.spec.source,
+            StreamTransport::Input(weave_core::LocalEndpoint {
+                node: "browser-a1b2".into(),
+                id: None,
+                network: None,
+            })
+        );
+        assert!(matches!(
+            cam.spec.destinations[0].endpoint,
+            StreamTransport::Srt(_)
+        ));
+        assert_eq!(cam.spec.destinations[0].id, "studio");
+        assert_eq!(
+            cam.spec.destinations[1].endpoint,
+            StreamTransport::Output(weave_core::LocalEndpoint {
+                node: "browser-c3d4".into(),
+                id: None,
+                network: Some("internet".into()),
+            })
+        );
+        assert_eq!((cam.generation, cam.revision), (1, 900));
+        let kept_loaded = loaded.iter().find(|s| s.spec.name == "kept").unwrap();
+        assert_eq!(kept_loaded.spec, kept.spec);
         assert_eq!(recorded_version(&url).await, SCHEMA_VERSION);
     }
 

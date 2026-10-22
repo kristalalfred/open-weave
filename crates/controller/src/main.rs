@@ -2250,7 +2250,7 @@ async fn node_heartbeat(
     if let Err(issue) = validate_endpoint_node_ids(&heartbeat.endpoints) {
         return invalid_request("endpoint node id is invalid", vec![issue]);
     }
-    let io_issues = validate_local_io(&heartbeat.inputs, &heartbeat.outputs, "heartbeat");
+    let io_issues = validate_local_io(&heartbeat.inputs, &heartbeat.outputs, "");
     if !io_issues.is_empty() {
         return invalid_request("heartbeat inputs or outputs are invalid", io_issues);
     }
@@ -5544,7 +5544,7 @@ mod tests {
             &app,
             "POST",
             "/nodes/guest-1/heartbeat",
-            Some(json!({ "node_id": "guest-1", "status": "ready" })),
+            Some(json!({ "node_id": "guest-1", "status": "ready", "inputs": [], "outputs": [] })),
         )
         .await;
         assert_eq!(status, StatusCode::ACCEPTED);
@@ -5571,7 +5571,7 @@ mod tests {
             &app,
             "POST",
             "/nodes/guest-1/heartbeat",
-            Some(json!({ "node_id": "guest-1", "status": "ready" })),
+            Some(json!({ "node_id": "guest-1", "status": "ready", "inputs": [], "outputs": [] })),
         )
         .await;
 
@@ -7059,7 +7059,7 @@ mod tests {
             &app,
             "POST",
             "/nodes/guest-1/heartbeat",
-            Some(json!({ "node_id": "guest-1", "status": "ready" })),
+            Some(json!({ "node_id": "guest-1", "status": "ready", "inputs": [], "outputs": [] })),
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -7138,7 +7138,9 @@ mod tests {
             &app,
             "POST",
             "/nodes/strom-node-1/heartbeat",
-            Some(json!({ "node_id": "strom-node-1", "status": "ready" })),
+            Some(
+                json!({ "node_id": "strom-node-1", "status": "ready", "inputs": [], "outputs": [] }),
+            ),
         );
         let seen = offline_check_during(&state, heartbeat).await;
 
@@ -7236,7 +7238,7 @@ mod node_auth_tests {
     }
 
     fn heartbeat(node_id: &str) -> Value {
-        json!({ "node_id": node_id, "status": "ready", "endpoints": [], "hop_status": [] })
+        json!({ "node_id": node_id, "status": "ready", "inputs": [], "outputs": [], "endpoints": [], "hop_status": [] })
     }
 
     async fn send(

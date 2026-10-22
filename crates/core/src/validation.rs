@@ -213,7 +213,7 @@ pub fn validate_node(node: &NodeDescriptor) -> Vec<ValidationIssue> {
             }
         }
     }
-    issues.extend(validate_local_io(&node.inputs, &node.outputs, "node"));
+    issues.extend(validate_local_io(&node.inputs, &node.outputs, "node."));
     let mut attachment_ids = HashSet::new();
     for (index, attachment) in node.topology.attachments.iter().enumerate() {
         let base = format!("node.topology.attachments[{index}]");
@@ -281,7 +281,7 @@ pub fn validate_local_io(
     let mut issues = Vec::new();
     let mut ids = HashSet::new();
     for (index, input) in inputs.iter().enumerate() {
-        let field = format!("{base}.inputs[{index}]");
+        let field = format!("{base}inputs[{index}]");
         validate_local(&input.id, &input.label, &field, &mut ids, &mut issues);
         let problem = if input.tracks.is_empty() {
             Some(("empty", "tracks must name at least one track"))
@@ -300,7 +300,7 @@ pub fn validate_local_io(
     }
     let mut ids = HashSet::new();
     for (index, output) in outputs.iter().enumerate() {
-        let field = format!("{base}.outputs[{index}]");
+        let field = format!("{base}outputs[{index}]");
         validate_local(&output.id, &output.label, &field, &mut ids, &mut issues);
     }
     issues

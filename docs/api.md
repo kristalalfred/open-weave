@@ -321,7 +321,7 @@ carries its `id` and no role or address:
 
 ```json
 { "transport": "input", "id": "music" }
-{ "branch_id": "filip", "transport": "output", "id": "speakers" }
+{ "branch_id": "filip", "transport": "output", "id": "macbook-pro-speakers" }
 ```
 
 Hop ids are `weave-{stream}-sender`, `weave-{stream}-receiver-{destination}` and
@@ -333,7 +333,8 @@ Reordering destinations in the manifest changes no hop id, port or desired hop.
 
 A registration declares `node.inputs` and `node.outputs`. Every heartbeat
 carries the node's complete current `inputs` and `outputs`, which replace the
-stored ones; an empty or absent list removes them all. See
+stored ones; an empty list removes them all, and a heartbeat without them is
+refused with `400 invalid_json`. See
 [Nodes](nodes.md#inputs-and-outputs) for the fields and how streams resolve them.
 
 ### Hop status

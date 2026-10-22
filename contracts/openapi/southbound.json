@@ -1230,8 +1230,7 @@
                 "label",
                 "tracks"
               ]
-            },
-            "default": []
+            }
           },
           "outputs": {
             "type": "array",
@@ -1253,8 +1252,7 @@
                 "id",
                 "label"
               ]
-            },
-            "default": []
+            }
           },
           "endpoints": {
             "type": "array",
@@ -1776,7 +1774,9 @@
         "additionalProperties": false,
         "required": [
           "node_id",
-          "status"
+          "status",
+          "inputs",
+          "outputs"
         ]
       },
       "NodeList": {

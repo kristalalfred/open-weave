@@ -88,7 +88,7 @@ as a video element or a set of speakers. A stream names an input as its
 inputs:
   - { id: music, label: Music, tracks: [audio] }
 outputs:
-  - { id: speakers, label: MacBook Pro Speakers }
+  - { id: macbook-pro-speakers, label: MacBook Pro Speakers }
 ```
 
 | Field | Meaning |
