@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use weave_core::{
-    DesiredEgress, DesiredHop, DestinationEndpoint, DeviceClass, DeviceKind, EndpointAddr,
-    HOP_ID_PREFIX, HopConditions, HopEndpointClass, HopRole, HopState, HopStatus,
+    DesiredEgress, DesiredHop, DestinationEndpoint, EndpointAddr, HOP_ID_PREFIX, HopConditions,
+    HopEndpointClass, HopRole, HopState, HopStatus, LocalEnd, LocalEndpoint, LocalSocket,
     NetworkAttachment, NodeDescriptor, NodeStatus, Passphrase, Path, PathStatus, PortRange,
     RemoteAddr, RistListener, RistSocket, SignallingEndpoint, SignallingTransport, SocketRole,
     SocketSpec, SrtParams, SrtSocket, StreamDefinition, StreamEndpoints, StreamTransport, Track,
@@ -60,12 +60,12 @@ pub enum PlacementError {
     #[error("hop {hop} has no socket for consumers to dial")]
     NoConsumerSocket { hop: String },
     #[error(
-        "hop {hop} carries a {} socket where an SRT listener is needed",
+        "hop {hop} carries the {} socket where an SRT listener is needed",
         socket_end_description(.socket)
     )]
     NotAnSrtListener { hop: String, socket: SocketSpec },
     #[error(
-        "hop {hop} carries a {} socket where a WHIP or WHEP listener is needed",
+        "hop {hop} carries the {} socket where a WHIP or WHEP listener is needed",
         socket_end_description(.socket)
     )]
     NotASignallingListener { hop: String, socket: SocketSpec },
@@ -89,8 +89,22 @@ pub enum PlacementError {
     },
     #[error("node {node} hosts a {transport} link but declares no signalling base for it")]
     NoSignalling { node: String, transport: Transport },
-    #[error("node {node} offers no {kind} device")]
-    NoDevice { node: String, kind: DeviceKind },
+    #[error("node {node} has no hop profile for an {end}")]
+    NoLocalProfile { node: String, end: LocalEnd },
+    #[error("node {node} declares no {end}s")]
+    NoLocal { node: String, end: LocalEnd },
+    #[error("node {node} declares no {end} {id}")]
+    LocalMissing {
+        node: String,
+        end: LocalEnd,
+        id: String,
+    },
+    #[error("node {node} declares several {end}s ({}); name one with id", .ids.join(", "))]
+    LocalAmbiguous {
+        node: String,
+        end: LocalEnd,
+        ids: Vec<String>,
+    },
     #[error("node {node} has no hop profile for {ingress} to {egress} with {egresses} egress(es)")]
     NoHopProfile {
         node: String,
@@ -119,7 +133,7 @@ pub enum PlacementError {
 
 fn socket_end_description(socket: &SocketSpec) -> String {
     match socket {
-        SocketSpec::Device(_) => socket.to_string(),
+        SocketSpec::Local(_) => socket.to_string(),
         _ => format!("{socket} {}", socket.end_name()),
     }
 }
@@ -149,10 +163,10 @@ enum Placement<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Terminal {
+enum Terminal<'a> {
     Srt,
 
-    Device,
+    Local(LocalEnd, Option<&'a str>),
 
     Signalling(SignallingTransport),
 }
@@ -163,7 +177,7 @@ struct Endpoint<'a> {
     via: &'a [String],
     latency: Option<u32>,
     passphrase: Option<&'a Passphrase>,
-    terminal: Terminal,
+    terminal: Terminal<'a>,
 }
 
 fn read_endpoint(endpoint: &StreamTransport) -> Result<Endpoint<'_>, PlacementError> {
@@ -180,16 +194,21 @@ fn read_endpoint(endpoint: &StreamTransport) -> Result<Endpoint<'_>, PlacementEr
             passphrase: endpoint.passphrase.as_ref(),
             terminal: Terminal::Srt,
         }),
-        StreamTransport::Device(endpoint) => Ok(Endpoint {
-            placement: Placement::Node(&endpoint.node),
-            network: endpoint.network.as_deref(),
-            via: &[],
-            latency: None,
-            passphrase: None,
-            terminal: Terminal::Device,
-        }),
+        StreamTransport::Input(endpoint) => Ok(local(endpoint, LocalEnd::Input)),
+        StreamTransport::Output(endpoint) => Ok(local(endpoint, LocalEnd::Output)),
         StreamTransport::Whip(endpoint) => Ok(signalled(endpoint, SignallingTransport::Whip)),
         StreamTransport::Whep(endpoint) => Ok(signalled(endpoint, SignallingTransport::Whep)),
+    }
+}
+
+fn local(endpoint: &LocalEndpoint, end: LocalEnd) -> Endpoint<'_> {
+    Endpoint {
+        placement: Placement::Node(&endpoint.node),
+        network: endpoint.network.as_deref(),
+        via: &[],
+        latency: None,
+        passphrase: None,
+        terminal: Terminal::Local(end, endpoint.id.as_deref()),
     }
 }
 
@@ -939,7 +958,15 @@ fn derive_on(
                             params: srt_params(RECV_CONSUMER_LATENCY, dest.passphrase.cloned()),
                         })
                     }
-                    Terminal::Device => device_socket(&hop.node_id, DeviceKind::Display, nodes)?,
+                    Terminal::Local(LocalEnd::Output, id) => {
+                        local_socket(&hop.node_id, LocalEnd::Output, id, nodes)?
+                    }
+                    Terminal::Local(LocalEnd::Input, _) => {
+                        return Err(PlacementError::WrongEnd {
+                            kind: "input",
+                            end: "a destination",
+                        });
+                    }
                     Terminal::Signalling(SignallingTransport::Whep) => signalling_listener(
                         &hop.node_id,
                         dest.network,
@@ -1360,16 +1387,11 @@ fn source_tracks(
         .collect();
         return (!tracks.is_empty()).then_some(tracks);
     }
-    let profile = find_node(nodes, &sender.node_id)?
-        .capabilities
-        .hop_profiles
-        .iter()
-        .find(|profile| profile.id == sender.profile_id)?;
-    match &profile.ingress {
-        HopEndpointClass::Device(DeviceClass {
-            device: DeviceKind::Capture,
-            tracks,
-        }) => tracks.clone(),
+    match &sender.ingress {
+        SocketSpec::Local(LocalSocket {
+            end: LocalEnd::Input,
+            id,
+        }) => Some(find_node(nodes, &sender.node_id)?.input(id)?.tracks.clone()),
         _ => None,
     }
 }
@@ -2218,7 +2240,11 @@ fn source_socket(
                 params: srt_params(latency, source.passphrase.cloned()),
             }))
         }
-        Terminal::Device => device_socket(node_id, DeviceKind::Capture, nodes),
+        Terminal::Local(LocalEnd::Input, id) => local_socket(node_id, LocalEnd::Input, id, nodes),
+        Terminal::Local(LocalEnd::Output, _) => Err(PlacementError::WrongEnd {
+            kind: "output",
+            end: "the source",
+        }),
         Terminal::Signalling(SignallingTransport::Whip) => signalling_listener(
             node_id,
             source.network,
@@ -2284,25 +2310,50 @@ fn signalling_listener(
     ))
 }
 
-fn device_socket(
+fn local_socket(
     node_id: &str,
-    kind: DeviceKind,
+    end: LocalEnd,
+    requested: Option<&str>,
     nodes: &[NodeDescriptor],
 ) -> Result<SocketSpec, PlacementError> {
     let node = find_node(nodes, node_id).ok_or_else(|| PlacementError::NodeNotRegistered {
         node: node_id.to_string(),
     })?;
-    let supported = match kind {
-        DeviceKind::Capture => node.capabilities.offers_ingress_device(kind),
-        DeviceKind::Display => node.capabilities.offers_egress_device(kind),
-    };
-    if !supported {
-        return Err(PlacementError::NoDevice {
+    if !node.capabilities.offers_local(end) {
+        return Err(PlacementError::NoLocalProfile {
             node: node_id.to_string(),
-            kind,
+            end,
         });
     }
-    Ok(SocketSpec::Device(kind))
+    let declared = node.local_ids(end);
+    let id = match (requested, declared.as_slice()) {
+        (Some(id), _) if declared.contains(&id) => id,
+        (Some(id), _) => {
+            return Err(PlacementError::LocalMissing {
+                node: node_id.to_string(),
+                end,
+                id: id.to_string(),
+            });
+        }
+        (None, [id]) => id,
+        (None, []) => {
+            return Err(PlacementError::NoLocal {
+                node: node_id.to_string(),
+                end,
+            });
+        }
+        (None, ids) => {
+            return Err(PlacementError::LocalAmbiguous {
+                node: node_id.to_string(),
+                end,
+                ids: ids.iter().map(ToString::to_string).collect(),
+            });
+        }
+    };
+    Ok(SocketSpec::Local(LocalSocket {
+        end,
+        id: id.to_string(),
+    }))
 }
 
 fn claim_port(
@@ -2385,7 +2436,7 @@ pub fn stream_endpoints(
             hop: sender_hop_id(&path.stream),
         })?;
     let ingress = match source.terminal {
-        Terminal::Device => None,
+        Terminal::Local(..) => None,
         Terminal::Srt => {
             let port = listener_port(&sender.ingress, &sender.id)?;
             Some(endpoint_addr(source_node, source.network, port, nodes)?)
@@ -2398,7 +2449,7 @@ pub fn stream_endpoints(
         let dest = read_endpoint(&destination.endpoint)?;
         let endpoint = match (&dest.placement, dest.terminal) {
             (Placement::Remote(remote), _) => Some(remote_endpoint_addr(remote)),
-            (Placement::Node(_), Terminal::Device) => None,
+            (Placement::Node(_), Terminal::Local(..)) => None,
             (Placement::Node(node_id), Terminal::Srt) => {
                 let (receiver, consumer) = consumer_socket(path, &destination.id)?;
                 let consumer_port = listener_port(consumer, &receiver.id)?;
@@ -2515,9 +2566,9 @@ fn listener_port(spec: &SocketSpec, hop_id: &str) -> Result<u16, PlacementError>
 mod contract_tests {
     use super::*;
     use weave_core::{
-        DeviceClass, EgressStatus, HopEndpointClass, HopProfile, HopState, LinkCondition,
-        NetworkListeners, NodeCapabilities, NodeEndpoint, NodeTopology, SignallingListener,
-        SocketStatus, SrtEndpoint, SrtListener, StreamDestination, TransportClass,
+        EgressStatus, HopEndpointClass, HopProfile, HopState, LinkCondition, NetworkListeners,
+        NodeCapabilities, NodeInput, NodeTopology, SignallingListener, SocketStatus, SrtEndpoint,
+        SrtListener, StreamDestination, TransportClass,
     };
 
     fn keys() -> LinkKeys {
@@ -2563,6 +2614,8 @@ mod contract_tests {
 
     fn node(id: &str, attachments: Vec<NetworkAttachment>) -> NodeDescriptor {
         NodeDescriptor {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             id: id.to_string(),
             endpoint: format!("http://{id}"),
             status: NodeStatus::Ready,
@@ -2685,8 +2738,14 @@ mod contract_tests {
         );
     }
 
-    fn camera_to_studio(tracks: Option<Vec<Track>>) -> Path {
+    fn camera_to_studio(tracks: Vec<Track>) -> Path {
         let browser = NodeDescriptor {
+            inputs: vec![NodeInput {
+                id: "camera".to_string(),
+                label: "Camera".to_string(),
+                tracks,
+            }],
+            outputs: Vec::new(),
             id: "browser".to_string(),
             endpoint: "browser://browser".to_string(),
             status: NodeStatus::Ready,
@@ -2695,10 +2754,7 @@ mod contract_tests {
                 hop_profiles: vec![HopProfile {
                     timed_delivery: None,
                     id: "camera-to-whip".to_string(),
-                    ingress: HopEndpointClass::Device(DeviceClass {
-                        device: DeviceKind::Capture,
-                        tracks,
-                    }),
+                    ingress: HopEndpointClass::Local(LocalEnd::Input),
                     egress: class(
                         Transport::Whip,
                         weave_core::RoleSet::only(SocketRole::Connect),
@@ -2738,8 +2794,9 @@ mod contract_tests {
             enabled: true,
             format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
-            source: StreamTransport::Device(NodeEndpoint {
+            source: StreamTransport::Input(LocalEndpoint {
                 node: "browser".to_string(),
+                id: None,
                 network: Some("internet".to_string()),
             }),
             destinations: vec![destination("studio", "studio-node")],
@@ -2756,22 +2813,21 @@ mod contract_tests {
 
     #[test]
     fn dial_only_browser_attachment_reaches_a_listener() {
-        assert_eq!(camera_to_studio(None).hops[0].profile_id, "camera-to-whip");
+        assert_eq!(
+            camera_to_studio(vec![Track::Audio, Track::Video]).hops[0].profile_id,
+            "camera-to-whip"
+        );
     }
 
     #[test]
-    fn the_capture_profiles_tracks_travel_on_every_hop() {
-        let path = camera_to_studio(Some(vec![Track::Video]));
-        assert_eq!(path.hops.len(), 2);
-        for hop in &path.hops {
-            assert_eq!(hop.tracks, Some(vec![Track::Video]), "{}", hop.id);
+    fn the_inputs_tracks_travel_on_every_hop() {
+        for tracks in [vec![Track::Video], vec![Track::Audio, Track::Video]] {
+            let path = camera_to_studio(tracks.clone());
+            assert_eq!(path.hops.len(), 2);
+            for hop in &path.hops {
+                assert_eq!(hop.tracks.as_ref(), Some(&tracks), "{}", hop.id);
+            }
         }
-        assert!(
-            camera_to_studio(None)
-                .hops
-                .iter()
-                .all(|hop| hop.tracks.is_none())
-        );
     }
 
     #[test]
@@ -2779,13 +2835,15 @@ mod contract_tests {
         let mut nodes = shared_nodes();
         let mut browser = nodes.remove(0);
         browser.id = "browser".to_string();
+        browser.inputs = vec![NodeInput {
+            id: "camera".to_string(),
+            label: "Camera".to_string(),
+            tracks: vec![Track::Video],
+        }];
         browser.capabilities.hop_profiles = vec![HopProfile {
             timed_delivery: None,
             id: "capture-to-srt".to_string(),
-            ingress: HopEndpointClass::Device(DeviceClass {
-                device: DeviceKind::Capture,
-                tracks: None,
-            }),
+            ingress: HopEndpointClass::Local(LocalEnd::Input),
             egress: class(Transport::Srt, weave_core::RoleSet::both()),
             max_egresses: Some(1),
             media_behavior: weave_core::MediaBehavior::Unknown,
@@ -2797,8 +2855,9 @@ mod contract_tests {
             enabled: true,
             format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
-            source: StreamTransport::Device(NodeEndpoint {
+            source: StreamTransport::Input(LocalEndpoint {
                 node: "browser".to_string(),
+                id: None,
                 network: None,
             }),
             destinations: vec![
@@ -3241,8 +3300,8 @@ mod contract_tests {
 mod tests {
     use super::*;
     use weave_core::{
-        DeviceClass, EgressStatus, HopEndpointClass, HopProfile, HopState, LinkCondition,
-        NetworkListeners, NodeCapabilities, NodeEndpoint, NodeTopology, ResolvedAddr, RoleSet,
+        EgressStatus, HopEndpointClass, HopProfile, HopState, LinkCondition, NetworkListeners,
+        NodeCapabilities, NodeInput, NodeOutput, NodeTopology, ResolvedAddr, RoleSet,
         SignallingListener, SignallingTransport, SocketStatus, SrtEndpoint, SrtListener,
         StreamDestination, TransportClass,
     };
@@ -3269,13 +3328,6 @@ mod tests {
 
     fn class(transport: Transport, roles: RoleSet) -> HopEndpointClass {
         HopEndpointClass::Transport(TransportClass { transport, roles })
-    }
-
-    fn device(kind: DeviceKind) -> HopEndpointClass {
-        HopEndpointClass::Device(DeviceClass {
-            device: kind,
-            tracks: None,
-        })
     }
 
     fn profile(
@@ -3333,6 +3385,8 @@ mod tests {
 
     fn node_with(id: &str, attachments: Vec<NetworkAttachment>) -> NodeDescriptor {
         NodeDescriptor {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             id: id.to_string(),
             endpoint: format!("http://{id}:8080"),
             status: NodeStatus::Ready,
@@ -4776,6 +4830,15 @@ mod tests {
 
     fn browser_node(id: &str) -> NodeDescriptor {
         NodeDescriptor {
+            inputs: vec![NodeInput {
+                id: "camera".to_string(),
+                label: "Camera".to_string(),
+                tracks: vec![Track::Audio, Track::Video],
+            }],
+            outputs: vec![NodeOutput {
+                id: "player".to_string(),
+                label: "Player".to_string(),
+            }],
             id: id.to_string(),
             endpoint: format!("browser://{id}"),
             status: NodeStatus::Ready,
@@ -4784,14 +4847,14 @@ mod tests {
                 hop_profiles: vec![
                     profile(
                         "camera-to-whip",
-                        device(DeviceKind::Capture),
+                        HopEndpointClass::Local(LocalEnd::Input),
                         class(Transport::Whip, RoleSet::only(SocketRole::Connect)),
                         Some(1),
                     ),
                     profile(
                         "whep-to-display",
                         class(Transport::Whep, RoleSet::only(SocketRole::Connect)),
-                        device(DeviceKind::Display),
+                        HopEndpointClass::Local(LocalEnd::Output),
                         Some(1),
                     ),
                 ],
@@ -4837,19 +4900,24 @@ mod tests {
         &mut node.topology.attachments[0].listeners
     }
 
-    fn device_ref(id: &str) -> StreamTransport {
-        StreamTransport::Device(NodeEndpoint {
-            node: id.to_string(),
+    fn input_ref(node: &str, id: Option<&str>) -> StreamTransport {
+        StreamTransport::Input(LocalEndpoint {
+            node: node.to_string(),
+            id: id.map(str::to_string),
             network: None,
         })
     }
 
-    fn device_dest(id: &str, node: &str) -> StreamDestination {
+    fn output_dest(id: &str, node: &str, output: Option<&str>) -> StreamDestination {
         StreamDestination {
             delivery: None,
             id: id.to_string(),
             paths: 1,
-            endpoint: device_ref(node),
+            endpoint: StreamTransport::Output(LocalEndpoint {
+                node: node.to_string(),
+                id: output.map(str::to_string),
+                network: None,
+            }),
         }
     }
 
@@ -4859,7 +4927,7 @@ mod tests {
             enabled: true,
             format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
-            source: device_ref("browser-a1b2"),
+            source: input_ref("browser-a1b2", None),
             destinations: vec![dest("studio", node_ref("strom-node-2", 1000))],
         }
     }
@@ -4871,7 +4939,7 @@ mod tests {
             format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(node_ref("strom-node-2", 200)),
-            destinations: vec![device_dest("guest", "browser-a1b2")],
+            destinations: vec![output_dest("guest", "browser-a1b2", None)],
         }
     }
 
@@ -4883,7 +4951,7 @@ mod tests {
     }
 
     #[test]
-    fn device_sender_to_strom_is_whip_hosted_on_strom() {
+    fn input_sender_to_strom_is_whip_hosted_on_strom() {
         let path = derive(&alice_cam(), &webrtc_nodes()).expect("derive");
         assert_eq!(path.hops.len(), 2);
         let signalled = SocketSpec::signalling(
@@ -4897,7 +4965,7 @@ mod tests {
         assert_eq!(sender.node_id, "browser-a1b2");
         assert_eq!(
             sender.ingress,
-            SocketSpec::Device(DeviceKind::Capture),
+            SocketSpec::input("camera"),
             "the media starts at the camera"
         );
         assert_eq!(sender.egresses.len(), 1);
@@ -4928,7 +4996,7 @@ mod tests {
     }
 
     #[test]
-    fn strom_to_device_receiver_is_whep_hosted_on_strom() {
+    fn strom_to_output_receiver_is_whep_hosted_on_strom() {
         let path = derive(&alice_return(), &webrtc_nodes()).expect("derive");
         assert_eq!(path.hops.len(), 2);
         let signalled = SocketSpec::signalling(
@@ -4961,7 +5029,7 @@ mod tests {
         assert_eq!(receiver.egresses.len(), 1);
         assert_eq!(
             receiver.egresses[0].socket,
-            SocketSpec::Device(DeviceKind::Display),
+            SocketSpec::output("player"),
             "the media ends on the screen"
         );
 
@@ -4985,8 +5053,8 @@ mod tests {
             enabled: true,
             format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
-            source: device_ref("browser-a1b2"),
-            destinations: vec![device_dest("display", "browser-c3d4")],
+            source: input_ref("browser-a1b2", None),
+            destinations: vec![output_dest("display", "browser-c3d4", None)],
         };
         let mut strom = webrtc_node("strom-node-2", "172.27.0.10");
         let without_profile = vec![
@@ -5098,7 +5166,7 @@ mod tests {
     }
 
     #[test]
-    fn endpoints_serialize_device_ends_as_null() {
+    fn endpoints_serialize_input_and_output_ends_as_null() {
         let nodes = webrtc_nodes();
         let cam = derive(&alice_cam(), &nodes).expect("derive");
         let value =
@@ -5159,7 +5227,7 @@ mod tests {
     #[test]
     fn two_browsers_without_a_relay_share_no_transport() {
         let mut stream = alice_cam();
-        stream.destinations = vec![device_dest("guest", "browser-c3d4")];
+        stream.destinations = vec![output_dest("guest", "browser-c3d4", None)];
         let nodes = vec![browser_node("browser-a1b2"), browser_node("browser-c3d4")];
 
         assert_eq!(
@@ -5174,7 +5242,7 @@ mod tests {
     #[test]
     fn two_browsers_bridge_only_through_a_relay_with_a_whip_to_whep_profile() {
         let mut stream = alice_cam();
-        stream.destinations = vec![device_dest("guest", "browser-c3d4")];
+        stream.destinations = vec![output_dest("guest", "browser-c3d4", None)];
         let mut relay = webrtc_node("strom-node-1", "172.26.0.10");
         let mut nodes = vec![
             browser_node("browser-a1b2"),
@@ -5257,14 +5325,14 @@ mod tests {
         assert_eq!(path.hops[2].egresses.len(), 1);
         assert_eq!(
             path.hops[2].egresses[0].socket,
-            SocketSpec::Device(DeviceKind::Display)
+            SocketSpec::output("player")
         );
     }
 
     #[test]
     fn a_relay_that_cannot_carry_both_halves_is_passed_over() {
         let mut stream = alice_cam();
-        stream.destinations = vec![device_dest("guest", "browser-c3d4")];
+        stream.destinations = vec![output_dest("guest", "browser-c3d4", None)];
 
         let nodes = vec![
             browser_node("browser-a1b2"),
@@ -5278,27 +5346,133 @@ mod tests {
     }
 
     #[test]
-    fn a_device_endpoint_needs_a_node_that_offers_one() {
+    fn a_local_endpoint_needs_a_node_with_a_profile_for_it() {
         let mut stream = alice_cam();
-        let StreamTransport::Device(source) = &mut stream.source else {
-            unreachable!()
-        };
-        source.node = "strom-node-2".to_string();
+        stream.source = input_ref("strom-node-2", None);
         assert_eq!(
             derive(&stream, &webrtc_nodes()),
-            Err(PlacementError::NoDevice {
+            Err(PlacementError::NoLocalProfile {
                 node: "strom-node-2".to_string(),
-                kind: DeviceKind::Capture,
+                end: LocalEnd::Input,
             })
         );
 
         let mut stream = alice_return();
-        stream.destinations = vec![device_dest("guest", "strom-node-2")];
+        stream.destinations = vec![output_dest("guest", "strom-node-2", None)];
         assert_eq!(
             derive(&stream, &webrtc_nodes()),
-            Err(PlacementError::NoDevice {
+            Err(PlacementError::NoLocalProfile {
                 node: "strom-node-2".to_string(),
-                kind: DeviceKind::Display,
+                end: LocalEnd::Output,
+            })
+        );
+    }
+
+    fn with_inputs(ids: &[&str]) -> Vec<NodeDescriptor> {
+        let mut nodes = webrtc_nodes();
+        nodes[0].inputs = ids
+            .iter()
+            .map(|id| NodeInput {
+                id: (*id).to_string(),
+                label: id.to_uppercase(),
+                tracks: vec![Track::Audio],
+            })
+            .collect();
+        nodes
+    }
+
+    #[test]
+    fn a_named_input_is_planned_into_the_sender_ingress() {
+        let mut stream = alice_cam();
+        stream.source = input_ref("browser-a1b2", Some("music"));
+        let path = derive(&stream, &with_inputs(&["camera", "music"])).expect("derive");
+        assert_eq!(path.hops[0].ingress, SocketSpec::input("music"));
+        assert!(
+            path.hops
+                .iter()
+                .all(|hop| hop.tracks == Some(vec![Track::Audio]))
+        );
+    }
+
+    #[test]
+    fn an_input_the_node_does_not_declare_cannot_be_placed() {
+        let mut stream = alice_cam();
+        stream.source = input_ref("browser-a1b2", Some("music"));
+        assert_eq!(
+            derive(&stream, &with_inputs(&["camera"])),
+            Err(PlacementError::LocalMissing {
+                node: "browser-a1b2".to_string(),
+                end: LocalEnd::Input,
+                id: "music".to_string(),
+            })
+        );
+        assert_eq!(
+            derive(&alice_cam(), &with_inputs(&[])),
+            Err(PlacementError::NoLocal {
+                node: "browser-a1b2".to_string(),
+                end: LocalEnd::Input,
+            })
+        );
+    }
+
+    #[test]
+    fn an_unnamed_input_must_be_the_nodes_only_one() {
+        let path = derive(&alice_cam(), &with_inputs(&["music"])).expect("derive");
+        assert_eq!(path.hops[0].ingress, SocketSpec::input("music"));
+        let error = derive(&alice_cam(), &with_inputs(&["camera", "music"])).unwrap_err();
+        assert_eq!(
+            error,
+            PlacementError::LocalAmbiguous {
+                node: "browser-a1b2".to_string(),
+                end: LocalEnd::Input,
+                ids: vec!["camera".to_string(), "music".to_string()],
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "node browser-a1b2 declares several inputs (camera, music); name one with id"
+        );
+    }
+
+    #[test]
+    fn a_named_output_is_planned_into_the_receiver_egress() {
+        let mut nodes = webrtc_nodes();
+        nodes[0].outputs.push(NodeOutput {
+            id: "speakers".to_string(),
+            label: "Speakers".to_string(),
+        });
+        let mut stream = alice_return();
+        stream.destinations = vec![output_dest("guest", "browser-a1b2", Some("speakers"))];
+        let path = derive(&stream, &nodes).expect("derive");
+        assert_eq!(
+            path.hops[1].egresses[0].socket,
+            SocketSpec::output("speakers")
+        );
+
+        stream.destinations = vec![output_dest("guest", "browser-a1b2", Some("headphones"))];
+        assert_eq!(
+            derive(&stream, &nodes),
+            Err(PlacementError::LocalMissing {
+                node: "browser-a1b2".to_string(),
+                end: LocalEnd::Output,
+                id: "headphones".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn an_input_and_an_output_cannot_swap_ends() {
+        let mut stream = alice_cam();
+        stream.source = StreamTransport::Output(LocalEndpoint {
+            node: "browser-a1b2".to_string(),
+            id: None,
+            network: None,
+        });
+        assert_eq!(
+            derive(&stream, &webrtc_nodes()),
+            Err(PlacementError::WrongEnd {
+                kind: "output",
+                end: "the source",
             })
         );
     }
@@ -5353,25 +5527,25 @@ mod tests {
     fn endpoints_name_a_consumer_socket_that_is_not_an_srt_listener() {
         let stream = contribution();
         let mut path = derive(&stream, &nodes()).expect("derive");
-        path.hops[1].egresses[0].socket = SocketSpec::Device(DeviceKind::Display);
+        path.hops[1].egresses[0].socket = SocketSpec::output("player");
         let error = stream_endpoints(&stream, &path, &nodes()).unwrap_err();
         assert_eq!(
             error,
             PlacementError::NotAnSrtListener {
                 hop: "weave-contribution-receiver-studio".to_string(),
-                socket: SocketSpec::Device(DeviceKind::Display),
+                socket: SocketSpec::output("player"),
             }
         );
         assert_eq!(
             error.to_string(),
-            "hop weave-contribution-receiver-studio carries a display device socket where an SRT listener is needed"
+            "hop weave-contribution-receiver-studio carries the output player socket where an SRT listener is needed"
         );
 
         path.hops[1].egresses[0].socket = SocketSpec::srt_connect("198.51.100.5", 9000, 200);
         let error = stream_endpoints(&stream, &path, &nodes()).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "hop weave-contribution-receiver-studio carries a srt connect socket where an SRT listener is needed",
+            "hop weave-contribution-receiver-studio carries the srt connect socket where an SRT listener is needed",
             "names the caller, not just the transport"
         );
     }

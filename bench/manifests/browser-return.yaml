@@ -6,5 +6,5 @@ source:
     latency: 200
 destinations:
   - id: display
-    device:
+    output:
       node: browser-placeholder

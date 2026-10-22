@@ -1,7 +1,7 @@
 name: browser-cam
 enabled: true
 source:
-  device:
+  input:
     node: browser-placeholder
 destinations:
   - id: output

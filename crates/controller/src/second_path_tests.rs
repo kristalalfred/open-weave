@@ -50,6 +50,8 @@ fn attachment(id: &str, network: &str, listener: Option<(&str, u16)>) -> Network
 
 fn node(id: &str, attachments: Vec<NetworkAttachment>) -> NodeDescriptor {
     NodeDescriptor {
+        inputs: Vec::new(),
+        outputs: Vec::new(),
         id: id.to_string(),
         endpoint: format!("http://{id}"),
         status: NodeStatus::Ready,

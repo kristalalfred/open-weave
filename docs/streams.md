@@ -29,11 +29,26 @@ stream, and `weave plan -f` previews its placement without storing it.
 | `srt: { remote: { host, port, network } }` | destination | The stream dials an SRT listener outside open-weave. No node hosts it. |
 | `whip: { node }` | source | A WHIP sender outside open-weave, such as an encoder, publishes to `node`. |
 | `whep: { node }` | destination | A WHEP player outside open-weave plays from `node`. |
-| `device: { node }` | source, destination | The node's own capture device or display. Only the browser node has one. |
+| `input: { node, id }` | source | One of the node's own [inputs](nodes.md#inputs-and-outputs), such as a camera or an application's audio. |
+| `output: { node, id }` | destination | One of the node's own [outputs](nodes.md#inputs-and-outputs), such as a video element or speakers. |
 
 `network` pins the shared network a peer reaches the node on. Without it, the
 controller takes the node's listener on the lowest network id, then the lowest
 attachment id. A `remote` listener must name its network.
+
+`id` on an `input` or `output` names one the node declares. It may be left out
+when the node declares exactly one. `srt`, `whip` and `whep` endpoints are
+ingest and playback points the controller opens for the stream. Inputs and
+outputs exist on the node whether or not a stream uses them.
+
+```yaml
+name: music-to-filip
+source:
+  input: { node: alfreds-mac, id: music }
+destinations:
+  - id: filip
+    output: { node: filips-mac, id: speakers }
+```
 `GET /streams/{name}/endpoints` (`weave get endpoints NAME`) reports the address
 or URL each peer dials.
 

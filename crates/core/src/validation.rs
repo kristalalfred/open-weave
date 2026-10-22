@@ -4,9 +4,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DeviceClass, DeviceKind, FormatConstraint, HopEndpointClass, MediaFormat, NodeDescriptor,
-    Passphrase, SignallingEndpoint, SrtEndpoint, StreamDefinition, StreamDestination,
-    StreamTransport,
+    FormatConstraint, HopEndpointClass, LocalEnd, LocalEndpoint, MediaFormat, NodeDescriptor,
+    NodeInput, NodeOutput, Passphrase, SignallingEndpoint, SrtEndpoint, StreamDefinition,
+    StreamDestination, StreamTransport,
 };
 
 pub const RESOURCE_ID_MAX_LEN: usize = 63;
@@ -200,16 +200,20 @@ pub fn validate_node(node: &NodeDescriptor) -> Vec<ValidationIssue> {
                 &mut issues,
             );
         }
-        for (end, class) in [("ingress", &profile.ingress), ("egress", &profile.egress)] {
-            if let HopEndpointClass::Device(device) = class {
-                validate_tracks(
-                    device,
-                    &format!("node.capabilities.hop_profiles[{index}].{end}.tracks"),
-                    &mut issues,
-                );
+        for (end, class, wrong) in [
+            ("ingress", &profile.ingress, LocalEnd::Output),
+            ("egress", &profile.egress, LocalEnd::Input),
+        ] {
+            if *class == HopEndpointClass::Local(wrong) {
+                issues.push(ValidationIssue::new(
+                    format!("node.capabilities.hop_profiles[{index}].{end}"),
+                    "wrong_end",
+                    format!("a hop {end} cannot be an {wrong}"),
+                ));
             }
         }
     }
+    issues.extend(validate_local_io(&node.inputs, &node.outputs, "node"));
     let mut attachment_ids = HashSet::new();
     for (index, attachment) in node.topology.attachments.iter().enumerate() {
         let base = format!("node.topology.attachments[{index}]");
@@ -268,21 +272,61 @@ pub fn validate_node(node: &NodeDescriptor) -> Vec<ValidationIssue> {
     issues
 }
 
-fn validate_tracks(device: &DeviceClass, field: &str, issues: &mut Vec<ValidationIssue>) {
-    let Some(tracks) = &device.tracks else {
-        return;
-    };
-    let problem = if device.device != DeviceKind::Capture {
-        Some(("not_allowed", "only a capture device declares tracks"))
-    } else if tracks.is_empty() {
-        Some(("empty", "tracks must name at least one track"))
-    } else if tracks.iter().collect::<HashSet<_>>().len() != tracks.len() {
-        Some(("duplicate", "each track may be named once"))
-    } else {
-        None
-    };
-    if let Some((code, message)) = problem {
-        issues.push(ValidationIssue::new(field, code, message));
+#[must_use]
+pub fn validate_local_io(
+    inputs: &[NodeInput],
+    outputs: &[NodeOutput],
+    base: &str,
+) -> Vec<ValidationIssue> {
+    let mut issues = Vec::new();
+    let mut ids = HashSet::new();
+    for (index, input) in inputs.iter().enumerate() {
+        let field = format!("{base}.inputs[{index}]");
+        validate_local(&input.id, &input.label, &field, &mut ids, &mut issues);
+        let problem = if input.tracks.is_empty() {
+            Some(("empty", "tracks must name at least one track"))
+        } else if input.tracks.iter().collect::<HashSet<_>>().len() != input.tracks.len() {
+            Some(("duplicate", "each track may be named once"))
+        } else {
+            None
+        };
+        if let Some((code, message)) = problem {
+            issues.push(ValidationIssue::new(
+                format!("{field}.tracks"),
+                code,
+                message,
+            ));
+        }
+    }
+    let mut ids = HashSet::new();
+    for (index, output) in outputs.iter().enumerate() {
+        let field = format!("{base}.outputs[{index}]");
+        validate_local(&output.id, &output.label, &field, &mut ids, &mut issues);
+    }
+    issues
+}
+
+fn validate_local<'a>(
+    id: &'a str,
+    label: &str,
+    field: &str,
+    ids: &mut HashSet<&'a str>,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    validate_id(id, &format!("{field}.id"), "id", issues);
+    if !ids.insert(id) {
+        issues.push(ValidationIssue::new(
+            format!("{field}.id"),
+            "duplicate",
+            "id must be unique among the node's inputs or outputs",
+        ));
+    }
+    if label.trim().is_empty() {
+        issues.push(ValidationIssue::new(
+            format!("{field}.label"),
+            "blank",
+            "label must not be blank",
+        ));
     }
 }
 
@@ -296,21 +340,27 @@ fn validate_transport(
         StreamTransport::Srt(endpoint) => {
             validate_srt(endpoint, &format!("{path}.srt"), is_source, issues);
         }
-        StreamTransport::Device(endpoint) => {
-            validate_id(
-                &endpoint.node,
-                &format!("{path}.device.node"),
-                "node id",
-                issues,
-            );
-            if let Some(network) = &endpoint.network {
-                validate_id(
-                    network,
-                    &format!("{path}.device.network"),
-                    "network id",
-                    issues,
-                );
+        StreamTransport::Input(endpoint) => {
+            let path = format!("{path}.input");
+            if !is_source {
+                issues.push(ValidationIssue::new(
+                    &path,
+                    "source_only",
+                    "input belongs on the source, not a destination",
+                ));
             }
+            validate_local_endpoint(endpoint, &path, issues);
+        }
+        StreamTransport::Output(endpoint) => {
+            let path = format!("{path}.output");
+            if is_source {
+                issues.push(ValidationIssue::new(
+                    &path,
+                    "destination_only",
+                    "output belongs on a destination, not the source",
+                ));
+            }
+            validate_local_endpoint(endpoint, &path, issues);
         }
         StreamTransport::Whip(endpoint) => {
             let path = format!("{path}.whip");
@@ -334,6 +384,20 @@ fn validate_transport(
             }
             validate_signalling(endpoint, &path, is_source, issues);
         }
+    }
+}
+
+fn validate_local_endpoint(
+    endpoint: &LocalEndpoint,
+    path: &str,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    validate_id(&endpoint.node, &format!("{path}.node"), "node id", issues);
+    if let Some(id) = &endpoint.id {
+        validate_id(id, &format!("{path}.id"), "id", issues);
+    }
+    if let Some(network) = &endpoint.network {
+        validate_id(network, &format!("{path}.network"), "network id", issues);
     }
 }
 
@@ -544,8 +608,8 @@ fn validate_constraint(accepts: &FormatConstraint, path: &str, issues: &mut Vec<
 #[cfg(test)]
 mod tests {
     use crate::{
-        AudioConstraint, Container, DeviceClass, DeviceKind, FormatConstraint, MediaFormat,
-        NodeDescriptor, NodeEndpoint, RemoteAddr, SrtEndpoint, StreamDefinition, StreamDestination,
+        AudioConstraint, Container, FormatConstraint, LocalEndpoint, MediaFormat, NodeDescriptor,
+        NodeInput, NodeOutput, RemoteAddr, SrtEndpoint, StreamDefinition, StreamDestination,
         StreamTransport, Track, VideoConstraint,
     };
 
@@ -598,28 +662,54 @@ mod tests {
         }
     }
 
-    #[test]
-    fn valid_srt_and_device_streams_have_no_issues() {
-        assert!(validate_stream(&stream()).is_empty());
+    fn local(node: &str, id: Option<&str>) -> LocalEndpoint {
+        LocalEndpoint {
+            node: node.to_string(),
+            id: id.map(str::to_string),
+            network: None,
+        }
+    }
 
-        let device_stream = StreamDefinition {
-            name: "browser".to_string(),
+    fn local_stream(source: StreamTransport, destination_end: StreamTransport) -> StreamDefinition {
+        StreamDefinition {
+            name: "music".to_string(),
             enabled: true,
             format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
-            source: StreamTransport::Device(NodeEndpoint {
-                node: "browser-source".to_string(),
-                network: None,
-            }),
-            destinations: vec![destination(
-                "screen",
-                StreamTransport::Device(NodeEndpoint {
-                    node: "browser-destination".to_string(),
-                    network: None,
-                }),
-            )],
-        };
-        assert!(validate_stream(&device_stream).is_empty());
+            source,
+            destinations: vec![destination("desk", destination_end)],
+        }
+    }
+
+    #[test]
+    fn valid_srt_and_local_streams_have_no_issues() {
+        assert!(validate_stream(&stream()).is_empty());
+        assert!(
+            validate_stream(&local_stream(
+                StreamTransport::Input(local("alfreds-mac", Some("music"))),
+                StreamTransport::Output(local("filips-mac", None)),
+            ))
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn an_input_is_only_a_source_and_an_output_only_a_destination() {
+        let issues = validate_stream(&local_stream(
+            StreamTransport::Output(local("alfreds-mac", Some("speakers"))),
+            StreamTransport::Input(local("filips-mac", Some("Music"))),
+        ));
+        assert_eq!(
+            issues
+                .iter()
+                .map(|issue| (issue.field.as_str(), issue.code.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("source.output", "destination_only"),
+                ("destinations[0].input", "source_only"),
+                ("destinations[0].input.id", "invalid_characters"),
+            ]
+        );
     }
 
     #[test]
@@ -755,10 +845,7 @@ mod tests {
         });
         invalid.destinations.push(destination(
             "screen",
-            StreamTransport::Device(NodeEndpoint {
-                node: " ".to_string(),
-                network: None,
-            }),
+            StreamTransport::Output(local(" ", None)),
         ));
 
         assert_eq!(
@@ -775,7 +862,7 @@ mod tests {
                     "remote host must not be empty",
                 ),
                 issue(
-                    "destinations[1].device.node",
+                    "destinations[1].output.node",
                     "invalid_characters",
                     "node id must contain only lowercase ASCII letters, digits, or hyphens, and must start and end with a letter or digit",
                 ),
@@ -891,10 +978,7 @@ mod tests {
         endpoint.via = vec!["relay.one".to_string()];
         invalid.destinations.push(destination(
             "display/one",
-            StreamTransport::Device(NodeEndpoint {
-                node: "display/one".to_string(),
-                network: None,
-            }),
+            StreamTransport::Output(local("display/one", None)),
         ));
 
         let issues = validate_stream(&invalid);
@@ -910,7 +994,7 @@ mod tests {
                 ("destinations[0].srt.via[0]", "invalid_characters"),
                 ("destinations[0].srt.node", "invalid_characters"),
                 ("destinations[1].id", "invalid_characters"),
-                ("destinations[1].device.node", "invalid_characters"),
+                ("destinations[1].output.node", "invalid_characters"),
             ]
         );
     }
@@ -1076,6 +1160,8 @@ mod tests {
             roles: crate::RoleSet::both(),
         });
         let node = crate::NodeDescriptor {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             id: "strom-node-1".to_string(),
             endpoint: "http://strom-node-1:8091".to_string(),
             status: crate::NodeStatus::Ready,
@@ -1110,44 +1196,115 @@ mod tests {
         );
     }
 
-    fn node_capturing(device: DeviceKind, tracks: Option<Vec<Track>>) -> NodeDescriptor {
-        serde_json::from_value(serde_json::json!({
-            "id": "browser-1",
-            "endpoint": "browser://browser-1",
-            "status": "ready",
-            "capabilities": { "adapters": [], "hop_profiles": [{
-                "id": "camera-to-whip",
-                "ingress": DeviceClass { device, tracks },
-                "egress": { "transport": "whip", "roles": ["connect"] },
-            }]},
-            "topology": { "attachments": [] },
-        }))
-        .expect("node fixture")
+    fn node_with(inputs: Vec<NodeInput>, outputs: Vec<NodeOutput>) -> NodeDescriptor {
+        NodeDescriptor {
+            inputs,
+            outputs,
+            ..serde_json::from_value(serde_json::json!({
+                "id": "alfreds-mac",
+                "endpoint": "spaghetti://alfreds-mac",
+                "status": "ready",
+                "capabilities": { "adapters": [], "hop_profiles": [
+                    {
+                        "id": "app-audio-to-srt",
+                        "ingress": "input",
+                        "egress": { "transport": "srt", "roles": ["connect"] },
+                    },
+                    {
+                        "id": "srt-to-speaker",
+                        "ingress": { "transport": "srt", "roles": ["listen"] },
+                        "egress": "output",
+                    },
+                ]},
+                "topology": { "attachments": [] },
+            }))
+            .expect("node fixture")
+        }
+    }
+
+    fn input(id: &str, label: &str, tracks: Vec<Track>) -> NodeInput {
+        NodeInput {
+            id: id.to_string(),
+            label: label.to_string(),
+            tracks,
+        }
+    }
+
+    fn output(id: &str, label: &str) -> NodeOutput {
+        NodeOutput {
+            id: id.to_string(),
+            label: label.to_string(),
+        }
+    }
+
+    fn codes(node: &NodeDescriptor) -> Vec<(String, String)> {
+        validate_node(node)
+            .into_iter()
+            .map(|issue| (issue.field, issue.code))
+            .collect()
     }
 
     #[test]
-    fn a_capture_device_declares_each_track_once() {
-        let codes = |device, tracks| {
-            validate_node(&node_capturing(device, tracks))
-                .into_iter()
-                .map(|issue| (issue.field, issue.code))
-                .collect::<Vec<_>>()
-        };
-        let field = "node.capabilities.hop_profiles[0].ingress.tracks".to_string();
-        assert!(codes(DeviceKind::Capture, None).is_empty());
-        assert!(codes(DeviceKind::Capture, Some(vec![Track::Video])).is_empty());
-        assert!(codes(DeviceKind::Capture, Some(vec![Track::Audio, Track::Video])).is_empty());
-        assert_eq!(
-            codes(DeviceKind::Capture, Some(Vec::new())),
-            [(field.clone(), "empty".to_string())]
+    fn declared_inputs_and_outputs_are_valid_when_named_labelled_and_unique() {
+        let node = node_with(
+            vec![
+                input("music", "Music", vec![Track::Audio]),
+                input("camera", "Camera", vec![Track::Audio, Track::Video]),
+            ],
+            vec![
+                output("speakers", "MacBook Pro Speakers"),
+                output("music", "Music"),
+            ],
         );
-        assert_eq!(
-            codes(DeviceKind::Capture, Some(vec![Track::Video, Track::Video])),
-            [(field.clone(), "duplicate".to_string())]
+        assert!(codes(&node).is_empty());
+    }
+
+    #[test]
+    fn declared_inputs_and_outputs_reject_bad_ids_labels_tracks_and_duplicates() {
+        let node = node_with(
+            vec![
+                input("Music", " ", vec![]),
+                input("camera", "Camera", vec![Track::Video, Track::Video]),
+                input("camera", "Camera", vec![Track::Video]),
+            ],
+            vec![output("speakers", ""), output("speakers", "Speakers")],
         );
+        let field = |path: &str| path.to_string();
         assert_eq!(
-            codes(DeviceKind::Display, Some(vec![Track::Video])),
-            [(field, "not_allowed".to_string())]
+            codes(&node),
+            [
+                (field("node.inputs[0].id"), "invalid_characters".to_string()),
+                (field("node.inputs[0].label"), "blank".to_string()),
+                (field("node.inputs[0].tracks"), "empty".to_string()),
+                (field("node.inputs[1].tracks"), "duplicate".to_string()),
+                (field("node.inputs[2].id"), "duplicate".to_string()),
+                (field("node.outputs[0].label"), "blank".to_string()),
+                (field("node.outputs[1].id"), "duplicate".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_profile_cannot_take_an_output_or_feed_an_input() {
+        let mut node = node_with(Vec::new(), Vec::new());
+        let profile = &mut node.capabilities.hop_profiles[0];
+        std::mem::swap(&mut profile.ingress, &mut profile.egress);
+        let mut reversed = node.capabilities.hop_profiles[1].clone();
+        std::mem::swap(&mut reversed.ingress, &mut reversed.egress);
+        reversed.id = "reversed".to_string();
+        node.capabilities.hop_profiles.push(reversed);
+        assert_eq!(
+            codes(&node),
+            [
+                (
+                    "node.capabilities.hop_profiles[0].egress".to_string(),
+                    "wrong_end".to_string()
+                ),
+                (
+                    "node.capabilities.hop_profiles[2].ingress".to_string(),
+                    "wrong_end".to_string()
+                ),
+            ]
         );
     }
 }

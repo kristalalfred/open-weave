@@ -1295,49 +1295,18 @@
                             ]
                           },
                           {
-                            "type": "object",
-                            "properties": {
-                              "device": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "capture",
-                                      "display"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string"
-                                  }
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "input",
+                                  "output"
                                 ]
                               },
-                              "tracks": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "audio",
-                                        "video"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                }
+                              {
+                                "type": "string"
                               }
-                            },
-                            "required": [
-                              "device"
                             ]
-                          },
-                          {
-                            "type": "object"
                           }
                         ]
                       },
@@ -1387,49 +1356,18 @@
                             ]
                           },
                           {
-                            "type": "object",
-                            "properties": {
-                              "device": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "capture",
-                                      "display"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string"
-                                  }
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "input",
+                                  "output"
                                 ]
                               },
-                              "tracks": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "audio",
-                                        "video"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                }
+                              {
+                                "type": "string"
                               }
-                            },
-                            "required": [
-                              "device"
                             ]
-                          },
-                          {
-                            "type": "object"
                           }
                         ]
                       },
@@ -1798,6 +1736,69 @@
               "required": [
                 "attachments"
               ]
+            },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "tracks": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "audio",
+                            "video"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "label",
+                  "tracks"
+                ]
+              },
+              "default": []
+            },
+            "outputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "label"
+                ]
+              },
+              "default": []
             }
           },
           "required": [
@@ -1805,7 +1806,9 @@
             "endpoint",
             "status",
             "capabilities",
-            "topology"
+            "topology",
+            "inputs",
+            "outputs"
           ]
         }
       },
@@ -1982,6 +1985,8 @@
                                   "nodes_available",
                                   "node_missing",
                                   "node_offline",
+                                  "input_missing",
+                                  "output_missing",
                                   "hops_ready",
                                   "hops_pending",
                                   "hop_failed",
@@ -2351,6 +2356,8 @@
                                         "nodes_available",
                                         "node_missing",
                                         "node_offline",
+                                        "input_missing",
+                                        "output_missing",
                                         "hops_ready",
                                         "hops_pending",
                                         "hop_failed",
@@ -2900,11 +2907,20 @@
               {
                 "type": "object",
                 "properties": {
-                  "device": {
+                  "input": {
                     "type": "object",
                     "properties": {
                       "node": {
                         "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      },
+                      "id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
                         "minLength": 1,
                         "maxLength": 63,
                         "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -2923,7 +2939,46 @@
                   }
                 },
                 "required": [
-                  "device"
+                  "input"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "output": {
+                    "type": "object",
+                    "properties": {
+                      "node": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      },
+                      "id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      },
+                      "network": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "node"
+                    ]
+                  }
+                },
+                "required": [
+                  "output"
                 ],
                 "additionalProperties": false
               },
@@ -4044,11 +4099,20 @@
                 {
                   "type": "object",
                   "properties": {
-                    "device": {
+                    "input": {
                       "type": "object",
                       "properties": {
                         "node": {
                           "type": "string",
+                          "minLength": 1,
+                          "maxLength": 63,
+                          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                        },
+                        "id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
                           "minLength": 1,
                           "maxLength": 63,
                           "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -4067,7 +4131,45 @@
                     }
                   },
                   "required": [
-                    "device"
+                    "input"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "object",
+                      "properties": {
+                        "node": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 63,
+                          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                        },
+                        "id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "minLength": 1,
+                          "maxLength": 63,
+                          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                        },
+                        "network": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "node"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "output"
                   ]
                 },
                 {
@@ -4869,6 +4971,8 @@
                         "nodes_available",
                         "node_missing",
                         "node_offline",
+                        "input_missing",
+                        "output_missing",
                         "hops_ready",
                         "hops_pending",
                         "hop_failed",
@@ -5205,6 +5309,8 @@
                               "nodes_available",
                               "node_missing",
                               "node_offline",
+                              "input_missing",
+                              "output_missing",
                               "hops_ready",
                               "hops_pending",
                               "hop_failed",
@@ -5373,7 +5479,8 @@
                             "whip",
                             "whep",
                             "rist",
-                            "device"
+                            "input",
+                            "output"
                           ]
                         },
                         {
@@ -5384,17 +5491,25 @@
                     "role": {
                       "anyOf": [
                         {
-                          "type": "string",
+                          "type": [
+                            "string",
+                            "null"
+                          ],
                           "enum": [
                             "listen",
                             "connect",
-                            "capture",
-                            "display"
+                            null
                           ]
                         },
                         {
                           "type": "string"
                         }
+                      ]
+                    },
+                    "id": {
+                      "type": [
+                        "string",
+                        "null"
                       ]
                     },
                     "host": {
@@ -5479,8 +5594,7 @@
                     }
                   },
                   "required": [
-                    "transport",
-                    "role"
+                    "transport"
                   ]
                 },
                 "merge_ingress": {
@@ -5498,7 +5612,8 @@
                             "whip",
                             "whep",
                             "rist",
-                            "device"
+                            "input",
+                            "output"
                           ]
                         },
                         {
@@ -5509,17 +5624,25 @@
                     "role": {
                       "anyOf": [
                         {
-                          "type": "string",
+                          "type": [
+                            "string",
+                            "null"
+                          ],
                           "enum": [
                             "listen",
                             "connect",
-                            "capture",
-                            "display"
+                            null
                           ]
                         },
                         {
                           "type": "string"
                         }
+                      ]
+                    },
+                    "id": {
+                      "type": [
+                        "string",
+                        "null"
                       ]
                     },
                     "host": {
@@ -5604,8 +5727,7 @@
                     }
                   },
                   "required": [
-                    "transport",
-                    "role"
+                    "transport"
                   ]
                 },
                 "egresses": {
@@ -5625,7 +5747,8 @@
                               "whip",
                               "whep",
                               "rist",
-                              "device"
+                              "input",
+                              "output"
                             ]
                           },
                           {
@@ -5636,17 +5759,25 @@
                       "role": {
                         "anyOf": [
                           {
-                            "type": "string",
+                            "type": [
+                              "string",
+                              "null"
+                            ],
                             "enum": [
                               "listen",
                               "connect",
-                              "capture",
-                              "display"
+                              null
                             ]
                           },
                           {
                             "type": "string"
                           }
+                        ]
+                      },
+                      "id": {
+                        "type": [
+                          "string",
+                          "null"
                         ]
                       },
                       "host": {
@@ -5732,8 +5863,7 @@
                     },
                     "required": [
                       "branch_id",
-                      "transport",
-                      "role"
+                      "transport"
                     ]
                   }
                 },
@@ -6518,11 +6648,20 @@
                   {
                     "type": "object",
                     "properties": {
-                      "device": {
+                      "input": {
                         "type": "object",
                         "properties": {
                           "node": {
                             "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
                             "minLength": 1,
                             "maxLength": 63,
                             "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -6540,7 +6679,44 @@
                       }
                     },
                     "required": [
-                      "device"
+                      "input"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "output": {
+                        "type": "object",
+                        "properties": {
+                          "node": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "network": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "node"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "output"
                     ]
                   },
                   {
@@ -7820,11 +7996,20 @@
                     {
                       "type": "object",
                       "properties": {
-                        "device": {
+                        "input": {
                           "type": "object",
                           "properties": {
                             "node": {
                               "type": "string",
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
                               "minLength": 1,
                               "maxLength": 63,
                               "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -7842,7 +8027,44 @@
                         }
                       },
                       "required": [
-                        "device"
+                        "input"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "output": {
+                          "type": "object",
+                          "properties": {
+                            "node": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "network": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "node"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "output"
                       ]
                     },
                     {
@@ -9058,11 +9280,20 @@
                     {
                       "type": "object",
                       "properties": {
-                        "device": {
+                        "input": {
                           "type": "object",
                           "properties": {
                             "node": {
                               "type": "string",
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
                               "minLength": 1,
                               "maxLength": 63,
                               "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -9080,7 +9311,44 @@
                         }
                       },
                       "required": [
-                        "device"
+                        "input"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "output": {
+                          "type": "object",
+                          "properties": {
+                            "node": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "network": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "node"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "output"
                       ]
                     },
                     {
@@ -10360,11 +10628,20 @@
                       {
                         "type": "object",
                         "properties": {
-                          "device": {
+                          "input": {
                             "type": "object",
                             "properties": {
                               "node": {
                                 "type": "string",
+                                "minLength": 1,
+                                "maxLength": 63,
+                                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                              },
+                              "id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
                                 "minLength": 1,
                                 "maxLength": 63,
                                 "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -10382,7 +10659,44 @@
                           }
                         },
                         "required": [
-                          "device"
+                          "input"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "output": {
+                            "type": "object",
+                            "properties": {
+                              "node": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 63,
+                                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                              },
+                              "id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "minLength": 1,
+                                "maxLength": 63,
+                                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                              },
+                              "network": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "node"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "output"
                         ]
                       },
                       {
@@ -11617,11 +11931,20 @@
                     {
                       "type": "object",
                       "properties": {
-                        "device": {
+                        "input": {
                           "type": "object",
                           "properties": {
                             "node": {
                               "type": "string",
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
                               "minLength": 1,
                               "maxLength": 63,
                               "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -11640,7 +11963,46 @@
                         }
                       },
                       "required": [
-                        "device"
+                        "input"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "output": {
+                          "type": "object",
+                          "properties": {
+                            "node": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "minLength": 1,
+                              "maxLength": 63,
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                            },
+                            "network": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "node"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "output"
                       ],
                       "additionalProperties": false
                     },
@@ -12761,11 +13123,20 @@
                       {
                         "type": "object",
                         "properties": {
-                          "device": {
+                          "input": {
                             "type": "object",
                             "properties": {
                               "node": {
                                 "type": "string",
+                                "minLength": 1,
+                                "maxLength": 63,
+                                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                              },
+                              "id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
                                 "minLength": 1,
                                 "maxLength": 63,
                                 "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -12784,7 +13155,45 @@
                           }
                         },
                         "required": [
-                          "device"
+                          "input"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "output": {
+                            "type": "object",
+                            "properties": {
+                              "node": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 63,
+                                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                              },
+                              "id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "minLength": 1,
+                                "maxLength": 63,
+                                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                              },
+                              "network": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "node"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "output"
                         ]
                       },
                       {
@@ -13916,11 +14325,20 @@
                         {
                           "type": "object",
                           "properties": {
-                            "device": {
+                            "input": {
                               "type": "object",
                               "properties": {
                                 "node": {
                                   "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 63,
+                                  "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                },
+                                "id": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
                                   "minLength": 1,
                                   "maxLength": 63,
                                   "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -13938,7 +14356,44 @@
                             }
                           },
                           "required": [
-                            "device"
+                            "input"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "output": {
+                              "type": "object",
+                              "properties": {
+                                "node": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 63,
+                                  "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                },
+                                "id": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "minLength": 1,
+                                  "maxLength": 63,
+                                  "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                },
+                                "network": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "node"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "output"
                           ]
                         },
                         {
@@ -15218,11 +15673,20 @@
                           {
                             "type": "object",
                             "properties": {
-                              "device": {
+                              "input": {
                                 "type": "object",
                                 "properties": {
                                   "node": {
                                     "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 63,
+                                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                  },
+                                  "id": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
                                     "minLength": 1,
                                     "maxLength": 63,
                                     "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -15240,7 +15704,44 @@
                               }
                             },
                             "required": [
-                              "device"
+                              "input"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "output": {
+                                "type": "object",
+                                "properties": {
+                                  "node": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 63,
+                                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                  },
+                                  "id": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "minLength": 1,
+                                    "maxLength": 63,
+                                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                  },
+                                  "network": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "node"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "output"
                             ]
                           },
                           {
@@ -16474,11 +16975,20 @@
                           {
                             "type": "object",
                             "properties": {
-                              "device": {
+                              "input": {
                                 "type": "object",
                                 "properties": {
                                   "node": {
                                     "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 63,
+                                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                  },
+                                  "id": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
                                     "minLength": 1,
                                     "maxLength": 63,
                                     "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -16496,7 +17006,44 @@
                               }
                             },
                             "required": [
-                              "device"
+                              "input"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "output": {
+                                "type": "object",
+                                "properties": {
+                                  "node": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 63,
+                                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                  },
+                                  "id": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "minLength": 1,
+                                    "maxLength": 63,
+                                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                  },
+                                  "network": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "node"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "output"
                             ]
                           },
                           {
@@ -17776,11 +18323,20 @@
                             {
                               "type": "object",
                               "properties": {
-                                "device": {
+                                "input": {
                                   "type": "object",
                                   "properties": {
                                     "node": {
                                       "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 63,
+                                      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                    },
+                                    "id": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ],
                                       "minLength": 1,
                                       "maxLength": 63,
                                       "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -17798,7 +18354,44 @@
                                 }
                               },
                               "required": [
-                                "device"
+                                "input"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "output": {
+                                  "type": "object",
+                                  "properties": {
+                                    "node": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 63,
+                                      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                    },
+                                    "id": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ],
+                                      "minLength": 1,
+                                      "maxLength": 63,
+                                      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                                    },
+                                    "network": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "node"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "output"
                               ]
                             },
                             {

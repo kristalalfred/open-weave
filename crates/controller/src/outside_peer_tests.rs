@@ -64,6 +64,8 @@ fn listeners(host: &str, signalling: &str) -> NetworkListeners {
 
 fn strom(id: &str, host: &str, lan_port: u16) -> NodeDescriptor {
     NodeDescriptor {
+        inputs: Vec::new(),
+        outputs: Vec::new(),
         id: id.to_string(),
         endpoint: format!("http://{id}"),
         status: NodeStatus::Ready,

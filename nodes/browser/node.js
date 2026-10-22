@@ -1,6 +1,6 @@
 "use strict";
 
-const PROTOCOL_VERSION = 8;
+const PROTOCOL_VERSION = 9;
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 2000;
 const STALL_POLLS = 3;
@@ -79,6 +79,14 @@ async function southbound(method, path, body) {
   });
 }
 
+function inputs() {
+  return [{ id: "camera", label: "Camera", tracks: Object.keys(config.media).sort() }];
+}
+
+function outputs() {
+  return [{ id: "player", label: "Player" }];
+}
+
 function registration() {
   return {
     protocol_version: PROTOCOL_VERSION,
@@ -91,7 +99,7 @@ function registration() {
         hop_profiles: [
           {
             id: "camera-to-whip",
-            ingress: { device: "capture", tracks: Object.keys(config.media).sort() },
+            ingress: INPUT_TRANSPORT,
             egress: { transport: "whip", roles: ["connect"] },
             max_egresses: 1,
             media_behavior: "unknown",
@@ -99,7 +107,7 @@ function registration() {
           {
             id: "whep-to-display",
             ingress: { transport: "whep", roles: ["connect"] },
-            egress: { device: "display" },
+            egress: OUTPUT_TRANSPORT,
             max_egresses: 1,
             media_behavior: "unknown",
           },
@@ -108,6 +116,8 @@ function registration() {
       topology: {
         attachments: [{ id: "client", network: config.network, dial: true, listeners: {} }],
       },
+      inputs: inputs(),
+      outputs: outputs(),
     },
     endpoints: [],
     hop_status: hopStatuses(),
@@ -134,6 +144,8 @@ async function heartbeat() {
     const response = await southbound("POST", `/nodes/${nodeId}/heartbeat`, {
       node_id: nodeId,
       status: "ready",
+      inputs: inputs(),
+      outputs: outputs(),
       endpoints: [],
       hop_status: hopStatuses(),
     });
@@ -234,11 +246,12 @@ class Progress {
   }
 }
 
-const DEVICE_TRANSPORT = "device";
+const INPUT_TRANSPORT = "input";
+const OUTPUT_TRANSPORT = "output";
 
 function socketName(socket) {
   if (!socket) return "nothing";
-  return socket.transport === DEVICE_TRANSPORT ? `${socket.role} device` : socket.transport;
+  return socket.id ? `${socket.transport} ${socket.id}` : socket.transport;
 }
 
 class Hop {
@@ -253,7 +266,7 @@ class Hop {
     const egress = spec.egresses[0];
     if (
       spec.profile_id === "camera-to-whip" &&
-      spec.ingress.transport === DEVICE_TRANSPORT &&
+      spec.ingress.transport === INPUT_TRANSPORT &&
       egress.transport === "whip"
     ) {
       return new SenderHop(spec);
@@ -261,7 +274,7 @@ class Hop {
     if (
       spec.profile_id === "whep-to-display" &&
       spec.ingress.transport === "whep" &&
-      egress.transport === DEVICE_TRANSPORT
+      egress.transport === OUTPUT_TRANSPORT
     ) {
       return new ReceiverHop(spec);
     }
@@ -498,7 +511,7 @@ class UnsupportedHop extends Hop {
 
   async start() {
     const egresses = this.spec.egresses.map(socketName).join(", ") || "nothing";
-    const unsupported = `this node realises device→whip and whep→device only, not ${socketName(this.spec.ingress)}→${egresses}`;
+    const unsupported = `this node realises input→whip and whep→output only, not ${socketName(this.spec.ingress)}→${egresses}`;
     this.error = this.reason || unsupported;
     log(`${this.spec.id}: ${this.error}`);
     render();
@@ -561,10 +574,11 @@ function manifests() {
   const returnName = derivedStreamName("return");
   return `name: ${cameraName}
 source:
-  device:
+  input:
     node: ${nodeId}
 destinations:
-  - srt:
+  - id: studio
+    srt:
       node: strom-node-1
 
 name: ${returnName}
@@ -572,7 +586,8 @@ source:
   srt:
     node: strom-node-1
 destinations:
-  - device:
+  - id: player
+    output:
       node: ${nodeId}`;
 }
 

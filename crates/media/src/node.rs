@@ -187,6 +187,8 @@ impl Control {
             }
         }
         let heartbeat = NodeHeartbeat {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             node_id: registration.node.id,
             status: NodeStatus::Ready,
             endpoints: vec![],
@@ -236,6 +238,8 @@ pub async fn run(config: Config) -> Result<()> {
         .map_err(|error| anyhow::anyhow!("generating origin runtime epoch: {error}"))?;
     let epoch = u64::from_be_bytes(epoch_bytes).max(1);
     let node = NodeDescriptor {
+        inputs: Vec::new(),
+        outputs: Vec::new(),
         id: config.node.id.clone(),
         endpoint: config.node.public_endpoint(),
         status: NodeStatus::Ready,

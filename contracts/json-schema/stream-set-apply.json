@@ -403,11 +403,20 @@
               {
                 "type": "object",
                 "properties": {
-                  "device": {
+                  "input": {
                     "type": "object",
                     "properties": {
                       "node": {
                         "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      },
+                      "id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
                         "minLength": 1,
                         "maxLength": 63,
                         "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -426,7 +435,46 @@
                   }
                 },
                 "required": [
-                  "device"
+                  "input"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "output": {
+                    "type": "object",
+                    "properties": {
+                      "node": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      },
+                      "id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      },
+                      "network": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "node"
+                    ]
+                  }
+                },
+                "required": [
+                  "output"
                 ],
                 "additionalProperties": false
               },
@@ -1547,11 +1595,20 @@
                 {
                   "type": "object",
                   "properties": {
-                    "device": {
+                    "input": {
                       "type": "object",
                       "properties": {
                         "node": {
                           "type": "string",
+                          "minLength": 1,
+                          "maxLength": 63,
+                          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                        },
+                        "id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
                           "minLength": 1,
                           "maxLength": 63,
                           "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -1570,7 +1627,45 @@
                     }
                   },
                   "required": [
-                    "device"
+                    "input"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "object",
+                      "properties": {
+                        "node": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 63,
+                          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                        },
+                        "id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "minLength": 1,
+                          "maxLength": 63,
+                          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                        },
+                        "network": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "node"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "output"
                   ]
                 },
                 {

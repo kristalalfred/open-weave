@@ -227,49 +227,18 @@
                             ]
                           },
                           {
-                            "type": "object",
-                            "properties": {
-                              "device": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "capture",
-                                      "display"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string"
-                                  }
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "input",
+                                  "output"
                                 ]
                               },
-                              "tracks": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "audio",
-                                        "video"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                }
+                              {
+                                "type": "string"
                               }
-                            },
-                            "required": [
-                              "device"
                             ]
-                          },
-                          {
-                            "type": "object"
                           }
                         ]
                       },
@@ -319,49 +288,18 @@
                             ]
                           },
                           {
-                            "type": "object",
-                            "properties": {
-                              "device": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "capture",
-                                      "display"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string"
-                                  }
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "input",
+                                  "output"
                                 ]
                               },
-                              "tracks": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "audio",
-                                        "video"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                }
+                              {
+                                "type": "string"
                               }
-                            },
-                            "required": [
-                              "device"
                             ]
-                          },
-                          {
-                            "type": "object"
                           }
                         ]
                       },
@@ -860,6 +798,8 @@
                           "nodes_available",
                           "node_missing",
                           "node_offline",
+                          "input_missing",
+                          "output_missing",
                           "hops_ready",
                           "hops_pending",
                           "hop_failed",
@@ -987,6 +927,8 @@
                                 "nodes_available",
                                 "node_missing",
                                 "node_offline",
+                                "input_missing",
+                                "output_missing",
                                 "hops_ready",
                                 "hops_pending",
                                 "hop_failed",

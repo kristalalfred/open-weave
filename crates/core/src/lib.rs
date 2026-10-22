@@ -33,8 +33,8 @@ pub use media::{
     Framerate, MediaFormat, Mismatch, VideoCodec, VideoConstraint, VideoFormat,
 };
 pub use validation::{
-    RESOURCE_ID_MAX_LEN, ResourceIdError, ValidationIssue, resource_id_issue, validate_node,
-    validate_resource_id, validate_stream,
+    RESOURCE_ID_MAX_LEN, ResourceIdError, ValidationIssue, resource_id_issue, validate_local_io,
+    validate_node, validate_resource_id, validate_stream,
 };
 
 pub const ROUTE_ENDPOINTS: &str = "/endpoints";
@@ -51,7 +51,7 @@ pub const ROUTE_STREAM_SET: &str = "/stream-sets/{owner}";
 pub const ROUTE_STREAM_SETS: &str = "/stream-sets";
 pub const ROUTE_STREAMS: &str = "/streams";
 
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const PROTOCOL_VERSION: u32 = 9;
 
 #[must_use]
 pub fn protocol_compatible(version: u32) -> bool {
@@ -176,6 +176,8 @@ mod contract_tests {
     #[test]
     fn a_rist_listener_needs_a_host_and_a_port_pair() {
         let node = |host: &str, start, end| NodeDescriptor {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             id: "studio".to_string(),
             endpoint: "http://studio".to_string(),
             status: NodeStatus::Ready,
@@ -402,15 +404,15 @@ fn default_enabled() -> bool {
     true
 }
 
-pub const DEVICE_TRANSPORT: &str = "device";
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[allow(clippy::large_enum_variant)]
 pub enum StreamTransport {
     Srt(SrtEndpoint),
 
-    Device(NodeEndpoint),
+    Input(LocalEndpoint),
+
+    Output(LocalEndpoint),
 
     Whip(SignallingEndpoint),
 
@@ -422,7 +424,7 @@ impl StreamTransport {
     pub fn node(&self) -> Option<&str> {
         match self {
             Self::Srt(endpoint) => endpoint.node.as_deref(),
-            Self::Device(endpoint) => Some(&endpoint.node),
+            Self::Input(endpoint) | Self::Output(endpoint) => Some(&endpoint.node),
             Self::Whip(endpoint) | Self::Whep(endpoint) => Some(&endpoint.node),
         }
     }
@@ -431,7 +433,7 @@ impl StreamTransport {
     pub fn network(&self) -> Option<&str> {
         match self {
             Self::Srt(endpoint) => endpoint.network.as_deref(),
-            Self::Device(endpoint) => endpoint.network.as_deref(),
+            Self::Input(endpoint) | Self::Output(endpoint) => endpoint.network.as_deref(),
             Self::Whip(endpoint) | Self::Whep(endpoint) => endpoint.network.as_deref(),
         }
     }
@@ -440,7 +442,8 @@ impl StreamTransport {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Srt(_) => Transport::Srt.name(),
-            Self::Device(_) => DEVICE_TRANSPORT,
+            Self::Input(_) => LocalEnd::Input.name(),
+            Self::Output(_) => LocalEnd::Output.name(),
             Self::Whip(_) => Transport::Whip.name(),
             Self::Whep(_) => Transport::Whep.name(),
         }
@@ -451,7 +454,7 @@ impl StreamTransport {
         match self {
             Self::Srt(endpoint) => endpoint.format.as_ref(),
             Self::Whip(endpoint) | Self::Whep(endpoint) => endpoint.format.as_ref(),
-            Self::Device(_) => None,
+            Self::Input(_) | Self::Output(_) => None,
         }
     }
 
@@ -460,7 +463,7 @@ impl StreamTransport {
         match self {
             Self::Srt(endpoint) => endpoint.accepts.as_ref(),
             Self::Whip(endpoint) | Self::Whep(endpoint) => endpoint.accepts.as_ref(),
-            Self::Device(_) => None,
+            Self::Input(_) | Self::Output(_) => None,
         }
     }
 }
@@ -486,12 +489,19 @@ pub struct SignallingEndpoint {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct NodeEndpoint {
+pub struct LocalEndpoint {
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     )]
     pub node: String,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        length(min = 1, max = 63),
+        regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    )]
+    pub id: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<String>,
@@ -683,7 +693,7 @@ pub enum SocketSpec {
 
     Rist(RistSocket),
 
-    Device(DeviceKind),
+    Local(LocalSocket),
 }
 
 impl JsonSchema for SocketSpec {
@@ -701,6 +711,22 @@ impl JsonSchema for SocketSpec {
 }
 
 impl SocketSpec {
+    #[must_use]
+    pub fn input(id: impl Into<String>) -> Self {
+        Self::Local(LocalSocket {
+            end: LocalEnd::Input,
+            id: id.into(),
+        })
+    }
+
+    #[must_use]
+    pub fn output(id: impl Into<String>) -> Self {
+        Self::Local(LocalSocket {
+            end: LocalEnd::Output,
+            id: id.into(),
+        })
+    }
+
     #[must_use]
     pub fn srt_listen(port: u16, latency: u32) -> Self {
         Self::Srt(SrtSocket::Listen {
@@ -744,7 +770,7 @@ impl SocketSpec {
             Self::Srt(socket) => socket.role().name(),
             Self::Whip(socket) | Self::Whep(socket) => socket.role.name(),
             Self::Rist(socket) => socket.role().name(),
-            Self::Device(kind) => kind.name(),
+            Self::Local(socket) => socket.end.name(),
         }
     }
 }
@@ -756,7 +782,7 @@ impl std::fmt::Display for SocketSpec {
             Self::Whip(_) => f.write_str(Transport::Whip.name()),
             Self::Whep(_) => f.write_str(Transport::Whep.name()),
             Self::Rist(_) => f.write_str(Transport::Rist.name()),
-            Self::Device(kind) => write!(f, "{kind} device"),
+            Self::Local(socket) => write!(f, "{} {}", socket.end, socket.id),
         }
     }
 }
@@ -848,11 +874,20 @@ impl SignallingSocket {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalSocket {
+    pub end: LocalEnd,
+    pub id: String,
+}
+
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SocketRepr {
     transport: SocketTransport,
-    role: SocketEnd,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role: Option<SocketRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -872,61 +907,8 @@ enum SocketTransport {
     Whip,
     Whep,
     Rist,
-    Device,
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-enum SocketEnd {
-    Listen,
-    Connect,
-    Capture,
-    Display,
-}
-
-impl SocketEnd {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Listen => SocketRole::Listen.name(),
-            Self::Connect => SocketRole::Connect.name(),
-            Self::Capture => DeviceKind::Capture.name(),
-            Self::Display => DeviceKind::Display.name(),
-        }
-    }
-
-    fn link_role(self) -> Result<SocketRole, String> {
-        match self {
-            Self::Listen => Ok(SocketRole::Listen),
-            Self::Connect => Ok(SocketRole::Connect),
-            Self::Capture | Self::Display => Err(format!("{} is not a socket role", self.name())),
-        }
-    }
-
-    fn device_kind(self) -> Result<DeviceKind, String> {
-        match self {
-            Self::Capture => Ok(DeviceKind::Capture),
-            Self::Display => Ok(DeviceKind::Display),
-            Self::Listen | Self::Connect => Err(format!("{} is not a device role", self.name())),
-        }
-    }
-}
-
-impl From<SocketRole> for SocketEnd {
-    fn from(role: SocketRole) -> Self {
-        match role {
-            SocketRole::Listen => Self::Listen,
-            SocketRole::Connect => Self::Connect,
-        }
-    }
-}
-
-impl From<DeviceKind> for SocketEnd {
-    fn from(kind: DeviceKind) -> Self {
-        match kind {
-            DeviceKind::Capture => Self::Capture,
-            DeviceKind::Display => Self::Display,
-        }
-    }
+    Input,
+    Output,
 }
 
 fn reject_extra_fields<const N: usize>(
@@ -939,11 +921,16 @@ fn reject_extra_fields<const N: usize>(
     }
 }
 
+fn link_role(socket: &str, role: Option<SocketRole>) -> Result<SocketRole, String> {
+    role.ok_or_else(|| format!("a {socket} socket needs a role"))
+}
+
 impl From<&SocketSpec> for SocketRepr {
     fn from(spec: &SocketSpec) -> Self {
         let bare = |transport, role| Self {
             transport,
             role,
+            id: None,
             host: None,
             port: None,
             url: None,
@@ -954,34 +941,43 @@ impl From<&SocketSpec> for SocketRepr {
             SocketSpec::Srt(SrtSocket::Listen { port, params }) => Self {
                 port: Some(*port),
                 params: Some(params.clone()),
-                ..bare(SocketTransport::Srt, SocketEnd::Listen)
+                ..bare(SocketTransport::Srt, Some(SocketRole::Listen))
             },
             SocketSpec::Srt(SrtSocket::Connect { host, port, params }) => Self {
                 host: Some(host.clone()),
                 port: Some(*port),
                 params: Some(params.clone()),
-                ..bare(SocketTransport::Srt, SocketEnd::Connect)
+                ..bare(SocketTransport::Srt, Some(SocketRole::Connect))
             },
             SocketSpec::Whip(socket) => Self {
                 url: Some(socket.url.clone()),
                 endpoint_id: Some(socket.endpoint_id.clone()),
-                ..bare(SocketTransport::Whip, socket.role.into())
+                ..bare(SocketTransport::Whip, Some(socket.role))
             },
             SocketSpec::Whep(socket) => Self {
                 url: Some(socket.url.clone()),
                 endpoint_id: Some(socket.endpoint_id.clone()),
-                ..bare(SocketTransport::Whep, socket.role.into())
+                ..bare(SocketTransport::Whep, Some(socket.role))
             },
             SocketSpec::Rist(RistSocket::Listen { port }) => Self {
                 port: Some(*port),
-                ..bare(SocketTransport::Rist, SocketEnd::Listen)
+                ..bare(SocketTransport::Rist, Some(SocketRole::Listen))
             },
             SocketSpec::Rist(RistSocket::Connect { host, port }) => Self {
                 host: Some(host.clone()),
                 port: Some(*port),
-                ..bare(SocketTransport::Rist, SocketEnd::Connect)
+                ..bare(SocketTransport::Rist, Some(SocketRole::Connect))
             },
-            SocketSpec::Device(kind) => bare(SocketTransport::Device, (*kind).into()),
+            SocketSpec::Local(socket) => Self {
+                id: Some(socket.id.clone()),
+                ..bare(
+                    match socket.end {
+                        LocalEnd::Input => SocketTransport::Input,
+                        LocalEnd::Output => SocketTransport::Output,
+                    },
+                    None,
+                )
+            },
         }
     }
 }
@@ -993,6 +989,7 @@ impl TryFrom<SocketRepr> for SocketSpec {
         let SocketRepr {
             transport,
             role,
+            id,
             host,
             port,
             url,
@@ -1005,13 +1002,14 @@ impl TryFrom<SocketRepr> for SocketSpec {
                 reject_extra_fields(
                     "srt",
                     [
+                        ("id", id.is_some()),
                         ("url", url.is_some()),
                         ("endpoint_id", endpoint_id.is_some()),
                     ],
                 )?;
                 let port = port.ok_or_else(|| "an srt socket needs a port".to_string())?;
                 let params = params.unwrap_or_default();
-                match role.link_role()? {
+                match link_role("srt", role)? {
                     SocketRole::Listen => {
                         reject_extra_fields("listening srt", [("host", host.is_some())])?;
                         Ok(Self::Srt(SrtSocket::Listen { port, params }))
@@ -1034,13 +1032,14 @@ impl TryFrom<SocketRepr> for SocketSpec {
                 reject_extra_fields(
                     name,
                     [
+                        ("id", id.is_some()),
                         ("host", host.is_some()),
                         ("port", port.is_some()),
                         ("params", params.is_some()),
                     ],
                 )?;
                 let socket = SignallingSocket {
-                    role: role.link_role()?,
+                    role: link_role(name, role)?,
                     url: url.ok_or_else(|| format!("a {name} socket needs a url"))?,
                     endpoint_id: endpoint_id
                         .ok_or_else(|| format!("a {name} socket needs an endpoint_id"))?,
@@ -1055,13 +1054,14 @@ impl TryFrom<SocketRepr> for SocketSpec {
                 reject_extra_fields(
                     "rist",
                     [
+                        ("id", id.is_some()),
                         ("url", url.is_some()),
                         ("endpoint_id", endpoint_id.is_some()),
                         ("params", params.is_some()),
                     ],
                 )?;
                 let port = port.ok_or_else(|| "a rist socket needs a port".to_string())?;
-                match role.link_role()? {
+                match link_role("rist", role)? {
                     SocketRole::Listen => {
                         reject_extra_fields("listening rist", [("host", host.is_some())])?;
                         Ok(Self::Rist(RistSocket::Listen { port }))
@@ -1073,10 +1073,16 @@ impl TryFrom<SocketRepr> for SocketSpec {
                     }
                 }
             }
-            SocketTransport::Device => {
+            SocketTransport::Input | SocketTransport::Output => {
+                let end = if matches!(transport, SocketTransport::Input) {
+                    LocalEnd::Input
+                } else {
+                    LocalEnd::Output
+                };
                 reject_extra_fields(
-                    DEVICE_TRANSPORT,
+                    end.name(),
                     [
+                        ("role", role.is_some()),
                         ("host", host.is_some()),
                         ("port", port.is_some()),
                         ("url", url.is_some()),
@@ -1084,7 +1090,8 @@ impl TryFrom<SocketRepr> for SocketSpec {
                         ("params", params.is_some()),
                     ],
                 )?;
-                Ok(Self::Device(role.device_kind()?))
+                let id = id.ok_or_else(|| format!("an {} socket needs an id", end.name()))?;
+                Ok(Self::Local(LocalSocket { end, id }))
             }
         }
     }
@@ -1182,22 +1189,25 @@ impl SignallingTransport {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum DeviceKind {
-    Capture,
-    Display,
+pub enum LocalEnd {
+    Input,
+    Output,
 }
 
-impl DeviceKind {
+pub const INPUT_TRANSPORT: &str = "input";
+pub const OUTPUT_TRANSPORT: &str = "output";
+
+impl LocalEnd {
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
-            Self::Capture => "capture",
-            Self::Display => "display",
+            Self::Input => INPUT_TRANSPORT,
+            Self::Output => OUTPUT_TRANSPORT,
         }
     }
 }
 
-impl std::fmt::Display for DeviceKind {
+impl std::fmt::Display for LocalEnd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.name())
     }
@@ -1460,6 +1470,53 @@ pub struct NodeDescriptor {
     #[serde(default)]
     pub capabilities: NodeCapabilities,
     pub topology: NodeTopology,
+    #[serde(default)]
+    pub inputs: Vec<NodeInput>,
+    #[serde(default)]
+    pub outputs: Vec<NodeOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NodeInput {
+    #[schemars(
+        length(min = 1, max = 63),
+        regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    )]
+    pub id: String,
+    pub label: String,
+    #[schemars(length(min = 1))]
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NodeOutput {
+    #[schemars(
+        length(min = 1, max = 63),
+        regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    )]
+    pub id: String,
+    pub label: String,
+}
+
+impl NodeDescriptor {
+    #[must_use]
+    pub fn local_ids(&self, end: LocalEnd) -> Vec<&str> {
+        match end {
+            LocalEnd::Input => self.inputs.iter().map(|input| input.id.as_str()).collect(),
+            LocalEnd::Output => self
+                .outputs
+                .iter()
+                .map(|output| output.id.as_str())
+                .collect(),
+        }
+    }
+
+    #[must_use]
+    pub fn input(&self, id: &str) -> Option<&NodeInput> {
+        self.inputs.iter().find(|input| input.id == id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
@@ -1487,17 +1544,14 @@ impl NodeCapabilities {
     }
 
     #[must_use]
-    pub fn offers_ingress_device(&self, kind: DeviceKind) -> bool {
-        self.hop_profiles.iter().any(
-            |profile| matches!(&profile.ingress, HopEndpointClass::Device(device) if device.device == kind),
-        )
-    }
-
-    #[must_use]
-    pub fn offers_egress_device(&self, kind: DeviceKind) -> bool {
-        self.hop_profiles.iter().any(
-            |profile| matches!(&profile.egress, HopEndpointClass::Device(device) if device.device == kind),
-        )
+    pub fn offers_local(&self, end: LocalEnd) -> bool {
+        self.hop_profiles.iter().any(|profile| {
+            let class = match end {
+                LocalEnd::Input => &profile.ingress,
+                LocalEnd::Output => &profile.egress,
+            };
+            *class == HopEndpointClass::Local(end)
+        })
     }
 }
 
@@ -1530,7 +1584,7 @@ pub struct HopProfile {
 #[serde(untagged)]
 pub enum HopEndpointClass {
     Transport(TransportClass),
-    Device(DeviceClass),
+    Local(LocalEnd),
 }
 
 impl HopEndpointClass {
@@ -1554,7 +1608,7 @@ impl HopEndpointClass {
             (Self::Transport(class), SocketSpec::Rist(socket)) => {
                 class.transport == Transport::Rist && class.roles.contains(socket.role())
             }
-            (Self::Device(class), SocketSpec::Device(device)) => class.device == *device,
+            (Self::Local(end), SocketSpec::Local(socket)) => *end == socket.end,
             _ => false,
         }
     }
@@ -1565,15 +1619,6 @@ impl HopEndpointClass {
 pub struct TransportClass {
     pub transport: Transport,
     pub roles: RoleSet,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DeviceClass {
-    pub device: DeviceKind,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tracks: Option<Vec<Track>>,
 }
 
 #[derive(
@@ -1951,6 +1996,10 @@ pub struct NodeHeartbeat {
     )]
     pub node_id: String,
     pub status: NodeStatus,
+    #[serde(default)]
+    pub inputs: Vec<NodeInput>,
+    #[serde(default)]
+    pub outputs: Vec<NodeOutput>,
     #[serde(default)]
     pub endpoints: Vec<EndpointDescriptor>,
     #[serde(default)]
@@ -2745,36 +2794,45 @@ mod tests {
     }
 
     #[test]
-    fn device_endpoint_round_trips_and_denies_unknown_fields() {
+    fn input_and_output_endpoints_round_trip_and_deny_unknown_fields() {
         let json = serde_json::json!({
             "name": "alice-cam",
-            "source": { "device": { "node": "browser-a1b2" } },
-            "destinations": [ { "id": "studio", "srt": { "node": "strom-node-2" } } ]
+            "source": { "input": { "node": "browser-a1b2", "id": "camera" } },
+            "destinations": [ { "id": "desk", "output": { "node": "filips-mac" } } ]
         });
-        let stream: StreamDefinition = serde_json::from_value(json).expect("parse stream");
+        let stream: StreamDefinition = serde_json::from_value(json.clone()).expect("parse stream");
         assert_eq!(
             stream.source,
-            StreamTransport::Device(NodeEndpoint {
+            StreamTransport::Input(LocalEndpoint {
                 node: "browser-a1b2".to_string(),
+                id: Some("camera".to_string()),
+                network: None,
+            })
+        );
+        assert_eq!(
+            stream.destinations[0].endpoint,
+            StreamTransport::Output(LocalEndpoint {
+                node: "filips-mac".to_string(),
+                id: None,
                 network: None,
             })
         );
         assert_eq!(stream.source.node(), Some("browser-a1b2"));
-        assert_eq!(stream.source.kind(), "device");
+        assert_eq!(stream.source.kind(), "input");
+        assert_eq!(stream.destinations[0].kind(), "output");
+        assert_eq!(
+            serde_json::to_value(&stream.source).unwrap(),
+            json["source"]
+        );
 
         let round_trip: StreamDefinition =
             serde_json::from_str(&serde_json::to_string(&stream).unwrap()).unwrap();
         assert_eq!(stream, round_trip);
-        let value = serde_json::to_value(&stream).unwrap();
-        assert_eq!(
-            value["source"]["device"],
-            serde_json::json!({ "node": "browser-a1b2" })
-        );
 
         let with_latency: Result<StreamTransport, _> = serde_json::from_value(serde_json::json!({
-            "device": { "node": "browser-a1b2", "latency": 200 }
+            "input": { "node": "browser-a1b2", "latency": 200 }
         }));
-        assert!(with_latency.is_err(), "a device endpoint has no SRT fields");
+        assert!(with_latency.is_err(), "an input endpoint has no SRT fields");
     }
 
     #[test]
@@ -2802,14 +2860,15 @@ mod tests {
     }
 
     #[test]
-    fn device_source_declares_no_format_so_nothing_conflicts() {
+    fn input_source_declares_no_format_so_nothing_conflicts() {
         let stream = StreamDefinition {
             name: "alice-cam".to_string(),
             enabled: true,
             format_policy: crate::FormatPolicy::Report,
             allow_cleartext_links: false,
-            source: StreamTransport::Device(NodeEndpoint {
+            source: StreamTransport::Input(LocalEndpoint {
                 node: "browser-a1b2".to_string(),
+                id: None,
                 network: None,
             }),
             destinations: vec![StreamDestination {
@@ -2873,12 +2932,12 @@ mod tests {
                 }),
             ),
             (
-                SocketSpec::Device(DeviceKind::Capture),
-                serde_json::json!({ "transport": "device", "role": "capture" }),
+                SocketSpec::input("camera"),
+                serde_json::json!({ "transport": "input", "id": "camera" }),
             ),
             (
-                SocketSpec::Device(DeviceKind::Display),
-                serde_json::json!({ "transport": "device", "role": "display" }),
+                SocketSpec::output("player"),
+                serde_json::json!({ "transport": "output", "id": "player" }),
             ),
         ];
 
@@ -2927,14 +2986,16 @@ mod tests {
                 "transport": "whep", "role": "connect", "url": "http://x/whep/y",
                 "endpoint_id": "y", "params": {}
             }),
-            serde_json::json!({ "transport": "device", "role": "connect" }),
-            serde_json::json!({ "transport": "srt", "role": "capture", "port": 7001 }),
-            serde_json::json!({ "transport": "device", "role": "capture", "port": 7001 }),
+            serde_json::json!({ "transport": "input" }),
+            serde_json::json!({ "transport": "input", "role": "connect", "id": "camera" }),
+            serde_json::json!({ "transport": "srt", "port": 7001 }),
+            serde_json::json!({ "transport": "srt", "role": "listen", "port": 7001, "id": "x" }),
+            serde_json::json!({ "transport": "output", "id": "player", "port": 7001 }),
             serde_json::json!({ "transport": "srt", "role": "listen", "port": 7001, "bogus": 1 }),
             serde_json::json!({
                 "transport": "srt", "role": "listen", "port": 7001, "endpoint_id": "y"
             }),
-            serde_json::json!({ "transport": "device", "role": "capture", "endpoint_id": "y" }),
+            serde_json::json!({ "transport": "input", "id": "camera", "endpoint_id": "y" }),
         ];
 
         for wire in rejected {
@@ -2944,7 +3005,7 @@ mod tests {
     }
 
     #[test]
-    fn socket_display_names_the_transport_or_the_device() {
+    fn socket_display_names_the_transport_or_the_local_end() {
         assert_eq!(SocketSpec::srt_listen(7001, 200).to_string(), "srt");
         assert_eq!(
             SocketSpec::signalling(
@@ -2966,14 +3027,8 @@ mod tests {
             .to_string(),
             "whep"
         );
-        assert_eq!(
-            SocketSpec::Device(DeviceKind::Capture).to_string(),
-            "capture device"
-        );
-        assert_eq!(
-            SocketSpec::Device(DeviceKind::Display).to_string(),
-            "display device"
-        );
+        assert_eq!(SocketSpec::input("camera").to_string(), "input camera");
+        assert_eq!(SocketSpec::output("player").to_string(), "output player");
     }
 
     #[test]
@@ -2988,20 +3043,19 @@ mod tests {
     }
 
     #[test]
-    fn hop_profiles_decide_which_transports_roles_and_devices_a_node_offers() {
+    fn hop_profiles_decide_which_transports_roles_and_local_ends_a_node_offers() {
         let capabilities: NodeCapabilities = serde_json::from_value(serde_json::json!({
             "hop_profiles": [{
                 "id": "camera-to-whip",
-                "ingress": { "device": "capture" },
+                "ingress": "input",
                 "egress": { "transport": "whip", "roles": ["connect"] },
                 "max_egresses": 1
             }]
         }))
         .expect("parse capabilities");
 
-        assert!(capabilities.offers_ingress_device(DeviceKind::Capture));
-        assert!(!capabilities.offers_ingress_device(DeviceKind::Display));
-        assert!(!capabilities.offers_egress_device(DeviceKind::Capture));
+        assert!(capabilities.offers_local(LocalEnd::Input));
+        assert!(!capabilities.offers_local(LocalEnd::Output));
         assert!(capabilities.offers_egress(Transport::Whip, SocketRole::Connect));
         assert!(!capabilities.offers_egress(Transport::Whip, SocketRole::Listen));
         assert!(!capabilities.offers_ingress(Transport::Whip, SocketRole::Connect));
@@ -3014,7 +3068,7 @@ mod tests {
         let bare = NodeCapabilities::default();
         assert!(!bare.offers_ingress(Transport::Srt, SocketRole::Listen));
         assert!(!bare.offers_egress(Transport::Srt, SocketRole::Connect));
-        assert!(!bare.offers_ingress_device(DeviceKind::Capture));
+        assert!(!bare.offers_local(LocalEnd::Input));
     }
 
     #[test]
@@ -3079,7 +3133,7 @@ mod tests {
     }
 
     #[test]
-    fn transport_and_device_names_match_their_wire_form() {
+    fn transport_and_local_end_names_match_their_wire_form() {
         for transport in [Transport::Srt, Transport::Whip, Transport::Whep] {
             assert_eq!(
                 serde_json::to_value(transport).unwrap(),
@@ -3087,12 +3141,12 @@ mod tests {
             );
             assert_eq!(transport.to_string(), transport.name());
         }
-        for kind in [DeviceKind::Capture, DeviceKind::Display] {
+        for end in [LocalEnd::Input, LocalEnd::Output] {
             assert_eq!(
-                serde_json::to_value(kind).unwrap(),
-                serde_json::json!(kind.name())
+                serde_json::to_value(end).unwrap(),
+                serde_json::json!(end.name())
             );
-            assert_eq!(kind.to_string(), kind.name());
+            assert_eq!(end.to_string(), end.name());
         }
     }
 
@@ -3129,14 +3183,14 @@ mod tests {
     #[test]
     fn hop_revisions_match_the_browser_canonical_json_vector() {
         let hop: DesiredHop = serde_json::from_value(serde_json::json!({
-            "id": "hop-a", "node_id": "node-a", "profile_id": "device", "role": "sender",
-            "ingress": { "transport": "device", "role": "capture" },
-            "egresses": [{ "branch_id": "studio", "transport": "device", "role": "display" }]
+            "id": "hop-a", "node_id": "node-a", "profile_id": "local", "role": "sender",
+            "ingress": { "transport": "input", "id": "camera" },
+            "egresses": [{ "branch_id": "studio", "transport": "output", "id": "player" }]
         }))
         .unwrap();
         assert_eq!(
             hop.revision(),
-            "198617e1cc4b9ee43aa31d6755d19582d759073a5fe0dc7ccad8ff5e1b27d591"
+            "3863eff83ea855efb81128098118c8f26b03294081b15e0b02441ec7a66e516d"
         );
     }
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::webhook::EventType;
 use crate::{
     ApiErrorCode, NodeStatus, PathStatus, PlanStatus, ReconcileStatus, StartingState,
-    StreamConditionReason, StreamConditionStatus, StreamConditionType, StreamSetAction,
+    StreamConditionReason, StreamConditionStatus, StreamConditionType, StreamSetAction, Track,
 };
 
 fn report_policy() -> Open<crate::FormatPolicy> {
@@ -252,6 +252,23 @@ pub struct NodeDescriptor {
     pub endpoint: String,
     pub capabilities: NodeCapabilities,
     pub topology: NodeTopology,
+    pub inputs: Vec<NodeInput>,
+    pub outputs: Vec<NodeOutput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+pub struct NodeInput {
+    pub id: String,
+    pub label: String,
+    pub tracks: Vec<Open<Track>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+pub struct NodeOutput {
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

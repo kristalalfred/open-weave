@@ -1445,6 +1445,8 @@ pub(crate) mod tests {
         NodeRegistration {
             protocol_version: weave_core::PROTOCOL_VERSION,
             node: NodeDescriptor {
+                inputs: Vec::new(),
+                outputs: Vec::new(),
                 id: id.to_string(),
                 endpoint: "http://10.0.0.1:8080".to_string(),
                 status: NodeStatus::Ready,

@@ -58,7 +58,7 @@ pub enum MappingError {
     NoEgress,
     #[error("no Strom flow shape merges a second ingress")]
     MergeIngress,
-    #[error("no Strom flow shape carries a {0} socket")]
+    #[error("no Strom flow shape carries the {0} socket")]
     UnsupportedSocket(String),
     #[error(
         "no Strom flow shape fans one {ingress} ingress out over both {first} and {second} egresses"
@@ -102,7 +102,7 @@ enum Shape {
     Whip,
     Whep,
     Rist,
-    Device,
+    Local,
 }
 
 fn shape(spec: &SocketSpec) -> Shape {
@@ -111,7 +111,7 @@ fn shape(spec: &SocketSpec) -> Shape {
         SocketSpec::Whip(_) => Shape::Whip,
         SocketSpec::Whep(_) => Shape::Whep,
         SocketSpec::Rist(_) => Shape::Rist,
-        SocketSpec::Device(_) => Shape::Device,
+        SocketSpec::Local(_) => Shape::Local,
     }
 }
 
@@ -800,8 +800,8 @@ fn tee_srt_flow(
 mod tests {
     use super::*;
     use weave_core::{
-        DesiredEgress, DeviceKind, HopRole, RistSocket, SignallingSocket, SignallingTransport,
-        SocketRole, SrtParams,
+        DesiredEgress, HopRole, RistSocket, SignallingSocket, SignallingTransport, SocketRole,
+        SrtParams,
     };
 
     fn egress(branch_id: &str, socket: SocketSpec) -> DesiredEgress {
@@ -933,10 +933,10 @@ mod tests {
             Err(MappingError::ProfileMismatch { .. })
         ));
 
-        let mut device = demo_ingress_hop("x");
-        device.ingress = SocketSpec::Device(DeviceKind::Capture);
+        let mut local = demo_ingress_hop("x");
+        local.ingress = SocketSpec::input("camera");
         assert!(matches!(
-            flow_spec_from_hop(&device),
+            flow_spec_from_hop(&local),
             Err(MappingError::ProfileMismatch { .. })
         ));
     }

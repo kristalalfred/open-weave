@@ -32,16 +32,25 @@
               "whip",
               "whep",
               "rist",
-              "device"
+              "input",
+              "output"
             ]
           },
           "role": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "listen",
               "connect",
-              "capture",
-              "display"
+              null
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
             ]
           },
           "host": {
@@ -121,8 +130,7 @@
         },
         "additionalProperties": false,
         "required": [
-          "transport",
-          "role"
+          "transport"
         ]
       },
       "merge_ingress": {
@@ -138,16 +146,25 @@
               "whip",
               "whep",
               "rist",
-              "device"
+              "input",
+              "output"
             ]
           },
           "role": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "listen",
               "connect",
-              "capture",
-              "display"
+              null
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
             ]
           },
           "host": {
@@ -227,8 +244,7 @@
         },
         "additionalProperties": false,
         "required": [
-          "transport",
-          "role"
+          "transport"
         ]
       },
       "egresses": {
@@ -246,16 +262,25 @@
                 "whip",
                 "whep",
                 "rist",
-                "device"
+                "input",
+                "output"
               ]
             },
             "role": {
-              "type": "string",
+              "type": [
+                "string",
+                "null"
+              ],
               "enum": [
                 "listen",
                 "connect",
-                "capture",
-                "display"
+                null
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
               ]
             },
             "host": {
@@ -336,8 +361,7 @@
           "additionalProperties": false,
           "required": [
             "branch_id",
-            "transport",
-            "role"
+            "transport"
           ]
         }
       },

@@ -1,9 +1,9 @@
 name: browser-b2b
 enabled: true
 source:
-  device:
+  input:
     node: browser-placeholder
 destinations:
   - id: display
-    device:
+    output:
       node: viewer-placeholder

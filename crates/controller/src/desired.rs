@@ -34,7 +34,7 @@ pub(crate) fn snapshots(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use weave_core::{DesiredEgress, DeviceKind, HopRole, SocketSpec};
+    use weave_core::{DesiredEgress, HopRole, SocketSpec};
 
     fn hop(id: &str, node_id: &str, branch_id: &str) -> DesiredHop {
         DesiredHop {
@@ -43,11 +43,11 @@ mod tests {
             node_id: node_id.to_string(),
             profile_id: "test-profile".to_string(),
             role: HopRole::Sender,
-            ingress: SocketSpec::Device(DeviceKind::Capture),
+            ingress: SocketSpec::input("camera"),
             merge_ingress: None,
             egresses: vec![DesiredEgress {
                 branch_id: branch_id.to_string(),
-                socket: SocketSpec::Device(DeviceKind::Display),
+                socket: SocketSpec::output("player"),
             }],
             tracks: None,
         }

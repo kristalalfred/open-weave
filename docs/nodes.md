@@ -1,9 +1,9 @@
 # Nodes
 
-A node registers with southbound and declares two things: the hop shapes its
-adapter can build (capabilities), and where it can dial and be reached
-(topology). The controller plans links from those declarations and from the
-hops each node reports running.
+A node registers with southbound and declares the hop shapes its adapter can
+build (capabilities), where it can dial and be reached (topology), and the
+inputs and outputs it offers. The controller plans links from those
+declarations and from the hops each node reports running.
 
 The Strom adapter's capabilities are built in, the Strom profiles under
 [Shipped profiles](#shipped-profiles). Its topology comes from `node.topology`
@@ -25,15 +25,15 @@ capabilities:
       media_behavior: preserve
       accepts: {}
     - id: camera-to-whip
-      ingress: { device: capture, tracks: [video] }
+      ingress: input
       egress: { transport: whip, roles: [connect] }
       max_egresses: 1
 ```
 
 | Field | Meaning |
 |---|---|
-| `ingress` | One transport (`srt`, `rist`, `whip`, `whep`) with the socket `roles` it supports, or one `device` (`capture`, `display`). |
-| `egress` | The same, shared by every egress of the hop. |
+| `ingress` | One transport (`srt`, `rist`, `whip`, `whep`) with the socket `roles` it supports, or `input`: one of the node's [inputs](#inputs-and-outputs). |
+| `egress` | One transport, shared by every egress of the hop, or `output`: one of the node's [outputs](#inputs-and-outputs). |
 | `max_egresses` | Optional limit on egresses per hop. |
 | `accepts` | Optional. The media the ingress takes, in the shape of a destination's [`accepts`](streams.md#formats). |
 | `media_behavior` | `preserve` or `unknown` (default). Never inferred from transport or profile id. |
@@ -50,11 +50,11 @@ rebuilding do not qualify. Strict routing also requires explicit input `accepts`
 The controller writes the chosen `profile_id` into every desired hop, and the
 adapter dispatches on it.
 
-A `capture` device may list the `tracks` it sends, `audio` and `video`, each at
-most once. The controller copies the source's tracks onto every hop of the
-stream, and the Strom adapter builds only those: a video-only sender gets a flow
-with no audio pads. An outside WHIP sender's tracks are the ones its declared
-`format` carries. Absent means unknown, and the hops carry both.
+The controller copies the source's tracks onto every hop of the stream, and the
+Strom adapter builds only those: a video-only sender gets a flow with no audio
+pads. An input source's tracks are the ones its [input](#inputs-and-outputs)
+declares. An outside WHIP sender's tracks are the ones its declared `format`
+carries. Absent means unknown, and the hops carry both.
 
 ### Shipped profiles
 
@@ -74,6 +74,50 @@ A stream from one page to another is relayed through a Strom node's
 `whip-to-whep`. Strom's `whip-to-srt` and `whip-to-whep` accept H264 video and
 Opus audio. Strom has no profile that fans out over mixed transports, and none
 with RIST on both sides.
+
+## Inputs and outputs
+
+An input is media that exists on the node independently of any stream, such as
+a camera or an application's audio. An output presents media on the node, such
+as a video element or a set of speakers. A stream names an input as its
+[source](streams.md#endpoints) and outputs as destinations.
+
+```yaml
+inputs:
+  - { id: music, label: Music, tracks: [audio] }
+outputs:
+  - { id: speakers, label: MacBook Pro Speakers }
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Follows the [identifier rule](api.md#identifiers). Unique among the node's inputs, and among its outputs. |
+| `label` | Display text. Must not be blank. |
+| `tracks` | Inputs only. The tracks the input sends, `audio` and `video`, each at most once. |
+
+A registration declares `node.inputs` and `node.outputs`. Each heartbeat
+carries the full current `inputs` and `outputs`, which replace the declared
+ones, so a node can add and remove them while it runs. A heartbeat whose inputs
+or outputs fail these rules gets `400` and changes nothing.
+
+A stream endpoint picks an input or output by `id`. Without an `id`, the node
+must declare exactly one of that kind. The controller plans the endpoint only
+when the node also has a hop profile whose `ingress` is `input` or whose
+`egress` is `output`.
+
+| Case | Placement |
+|---|---|
+| The named `id` is not declared | `placement_ready` is `false` with reason `input_missing` or `output_missing`. |
+| No `id`, and the node declares none | The same reasons. |
+| No `id`, and the node declares several | `placement_failed`; the detail lists the ids. |
+| No hop profile takes an input or feeds an output | `placement_failed`. |
+
+When an input or output disappears from a heartbeat, the next reconcile tick
+removes the stream's hops from desired state. When it returns, the stream is
+placed again.
+
+The browser node declares the input `camera` and the output `player`. The
+native SRT node and the Strom adapter declare none.
 
 ## Topology
 

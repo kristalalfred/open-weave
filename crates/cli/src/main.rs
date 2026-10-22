@@ -105,6 +105,10 @@ enum GetResource {
     Status,
     #[command(about = "List registered nodes")]
     Nodes,
+    #[command(about = "List the inputs nodes offer as stream sources")]
+    Inputs,
+    #[command(about = "List the outputs nodes offer as stream destinations")]
+    Outputs,
     #[command(about = "Get the resolved endpoints for one stream")]
     Endpoints {
         #[arg(help = "Name of the stream whose endpoints to get")]
@@ -148,7 +152,9 @@ async fn main() -> Result<()> {
             GetResource::Streams => get_streams(&url, token.as_ref(), output).await,
             GetResource::Stream { name } => get_stream(&url, token.as_ref(), &name, output).await,
             GetResource::Status => get_status(&url, token.as_ref(), output).await,
-            GetResource::Nodes => get_nodes(&url, token.as_ref(), output).await,
+            GetResource::Nodes => get_nodes(&url, token.as_ref(), output, render_nodes).await,
+            GetResource::Inputs => get_nodes(&url, token.as_ref(), output, render_inputs).await,
+            GetResource::Outputs => get_nodes(&url, token.as_ref(), output, render_outputs).await,
             GetResource::Endpoints { name } => {
                 get_endpoints(&url, token.as_ref(), &name, output).await
             }
@@ -428,9 +434,7 @@ fn failing_reasons(conditions: &[read::StreamCondition]) -> String {
 }
 
 fn render_nodes(nodes: &[read::NodeDescriptor]) -> String {
-    let mut nodes = nodes.iter().collect::<Vec<_>>();
-    nodes.sort_by(|left, right| left.id.cmp(&right.id));
-    let rows = nodes
+    let rows = sorted_by_id(nodes)
         .into_iter()
         .map(|node| {
             let profiles = node
@@ -457,6 +461,52 @@ fn render_nodes(nodes: &[read::NodeDescriptor]) -> String {
         })
         .collect();
     table(&["ID", "STATUS", "ENDPOINT", "PROFILES", "NETWORKS"], rows)
+}
+
+fn sorted_by_id(nodes: &[read::NodeDescriptor]) -> Vec<&read::NodeDescriptor> {
+    let mut nodes = nodes.iter().collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    nodes
+}
+
+fn render_inputs(nodes: &[read::NodeDescriptor]) -> String {
+    let rows = sorted_by_id(nodes)
+        .into_iter()
+        .flat_map(|node| {
+            node.inputs.iter().map(|input| {
+                vec![
+                    node.id.clone(),
+                    input.id.clone(),
+                    input
+                        .tracks
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    node.status.to_string(),
+                    input.label.clone(),
+                ]
+            })
+        })
+        .collect();
+    table(&["NODE", "INPUT", "TRACKS", "NODE STATUS", "LABEL"], rows)
+}
+
+fn render_outputs(nodes: &[read::NodeDescriptor]) -> String {
+    let rows = sorted_by_id(nodes)
+        .into_iter()
+        .flat_map(|node| {
+            node.outputs.iter().map(|output| {
+                vec![
+                    node.id.clone(),
+                    output.id.clone(),
+                    node.status.to_string(),
+                    output.label.clone(),
+                ]
+            })
+        })
+        .collect();
+    table(&["NODE", "OUTPUT", "NODE STATUS", "LABEL"], rows)
 }
 
 fn render_status(status: &read::StatusResponse) -> String {
@@ -834,14 +884,19 @@ async fn get_status(url: &str, token: Option<&Token>, output: OutputFormat) -> R
     render(output, &body, "status", render_status)
 }
 
-async fn get_nodes(url: &str, token: Option<&Token>, output: OutputFormat) -> Result<String> {
+async fn get_nodes(
+    url: &str,
+    token: Option<&Token>,
+    output: OutputFormat,
+    human: fn(&[read::NodeDescriptor]) -> String,
+) -> Result<String> {
     let client = reqwest::Client::new();
     let body = get_body(&client, url, token, "/nodes", "nodes").await?;
     render(
         output,
         &body,
         "nodes",
-        |nodes: &Vec<read::NodeDescriptor>| render_nodes(nodes),
+        |nodes: &Vec<read::NodeDescriptor>| human(nodes),
     )
 }
 
@@ -1174,6 +1229,8 @@ destinations:
     fn parses_read_commands_and_output_formats() {
         let cases = [
             (vec!["weave", "get", "nodes"], "nodes"),
+            (vec!["weave", "get", "inputs"], "inputs"),
+            (vec!["weave", "get", "outputs"], "outputs"),
             (vec!["weave", "get", "status"], "status"),
             (
                 vec!["weave", "get", "endpoints", "cam1-to-studio"],
@@ -1191,6 +1248,8 @@ destinations:
             };
             let actual = match resource {
                 GetResource::Nodes => "nodes",
+                GetResource::Inputs => "inputs",
+                GetResource::Outputs => "outputs",
                 GetResource::Status => "status",
                 GetResource::Endpoints { .. } => "endpoints",
                 GetResource::StreamSets => "stream-sets",
@@ -1365,7 +1424,9 @@ streams:
             "endpoint": "http://strom-node-1:8091",
             "status": "offline",
             "capabilities": { "adapters": [], "hop_profiles": [] },
-            "topology": { "attachments": [] }
+            "topology": { "attachments": [] },
+            "inputs": [],
+            "outputs": []
         }]))
         .unwrap();
         assert_eq!(
@@ -1376,6 +1437,69 @@ streams:
                 .split_whitespace()
                 .collect::<Vec<_>>(),
             ["strom-node-1", "offline", "http://strom-node-1:8091"]
+        );
+    }
+
+    #[test]
+    fn inputs_and_outputs_list_one_row_per_declaration_sorted_by_node() {
+        let node = |id: &str, inputs: Value, outputs: Value| {
+            serde_json::json!({
+                "id": id,
+                "endpoint": format!("spaghetti://{id}"),
+                "status": "ready",
+                "capabilities": { "adapters": [], "hop_profiles": [] },
+                "topology": { "attachments": [] },
+                "inputs": inputs,
+                "outputs": outputs
+            })
+        };
+        let nodes: Vec<read::NodeDescriptor> = serde_json::from_value(serde_json::json!([
+            node(
+                "filips-mac",
+                serde_json::json!([]),
+                serde_json::json!([
+                    { "id": "macbook-pro-speakers", "label": "MacBook Pro Speakers" },
+                    { "id": "airpods", "label": "AirPods" }
+                ])
+            ),
+            node(
+                "alfreds-mac",
+                serde_json::json!([{ "id": "music", "label": "Music", "tracks": ["audio", "lidar"] }]),
+                serde_json::json!([])
+            ),
+        ]))
+        .unwrap();
+
+        let rows = |text: String| {
+            text.lines()
+                .map(|line| {
+                    line.split_whitespace()
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            rows(render_inputs(&nodes)),
+            [
+                vec!["NODE", "INPUT", "TRACKS", "NODE", "STATUS", "LABEL"],
+                vec!["alfreds-mac", "music", "audio,lidar", "ready", "Music"],
+            ]
+        );
+        assert_eq!(
+            rows(render_outputs(&nodes)),
+            [
+                vec!["NODE", "OUTPUT", "NODE", "STATUS", "LABEL"],
+                vec![
+                    "filips-mac",
+                    "macbook-pro-speakers",
+                    "ready",
+                    "MacBook",
+                    "Pro",
+                    "Speakers"
+                ],
+                vec!["filips-mac", "airpods", "ready", "AirPods"],
+            ]
         );
     }
 
@@ -1876,7 +2000,7 @@ destinations:
         for (path, body, command) in cases {
             let (url, seen) = stub_get(StatusCode::OK, body.clone()).await;
             let printed = match command {
-                "nodes" => get_nodes(&url, Some(&token), OutputFormat::Json)
+                "nodes" => get_nodes(&url, Some(&token), OutputFormat::Json, render_nodes)
                     .await
                     .unwrap(),
                 "status" => get_status(&url, Some(&token), OutputFormat::Json)
@@ -2132,7 +2256,7 @@ destinations:
         });
         let (url, _seen) = stub_get(StatusCode::BAD_GATEWAY, error).await;
 
-        let error = get_nodes(&url, None, OutputFormat::Human)
+        let error = get_nodes(&url, None, OutputFormat::Human, render_nodes)
             .await
             .expect_err("a failed GET must preserve the structured error");
         assert!(

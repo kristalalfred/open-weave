@@ -164,32 +164,10 @@
                         ]
                       },
                       {
-                        "type": "object",
-                        "properties": {
-                          "device": {
-                            "type": "string",
-                            "enum": [
-                              "capture",
-                              "display"
-                            ]
-                          },
-                          "tracks": {
-                            "type": [
-                              "array",
-                              "null"
-                            ],
-                            "items": {
-                              "type": "string",
-                              "enum": [
-                                "audio",
-                                "video"
-                              ]
-                            }
-                          }
-                        },
-                        "additionalProperties": false,
-                        "required": [
-                          "device"
+                        "type": "string",
+                        "enum": [
+                          "input",
+                          "output"
                         ]
                       }
                     ]
@@ -227,32 +205,10 @@
                         ]
                       },
                       {
-                        "type": "object",
-                        "properties": {
-                          "device": {
-                            "type": "string",
-                            "enum": [
-                              "capture",
-                              "display"
-                            ]
-                          },
-                          "tracks": {
-                            "type": [
-                              "array",
-                              "null"
-                            ],
-                            "items": {
-                              "type": "string",
-                              "enum": [
-                                "audio",
-                                "video"
-                              ]
-                            }
-                          }
-                        },
-                        "additionalProperties": false,
-                        "required": [
-                          "device"
+                        "type": "string",
+                        "enum": [
+                          "input",
+                          "output"
                         ]
                       }
                     ]
@@ -599,6 +555,64 @@
             }
           },
           "additionalProperties": false
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63,
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+              },
+              "label": {
+                "type": "string"
+              },
+              "tracks": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "audio",
+                    "video"
+                  ]
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "tracks"
+            ]
+          },
+          "default": []
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63,
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ]
+          },
+          "default": []
         }
       },
       "additionalProperties": false,

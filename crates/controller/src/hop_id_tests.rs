@@ -19,6 +19,8 @@ fn node(id: &str, network: &str) -> NodeDescriptor {
         })
     };
     NodeDescriptor {
+        inputs: Vec::new(),
+        outputs: Vec::new(),
         id: id.to_string(),
         endpoint: format!("http://{id}"),
         status: NodeStatus::Ready,

@@ -127,8 +127,8 @@ test("fanout destinations retain separate receivers and outputs", () => {
   assert.equal(elements(graph, "addr").length, 3);
 });
 
-test("single paths, remote listeners, and device outputs retain their endpoints", () => {
-  for (const kind of ["single", "remote", "device"]) {
+test("single paths, remote listeners, and node outputs retain their endpoints", () => {
+  for (const kind of ["single", "remote", "output"]) {
     const feed = stream();
     feed.hops[0].egresses.pop();
     feed.hops.pop();
@@ -137,11 +137,11 @@ test("single paths, remote listeners, and device outputs retain their endpoints"
       feed.hops.pop();
       feed.endpoints.destinations[0].endpoint.node = "";
     }
-    if (kind === "device") feed.hops[2].egresses[0] = { branch_id: "studio", transport: "device", mode: "playback" };
+    if (kind === "output") feed.hops[2].egresses[0] = { branch_id: "studio", transport: "output", id: "speakers" };
     const graph = render(feed);
     assert.equal(elements(graph, "branch").length, 1);
     assert.equal(elements(graph, "redundant").length, 0);
     assert.equal(elements(graph, "addr").length, 2);
-    assert.match(graph.textContent, kind === "device" ? /screen/ : /srt:\/\/studio:8000/);
+    assert.match(graph.textContent, kind === "output" ? /speakers/ : /srt:\/\/studio:8000/);
   }
 });

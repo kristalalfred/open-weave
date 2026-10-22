@@ -162,14 +162,16 @@ impl From<&StreamStatus> for StreamSummary {
 mod tests {
     use super::*;
     use crate::{
-        DeviceClass, DeviceKind, HopEndpointClass, HopProfile, NodeRegistration, PROTOCOL_VERSION,
-        RoleSet, SocketRole, Transport, TransportClass,
+        HopEndpointClass, HopProfile, LocalEnd, NodeRegistration, PROTOCOL_VERSION, RoleSet,
+        SocketRole, Transport, TransportClass,
     };
 
     fn registration() -> NodeRegistration {
         NodeRegistration {
             protocol_version: PROTOCOL_VERSION,
             node: NodeDescriptor {
+                inputs: Vec::new(),
+                outputs: Vec::new(),
                 id: "guest-1".to_string(),
                 endpoint: "http://guest-1:8080".to_string(),
                 status: NodeStatus::Ready,
@@ -178,10 +180,7 @@ mod tests {
                     hop_profiles: vec![HopProfile {
                         timed_delivery: None,
                         id: "camera-to-whip".to_string(),
-                        ingress: HopEndpointClass::Device(DeviceClass {
-                            device: DeviceKind::Capture,
-                            tracks: None,
-                        }),
+                        ingress: HopEndpointClass::Local(LocalEnd::Input),
                         egress: HopEndpointClass::Transport(TransportClass {
                             transport: Transport::Whip,
                             roles: RoleSet::only(SocketRole::Connect),
@@ -207,11 +206,7 @@ mod tests {
         assert_eq!(summary.id, "guest-1");
         assert_eq!(summary.status, NodeStatus::Ready);
         assert_eq!(summary.endpoint, "http://guest-1:8080");
-        assert!(
-            summary
-                .capabilities
-                .offers_ingress_device(DeviceKind::Capture)
-        );
+        assert!(summary.capabilities.offers_local(LocalEnd::Input));
 
         let body = serde_json::to_value(&summary).unwrap();
         assert_eq!(

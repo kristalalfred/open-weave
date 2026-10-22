@@ -184,7 +184,8 @@ const COLORS = {
   connecting: "var(--amber)", connected: "var(--blue)", stalled: "var(--red)",
 };
 const HOLLOW = new Set(["idle", "pending", "connecting", "starting", "unreported"]);
-const DEVICE_TRANSPORT = "device";
+const INPUT_TRANSPORT = "input";
+const OUTPUT_TRANSPORT = "output";
 
 function h(tag, cls, ...children) {
   const el = document.createElement(tag);
@@ -284,14 +285,14 @@ function addrChip(tag, text, title) {
 
 function arrow(socket) {
   const transport = socket && socket.transport;
-  const bare = !transport || transport === "srt" || transport === DEVICE_TRANSPORT;
+  const bare = !transport || transport === "srt" || transport === INPUT_TRANSPORT || transport === OUTPUT_TRANSPORT;
   const el = h("span", "arrow", bare ? "→" : `→ ${transport} →`);
   if (socket && socket.url) el.title = socket.url;
   return el;
 }
 
-function deviceChip(tag, socket) {
-  return addrChip(tag, socket.mode === "capture" ? "camera" : "screen", "the node's own device");
+function localChip(tag, socket) {
+  return addrChip(tag, socket.id, `the node's own ${socket.transport}`);
 }
 
 function bridgesFor(hops, id) {
@@ -305,7 +306,7 @@ function renderPath(stream) {
   const endpoints = stream.endpoints;
 
   const trunk = h("div", "trunk");
-  if (sender && sender.ingress.transport === DEVICE_TRANSPORT) trunk.append(deviceChip("in", sender.ingress), arrow(sender.ingress));
+  if (sender && sender.ingress.transport === INPUT_TRANSPORT) trunk.append(localChip("in", sender.ingress), arrow(sender.ingress));
   else if (endpoints && endpoints.ingress) trunk.append(addrChip("in", endpoints.ingress.url, "producers dial this ingress"), arrow(sender && sender.ingress));
   if (sender) trunk.append(hopChip(sender));
   if (trunk.childNodes.length) path.append(trunk);
@@ -348,8 +349,8 @@ function renderPath(stream) {
       destination.append(arrow(link), hopChip(receiver, !redundant));
       link = receiver.egresses[0];
     }
-    if (receiver && link && link.transport === DEVICE_TRANSPORT) {
-      destination.append(arrow(link), deviceChip("out", link));
+    if (receiver && link && link.transport === OUTPUT_TRANSPORT) {
+      destination.append(arrow(link), localChip("out", link));
     } else if (output) {
       destination.append(arrow(link), receiver
         ? addrChip(`${link?.transport || ""} out`.trim(), output.url, "consumers dial this output")

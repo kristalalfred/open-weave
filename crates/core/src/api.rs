@@ -129,6 +129,8 @@ pub enum StreamConditionReason {
     NodesAvailable,
     NodeMissing,
     NodeOffline,
+    InputMissing,
+    OutputMissing,
     HopsReady,
     HopsPending,
     HopFailed,

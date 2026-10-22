@@ -51,17 +51,17 @@ use weave_core::auth::{
 use weave_core::logging::ErrorChain;
 use weave_core::webhook::{EventType, NodeSummary, StreamSummary, Subject};
 use weave_core::{
-    AcceptedState, ApiError, ApiErrorCode, DesiredHop, EndpointDescriptor, Health, NodeAccepted,
-    NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus, ObservedState, PROTOCOL_VERSION,
-    PathStatus, PlanStatus, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
-    ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, ROUTE_STATUS, ROUTE_STREAM,
-    ROUTE_STREAM_ENDPOINTS, ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS, ROUTE_STREAMS,
-    ReconcileReport, ReconcileStatus, RunningStatus, StartingState, StartingStatus, StatusResponse,
-    StreamAccepted, StreamCondition, StreamConditionReason, StreamConditionStatus,
+    AcceptedState, ApiError, ApiErrorCode, DesiredHop, EndpointDescriptor, Health, LocalEnd,
+    NodeAccepted, NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus, ObservedState,
+    PROTOCOL_VERSION, PathStatus, PlanStatus, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED,
+    ROUTE_NODE_HEARTBEAT, ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, ROUTE_STATUS,
+    ROUTE_STREAM, ROUTE_STREAM_ENDPOINTS, ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS,
+    ROUTE_STREAMS, ReconcileReport, ReconcileStatus, RunningStatus, StartingState, StartingStatus,
+    StatusResponse, StreamAccepted, StreamCondition, StreamConditionReason, StreamConditionStatus,
     StreamConditionType, StreamDefinition, StreamDestinationStatus, StreamEndpoints, StreamPlan,
     StreamResource, StreamSetAccepted, StreamSetAction, StreamSetApply, StreamSetMemberResult,
     StreamSetResource, StreamStatus, ValidationIssue, protocol_compatible, resource_id_issue,
-    validate_node, validate_resource_id, validate_stream,
+    validate_local_io, validate_node, validate_resource_id, validate_stream,
 };
 
 use keys::{LinkKeys, SecretSource};
@@ -369,7 +369,10 @@ struct EgressView {
 #[derive(Debug, Serialize)]
 struct SocketView {
     transport: &'static str,
-    mode: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mode: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     host: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -380,52 +383,45 @@ struct SocketView {
 
 impl From<&weave_core::SocketSpec> for SocketView {
     fn from(spec: &weave_core::SocketSpec) -> Self {
-        use weave_core::{DEVICE_TRANSPORT, RistSocket, SocketSpec, SrtSocket, Transport};
+        use weave_core::{RistSocket, SocketSpec, SrtSocket, Transport};
 
-        let (transport, mode, host, port, url) = match spec {
-            SocketSpec::Srt(socket) => (
-                Transport::Srt.name(),
-                socket.role().name(),
-                match socket {
+        let bare = |transport, mode| Self {
+            transport,
+            mode,
+            id: None,
+            host: None,
+            port: None,
+            url: None,
+        };
+        match spec {
+            SocketSpec::Srt(socket) => Self {
+                host: match socket {
                     SrtSocket::Connect { host, .. } => Some(host.clone()),
                     SrtSocket::Listen { .. } => None,
                 },
-                Some(socket.port()),
-                None,
-            ),
-            SocketSpec::Whip(socket) => (
-                Transport::Whip.name(),
-                socket.role.name(),
-                None,
-                None,
-                Some(socket.url.clone()),
-            ),
-            SocketSpec::Whep(socket) => (
-                Transport::Whep.name(),
-                socket.role.name(),
-                None,
-                None,
-                Some(socket.url.clone()),
-            ),
-            SocketSpec::Rist(socket) => (
-                Transport::Rist.name(),
-                socket.role().name(),
-                match socket {
+                port: Some(socket.port()),
+                ..bare(Transport::Srt.name(), Some(socket.role().name()))
+            },
+            SocketSpec::Whip(socket) => Self {
+                url: Some(socket.url.clone()),
+                ..bare(Transport::Whip.name(), Some(socket.role.name()))
+            },
+            SocketSpec::Whep(socket) => Self {
+                url: Some(socket.url.clone()),
+                ..bare(Transport::Whep.name(), Some(socket.role.name()))
+            },
+            SocketSpec::Rist(socket) => Self {
+                host: match socket {
                     RistSocket::Connect { host, .. } => Some(host.clone()),
                     RistSocket::Listen { .. } => None,
                 },
-                Some(socket.port()),
-                None,
-            ),
-            SocketSpec::Device(kind) => (DEVICE_TRANSPORT, kind.name(), None, None, None),
-        };
-
-        Self {
-            transport,
-            mode,
-            host,
-            port,
-            url,
+                port: Some(socket.port()),
+                ..bare(Transport::Rist.name(), Some(socket.role().name()))
+            },
+            SocketSpec::Local(socket) => Self {
+                id: Some(socket.id.clone()),
+                ..bare(socket.end.name(), None)
+            },
         }
     }
 }
@@ -2254,6 +2250,10 @@ async fn node_heartbeat(
     if let Err(issue) = validate_endpoint_node_ids(&heartbeat.endpoints) {
         return invalid_request("endpoint node id is invalid", vec![issue]);
     }
+    let io_issues = validate_local_io(&heartbeat.inputs, &heartbeat.outputs, "heartbeat");
+    if !io_issues.is_empty() {
+        return invalid_request("heartbeat inputs or outputs are invalid", io_issues);
+    }
     if let Some(response) = refuse_other_nodes_endpoints(&caller, &heartbeat.endpoints) {
         return response;
     }
@@ -2274,6 +2274,8 @@ async fn node_heartbeat(
     let was_offline = registration.node.status == NodeStatus::Offline;
     let mut updated = registration.clone();
     updated.node.status = heartbeat.status;
+    updated.node.inputs = heartbeat.inputs;
+    updated.node.outputs = heartbeat.outputs;
     updated.endpoints = heartbeat.endpoints;
     updated.hop_status = heartbeat.hop_status;
     if reported(&updated) != reported(registration) {
@@ -2329,9 +2331,18 @@ type DeliveryKey = (
     bool,
 );
 
-fn reported(registration: &NodeRegistration) -> (NodeStatus, Vec<HopReport<'_>>) {
+type NodeReport<'a> = (
+    NodeStatus,
+    &'a [weave_core::NodeInput],
+    &'a [weave_core::NodeOutput],
+    Vec<HopReport<'a>>,
+);
+
+fn reported(registration: &NodeRegistration) -> NodeReport<'_> {
     (
         registration.node.status,
+        &registration.node.inputs,
+        &registration.node.outputs,
         registration
             .hop_status
             .iter()
@@ -2542,6 +2553,13 @@ fn placement_failed_conditions(
         StreamConditionReason::TimedDeliveryUnsupported
     } else if matches!(error, PlacementError::LatencyBudget { .. }) {
         StreamConditionReason::LatencyBudgetInfeasible
+    } else if let PlacementError::NoLocal { end, .. } | PlacementError::LocalMissing { end, .. } =
+        error
+    {
+        match end {
+            LocalEnd::Input => StreamConditionReason::InputMissing,
+            LocalEnd::Output => StreamConditionReason::OutputMissing,
+        }
     } else {
         StreamConditionReason::PlacementFailed
     };
@@ -3036,6 +3054,8 @@ mod tests {
         NodeRegistration {
             protocol_version: PROTOCOL_VERSION,
             node: NodeDescriptor {
+                inputs: Vec::new(),
+                outputs: Vec::new(),
                 id: id.to_string(),
                 endpoint: format!("http://{id}:8080"),
                 status: NodeStatus::Ready,
@@ -4698,6 +4718,8 @@ mod tests {
         register(node_registration("relay-a", "198.51.100.10")).await;
 
         let heartbeat = |hop_status: Vec<weave_core::HopStatus>| NodeHeartbeat {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             node_id: "relay-b".to_string(),
             status: NodeStatus::Ready,
             endpoints: Vec::new(),
@@ -4941,6 +4963,8 @@ mod tests {
             }],
         };
         let heartbeat = |status, hop_status| NodeHeartbeat {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             node_id: "strom-node-1".to_string(),
             status,
             endpoints: Vec::new(),
@@ -5132,6 +5156,8 @@ mod tests {
         assert_eq!(status, StatusCode::ACCEPTED);
 
         let heartbeat = NodeHeartbeat {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             node_id: "strom-node-1".to_string(),
             status: NodeStatus::Ready,
             endpoints: Vec::new(),
@@ -5154,13 +5180,15 @@ mod tests {
 
         let mut browser = node_registration("browser-a1b2", "browser");
         browser.node.endpoint = "browser://browser-a1b2".to_string();
+        browser.node.inputs = vec![weave_core::NodeInput {
+            id: "camera".to_string(),
+            label: "Camera".to_string(),
+            tracks: vec![weave_core::Track::Audio, weave_core::Track::Video],
+        }];
         browser.node.capabilities.hop_profiles = vec![HopProfile {
             timed_delivery: None,
             id: "camera-to-whip".to_string(),
-            ingress: HopEndpointClass::Device(weave_core::DeviceClass {
-                device: weave_core::DeviceKind::Capture,
-                tracks: None,
-            }),
+            ingress: HopEndpointClass::Local(LocalEnd::Input),
             egress: HopEndpointClass::Transport(TransportClass {
                 transport: Transport::Whip,
                 roles: RoleSet::only(weave_core::SocketRole::Connect),
@@ -5209,8 +5237,9 @@ mod tests {
         .await;
 
         let mut cam = stream("alice-cam");
-        cam.source = StreamTransport::Device(weave_core::NodeEndpoint {
+        cam.source = StreamTransport::Input(weave_core::LocalEndpoint {
             node: "browser-a1b2".to_string(),
+            id: None,
             network: None,
         });
         state
@@ -5230,18 +5259,143 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let hops: Vec<DesiredHop> = serde_json::from_value(body).unwrap();
         assert_eq!(hops.len(), 1);
-        assert!(
-            matches!(
-                hops[0].ingress,
-                weave_core::SocketSpec::Device(weave_core::DeviceKind::Capture)
-            ),
-            "the page's own camera feeds the hop: {:?}",
-            hops[0].ingress
+        assert_eq!(
+            hops[0].ingress,
+            weave_core::SocketSpec::input("camera"),
+            "the page's own camera feeds the hop"
         );
         assert!(
             matches!(hops[0].egresses[0].socket, weave_core::SocketSpec::Whip(_)),
             "the page pushes to the Strom's ingest: {:?}",
             hops[0].egresses[0]
+        );
+    }
+
+    fn local_node(inputs: Value) -> Value {
+        let mut registration =
+            serde_json::to_value(node_registration("alfreds-mac", "127.0.0.1")).unwrap();
+        registration["node"]["capabilities"]["hop_profiles"] = json!([
+            {
+                "id": "app-audio-to-srt",
+                "ingress": "input",
+                "egress": { "transport": "srt", "roles": ["listen", "connect"] }
+            },
+            {
+                "id": "srt-to-speaker",
+                "ingress": { "transport": "srt", "roles": ["listen", "connect"] },
+                "egress": "output"
+            }
+        ]);
+        registration["node"]["inputs"] = inputs;
+        registration["node"]["outputs"] = json!([{ "id": "speakers", "label": "Speakers" }]);
+        registration
+    }
+
+    fn music() -> Value {
+        json!([{ "id": "music", "label": "Music", "tracks": ["audio"] }])
+    }
+
+    async fn local_heartbeat(app: &Router, inputs: Value) -> StatusCode {
+        send(
+            app,
+            "POST",
+            "/nodes/alfreds-mac/heartbeat",
+            Some(json!({
+                "node_id": "alfreds-mac",
+                "status": "ready",
+                "inputs": inputs,
+                "outputs": [{ "id": "speakers", "label": "Speakers" }],
+                "endpoints": [],
+                "hop_status": []
+            })),
+        )
+        .await
+        .0
+    }
+
+    async fn placement(app: &Router) -> (Value, Vec<DesiredHop>) {
+        let status = get_ok(app, "/status").await;
+        let condition = status["streams"][0]["conditions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|condition| condition["type"] == "placement_ready")
+            .cloned()
+            .unwrap();
+        let (_, body) = send(app, "GET", "/nodes/alfreds-mac/desired", None).await;
+        (condition, serde_json::from_value(body).unwrap())
+    }
+
+    #[tokio::test]
+    async fn a_stream_follows_its_input_as_heartbeats_add_and_remove_it() {
+        let (state, _mem) = mem_state();
+        let app = open_router(state.clone());
+        let (status, _) = send(&app, "POST", "/nodes/register", Some(local_node(music()))).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+
+        let mut spec = stream("music-to-speakers");
+        spec.source = StreamTransport::Input(weave_core::LocalEndpoint {
+            node: "alfreds-mac".to_string(),
+            id: Some("music".to_string()),
+            network: None,
+        });
+        spec.destinations[0].endpoint = StreamTransport::Output(weave_core::LocalEndpoint {
+            node: "alfreds-mac".to_string(),
+            id: None,
+            network: None,
+        });
+        state
+            .streams
+            .write()
+            .await
+            .insert(spec.name.clone(), stored_stream(spec));
+
+        reconcile_tick(&state).await;
+        let (condition, hops) = placement(&app).await;
+        assert_eq!(condition["status"], "true");
+        assert_eq!(hops.len(), 2);
+        assert_eq!(hops[0].ingress, weave_core::SocketSpec::input("music"));
+        assert_eq!(hops[0].tracks, Some(vec![weave_core::Track::Audio]));
+        assert_eq!(
+            hops[1].egresses[0].socket,
+            weave_core::SocketSpec::output("speakers")
+        );
+
+        assert_eq!(local_heartbeat(&app, json!([])).await, StatusCode::ACCEPTED);
+        reconcile_tick(&state).await;
+        let (condition, hops) = placement(&app).await;
+        assert_eq!(condition["status"], "false");
+        assert_eq!(condition["reason"], "input_missing");
+        assert_eq!(
+            condition["detail"],
+            "node alfreds-mac declares no input music"
+        );
+        assert!(
+            hops.is_empty(),
+            "the hops leave desired state with the input"
+        );
+
+        assert_eq!(local_heartbeat(&app, music()).await, StatusCode::ACCEPTED);
+        reconcile_tick(&state).await;
+        let (condition, hops) = placement(&app).await;
+        assert_eq!(condition["status"], "true");
+        assert_eq!(hops.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_heartbeat_with_invalid_inputs_is_refused_and_changes_nothing() {
+        let (state, _mem) = mem_state();
+        let app = open_router(state.clone());
+        send(&app, "POST", "/nodes/register", Some(local_node(music()))).await;
+
+        let invalid = json!([{ "id": "Music", "label": " ", "tracks": [] }]);
+        assert_eq!(
+            local_heartbeat(&app, invalid).await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            state.nodes.read().await["alfreds-mac"].node.inputs[0].id,
+            "music"
         );
     }
 
@@ -5815,6 +5969,8 @@ mod tests {
             serde_json::from_value(get_ok(app, &format!("/nodes/{node_id}/desired")).await)
                 .unwrap();
         let heartbeat = NodeHeartbeat {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             node_id: node_id.to_string(),
             status: NodeStatus::Ready,
             endpoints: Vec::new(),
@@ -7595,6 +7751,8 @@ mod key_exposure_tests {
         NodeRegistration {
             protocol_version: PROTOCOL_VERSION,
             node: NodeDescriptor {
+                inputs: Vec::new(),
+                outputs: Vec::new(),
                 id: id.to_string(),
                 endpoint: format!("http://{id}"),
                 status: NodeStatus::Ready,

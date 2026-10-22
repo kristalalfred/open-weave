@@ -142,9 +142,14 @@ async function checkDeclaredConstants(required) {
       core: [/^pub const PROTOCOL_VERSION: u32 = (\d+);$/m, "pub const PROTOCOL_VERSION: u32 = <n>;"],
     },
     {
-      what: "device transport",
-      page: [/^const DEVICE_TRANSPORT = "([^"]+)";$/m, 'const DEVICE_TRANSPORT = "<tag>";'],
-      core: [/^pub const DEVICE_TRANSPORT: &str = "([^"]+)";$/m, 'pub const DEVICE_TRANSPORT: &str = "<tag>";'],
+      what: "input transport",
+      page: [/^const INPUT_TRANSPORT = "([^"]+)";$/m, 'const INPUT_TRANSPORT = "<tag>";'],
+      core: [/^pub const INPUT_TRANSPORT: &str = "([^"]+)";$/m, 'pub const INPUT_TRANSPORT: &str = "<tag>";'],
+    },
+    {
+      what: "output transport",
+      page: [/^const OUTPUT_TRANSPORT = "([^"]+)";$/m, 'const OUTPUT_TRANSPORT = "<tag>";'],
+      core: [/^pub const OUTPUT_TRANSPORT: &str = "([^"]+)";$/m, 'pub const OUTPUT_TRANSPORT: &str = "<tag>";'],
     },
   ];
 
@@ -212,11 +217,11 @@ async function checkHopRevision(source, path) {
   const expected = createHash("sha256").update('open-weave hop\0{"a":null,"z":[1,{"a":"x","b":2}]}').digest("hex");
   if (await hash(first) !== expected || await hash(second) !== expected) fail(`${path} has an incompatible hop revision`);
   const hop = {
-    id: "hop-a", node_id: "node-a", profile_id: "device", role: "sender",
-    ingress: { transport: "device", role: "capture" },
-    egresses: [{ branch_id: "studio", transport: "device", role: "display" }],
+    id: "hop-a", node_id: "node-a", profile_id: "local", role: "sender",
+    ingress: { transport: "input", id: "camera" },
+    egresses: [{ branch_id: "studio", transport: "output", id: "player" }],
   };
-  if (await hash(hop) !== "198617e1cc4b9ee43aa31d6755d19582d759073a5fe0dc7ccad8ff5e1b27d591") fail(`${path} does not match the Rust hop revision vector`);
+  if (await hash(hop) !== "3863eff83ea855efb81128098118c8f26b03294081b15e0b02441ec7a66e516d") fail(`${path} does not match the Rust hop revision vector`);
   console.log("browser hop revisions hash canonical JSON");
 }
 

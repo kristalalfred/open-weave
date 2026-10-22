@@ -240,7 +240,7 @@ hops report.
 `GET /streams/{name}/endpoints` returns `ingress` and a `destinations` list of
 `{id, endpoint}`. An endpoint carries the `node` and the `url` a peer dials. An
 SRT endpoint also carries `host` and `port`. A WHIP or WHEP endpoint's `url` is
-its signalling URL. A device end has a null endpoint.
+its signalling URL. An input or output end has a null endpoint.
 
 ## Adapter contract
 
@@ -253,7 +253,7 @@ registration declares.
 `weave_core::PROTOCOL_VERSION`:
 
 ```json
-{ "protocol_version": 8, "node": { "id": "strom-node-1", "...": "..." } }
+{ "protocol_version": 9, "node": { "id": "strom-node-1", "...": "..." } }
 ```
 
 The controller accepts only the version it speaks. Any other value, including an
@@ -274,7 +274,7 @@ before its body is checked, and shipped nodes then register again.
   "details": [{
     "field": "protocol_version",
     "code": "unsupported",
-    "message": "reported 7; supported 8"
+    "message": "reported 8; supported 9"
   }]
 }
 ```
@@ -316,10 +316,25 @@ nothing once it has registered again.
 }
 ```
 
+A socket on one of the node's [inputs or outputs](nodes.md#inputs-and-outputs)
+carries its `id` and no role or address:
+
+```json
+{ "transport": "input", "id": "music" }
+{ "branch_id": "filip", "transport": "output", "id": "speakers" }
+```
+
 Hop ids are `weave-{stream}-sender`, `weave-{stream}-receiver-{destination}` and
 `weave-{stream}-bridge-{destination}-{position}`. A hop id is the flow name on
 its node. Each destination id is the `branch_id` on every hop that carries it.
 Reordering destinations in the manifest changes no hop id, port or desired hop.
+
+### Inputs and outputs
+
+A registration declares `node.inputs` and `node.outputs`. Every heartbeat
+carries the node's complete current `inputs` and `outputs`, which replace the
+stored ones; an empty or absent list removes them all. See
+[Nodes](nodes.md#inputs-and-outputs) for the fields and how streams resolve them.
 
 ### Hop status
 

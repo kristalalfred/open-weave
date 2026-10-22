@@ -561,14 +561,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn device_endpoints_are_accepted_and_forwarded() {
+    async fn input_and_output_endpoints_are_accepted_and_forwarded() {
         let (url, captured) = stub_controller(StatusCode::ACCEPTED).await;
         let app = open_app(url);
 
         let payload = json!({
             "name": "alice-cam",
-            "source": { "device": { "node": "browser-a1b2" } },
-            "destinations": [ { "id": "studio", "srt": { "node": "strom-node-2" } } ]
+            "source": { "input": { "node": "alfreds-mac", "id": "music" } },
+            "destinations": [ { "id": "filip", "output": { "node": "filips-mac" } } ]
         });
         let response = app
             .oneshot(
@@ -585,18 +585,19 @@ mod tests {
 
         let seen = captured.lock().unwrap().clone().expect("forwarded");
         let forwarded: Value = serde_json::from_slice(&seen.body).unwrap();
-        assert_eq!(forwarded["source"]["device"]["node"], "browser-a1b2");
+        assert_eq!(forwarded["source"]["input"]["id"], "music");
+        assert_eq!(forwarded["destinations"][0]["output"]["node"], "filips-mac");
     }
 
     #[tokio::test]
-    async fn device_endpoint_with_an_empty_node_is_rejected() {
+    async fn output_endpoint_with_an_empty_node_is_rejected() {
         let (url, captured) = stub_controller(StatusCode::ACCEPTED).await;
         let app = open_app(url);
 
         let payload = json!({
             "name": "alice-return",
             "source": { "srt": { "node": "strom-node-2" } },
-            "destinations": [ { "id": "preview", "device": { "node": "  " } } ]
+            "destinations": [ { "id": "preview", "output": { "node": "  " } } ]
         });
         let response = app
             .oneshot(
@@ -613,7 +614,7 @@ mod tests {
         let body = body_json(response).await;
         assert_eq!(body["code"], "invalid_request");
         assert_eq!(body["message"], "stream validation failed");
-        assert_eq!(body["details"][0]["field"], "destinations[0].device.node");
+        assert_eq!(body["details"][0]["field"], "destinations[0].output.node");
         assert!(
             captured.lock().unwrap().is_none(),
             "rejected at the boundary"

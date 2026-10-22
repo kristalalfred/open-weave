@@ -64,6 +64,8 @@
                   "nodes_available",
                   "node_missing",
                   "node_offline",
+                  "input_missing",
+                  "output_missing",
                   "hops_ready",
                   "hops_pending",
                   "hop_failed",
@@ -400,6 +402,8 @@
                         "nodes_available",
                         "node_missing",
                         "node_offline",
+                        "input_missing",
+                        "output_missing",
                         "hops_ready",
                         "hops_pending",
                         "hop_failed",
@@ -568,7 +572,8 @@
                       "whip",
                       "whep",
                       "rist",
-                      "device"
+                      "input",
+                      "output"
                     ]
                   },
                   {
@@ -579,17 +584,25 @@
               "role": {
                 "anyOf": [
                   {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "enum": [
                       "listen",
                       "connect",
-                      "capture",
-                      "display"
+                      null
                     ]
                   },
                   {
                     "type": "string"
                   }
+                ]
+              },
+              "id": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               },
               "host": {
@@ -674,8 +687,7 @@
               }
             },
             "required": [
-              "transport",
-              "role"
+              "transport"
             ]
           },
           "merge_ingress": {
@@ -693,7 +705,8 @@
                       "whip",
                       "whep",
                       "rist",
-                      "device"
+                      "input",
+                      "output"
                     ]
                   },
                   {
@@ -704,17 +717,25 @@
               "role": {
                 "anyOf": [
                   {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "enum": [
                       "listen",
                       "connect",
-                      "capture",
-                      "display"
+                      null
                     ]
                   },
                   {
                     "type": "string"
                   }
+                ]
+              },
+              "id": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               },
               "host": {
@@ -799,8 +820,7 @@
               }
             },
             "required": [
-              "transport",
-              "role"
+              "transport"
             ]
           },
           "egresses": {
@@ -820,7 +840,8 @@
                         "whip",
                         "whep",
                         "rist",
-                        "device"
+                        "input",
+                        "output"
                       ]
                     },
                     {
@@ -831,17 +852,25 @@
                 "role": {
                   "anyOf": [
                     {
-                      "type": "string",
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "enum": [
                         "listen",
                         "connect",
-                        "capture",
-                        "display"
+                        null
                       ]
                     },
                     {
                       "type": "string"
                     }
+                  ]
+                },
+                "id": {
+                  "type": [
+                    "string",
+                    "null"
                   ]
                 },
                 "host": {
@@ -927,8 +956,7 @@
               },
               "required": [
                 "branch_id",
-                "transport",
-                "role"
+                "transport"
               ]
             }
           },

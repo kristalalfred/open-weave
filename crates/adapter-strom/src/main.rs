@@ -293,6 +293,8 @@ async fn sync_once(
     );
 
     let heartbeat = NodeHeartbeat {
+        inputs: Vec::new(),
+        outputs: Vec::new(),
         node_id: node_id.clone(),
         status,
         endpoints,
@@ -671,7 +673,7 @@ impl SocketReading {
                 .map(|stats| Self::sessions(stats.ingress(), |b| b.received))
                 .unwrap_or_default(),
             SocketSpec::Rist(_) => Self::srt_egresses(srt),
-            SocketSpec::Device(_) => Self::default(),
+            SocketSpec::Local(_) => Self::default(),
         }
     }
 
@@ -687,7 +689,7 @@ impl SocketReading {
                 .map(|stats| Self::sessions(stats.egress_at(index), |b| b.sent))
                 .unwrap_or_default(),
             SocketSpec::Rist(_) => Self::srt_ingress(srt),
-            SocketSpec::Device(_) => Self::default(),
+            SocketSpec::Local(_) => Self::default(),
         }
     }
 
@@ -744,7 +746,7 @@ impl SocketReading {
             SocketSpec::Rist(socket) => {
                 rist_condition(socket.role(), self.connected, advanced, stalled)
             }
-            SocketSpec::Device(_) => LinkCondition::Idle,
+            SocketSpec::Local(_) => LinkCondition::Idle,
         }
     }
 }
@@ -786,6 +788,8 @@ fn registration(
     NodeRegistration {
         protocol_version: PROTOCOL_VERSION,
         node: NodeDescriptor {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             id: config.node.id.clone(),
             endpoint: public_endpoint.to_string(),
             status,

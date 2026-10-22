@@ -34,7 +34,7 @@ status and counters expose those failures. A 500 ms setting does not promise
 500 ms from camera to display.
 
 `delivery` requires managed SRT source and destination nodes. Remote endpoints,
-devices, WHIP, WHEP and RIST destinations reject it. Other destinations of the
+inputs, outputs, WHIP, WHEP and RIST destinations reject it. Other destinations of the
 same SRT source may remain untimed. Format declarations describe the original
 payload; framing does not infer or convert media. Each destination schedules
 independently from the same source timestamps.

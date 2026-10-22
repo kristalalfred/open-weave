@@ -32,6 +32,8 @@ fn profile(id: &str, ingress: HopEndpointClass, egress: HopEndpointClass) -> Hop
 fn node(id: &str, attachments: Vec<NetworkAttachment>) -> NodeDescriptor {
     let srt = || class(Transport::Srt, RoleSet::both());
     NodeDescriptor {
+        inputs: Vec::new(),
+        outputs: Vec::new(),
         id: id.to_string(),
         endpoint: format!("http://{id}"),
         status: NodeStatus::Ready,

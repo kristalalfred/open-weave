@@ -55,6 +55,8 @@ fn registration(id: &str, attachments: Vec<NetworkAttachment>) -> NodeRegistrati
     NodeRegistration {
         protocol_version: PROTOCOL_VERSION,
         node: NodeDescriptor {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             id: id.to_string(),
             endpoint: format!("http://{id}:8080"),
             status: NodeStatus::Ready,
@@ -324,6 +326,8 @@ async fn report_every_hop_running(state: &AppState, app: &Router) -> usize {
     let mut reports = 0;
     for (node, hops) in &desired {
         let heartbeat = NodeHeartbeat {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
             node_id: node.clone(),
             status: NodeStatus::Ready,
             endpoints: Vec::new(),
