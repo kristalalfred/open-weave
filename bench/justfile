@@ -591,4 +591,4 @@ netem-show node:
 
 [group("tests")]
 e2e *ARGS:
-    @cargo run --quiet -p weave-bench -- {{ARGS}}
+    @cargo run --quiet -p weave-bench --bin weave-bench -- {{ARGS}}
