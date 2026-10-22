@@ -27,8 +27,8 @@ pub struct Plan {
 }
 
 #[must_use]
-pub fn tag(hop_id: &str) -> String {
-    format!("{TAG_PREFIX}{hop_id}")
+pub fn tag(node_id: &str, hop_id: &str) -> String {
+    format!("{TAG_PREFIX}{node_id}/{hop_id}")
 }
 
 pub fn plan(hop: &DesiredHop, inventory: &Inventory) -> Result<Plan, String> {
@@ -153,16 +153,18 @@ impl Applied<'_> {
 
 #[must_use]
 pub fn applied<'a>(
+    node_id: &str,
     sources: &'a [SourceInfo],
     routes: &'a [RouteInfo],
 ) -> (BTreeMap<&'a str, Applied<'a>>, Vec<u32>) {
+    let prefix = tag(node_id, "");
     let mut by_hop = BTreeMap::new();
     let mut duplicates = Vec::new();
     for source in sources {
         let Some(hop_id) = source
             .tag
             .as_deref()
-            .and_then(|tag| tag.strip_prefix(TAG_PREFIX))
+            .and_then(|tag| tag.strip_prefix(prefix.as_str()))
         else {
             continue;
         };
@@ -192,11 +194,12 @@ pub enum Action {
 
 #[must_use]
 pub fn actions(
+    node_id: &str,
     plans: &BTreeMap<String, Result<Plan, String>>,
     sources: &[SourceInfo],
     routes: &[RouteInfo],
 ) -> Vec<Action> {
-    let (applied, duplicates) = applied(sources, routes);
+    let (applied, duplicates) = applied(node_id, sources, routes);
     let mut actions: Vec<Action> = duplicates
         .into_iter()
         .map(|source_id| Action::Destroy { source_id })
@@ -485,7 +488,7 @@ mod tests {
         let source = SourceInfo {
             source_id,
             spec: plan.source.clone(),
-            tag: Some(tag(&hop.id)),
+            tag: Some(tag(&hop.node_id, &hop.id)),
             label: "x".into(),
             status: flowing(bytes),
         };
@@ -580,13 +583,16 @@ mod tests {
         let hop = sender();
         let wanted = plan(&hop, &inventory()).unwrap();
         let (current, current_routes) = built(&hop, &wanted, 1, 0);
+        let second = DesiredHop {
+            id: "weave-music-2-sender".into(),
+            ..sender()
+        };
         let mut stale_plan = wanted.clone();
         stale_plan.source = SourceSpec::Tap {
             pids: vec![999],
             mode: TapMode::Mirror,
         };
-        let receiver_hop = receiver();
-        let (stale, stale_routes) = built(&receiver_hop, &stale_plan, 2, 0);
+        let (stale, stale_routes) = built(&second, &stale_plan, 2, 0);
         let (unwanted, _) = built(
             &DesiredHop {
                 id: "weave-old-sender".into(),
@@ -600,22 +606,22 @@ mod tests {
             tag: None,
             ..built(&hop, &wanted, 4, 0).0
         };
-        let sources = [current, stale, unwanted, untagged];
+        let (other_node, _) = built(&receiver(), &wanted, 5, 0);
+        let sources = [current, stale, unwanted, untagged, other_node];
         let routes: Vec<RouteInfo> = current_routes.into_iter().chain(stale_routes).collect();
 
-        let receiver_plan = plan(&receiver_hop, &inventory()).unwrap();
         let plans = BTreeMap::from([
-            (hop.id.clone(), Ok(wanted)),
-            (receiver_hop.id.clone(), Ok(receiver_plan.clone())),
+            (hop.id.clone(), Ok(wanted.clone())),
+            (second.id.clone(), Ok(wanted.clone())),
         ]);
-        let mut actions = actions(&plans, &sources, &routes);
+        let mut actions = actions(&hop.node_id, &plans, &sources, &routes);
         actions.sort_by_key(|action| format!("{action:?}"));
         assert_eq!(
             actions,
             [
                 Action::Build {
-                    hop_id: receiver_hop.id.clone(),
-                    plan: receiver_plan
+                    hop_id: second.id.clone(),
+                    plan: wanted
                 },
                 Action::Destroy { source_id: 2 },
                 Action::Destroy { source_id: 3 },
@@ -630,7 +636,7 @@ mod tests {
         let mut rates = Rates::default();
         let start = Instant::now();
         let (source, routes) = built(&hop, &wanted, 1, 1_000);
-        let (current, _) = applied(std::slice::from_ref(&source), &routes);
+        let (current, _) = applied(&hop.node_id, std::slice::from_ref(&source), &routes);
         let first = hop_status(
             &hop,
             &Ok(wanted.clone()),
@@ -657,7 +663,7 @@ mod tests {
         );
 
         let (source, routes) = built(&hop, &wanted, 1, 1_000 + 125_000);
-        let (current, _) = applied(std::slice::from_ref(&source), &routes);
+        let (current, _) = applied(&hop.node_id, std::slice::from_ref(&source), &routes);
         let later = start + std::time::Duration::from_secs(1);
         let second = hop_status(
             &hop,

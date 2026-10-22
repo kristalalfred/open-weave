@@ -356,12 +356,8 @@ async fn sync_once(
         );
     }
 
-    match southbound.desired(&config.node.id).await? {
-        Some(desired) => node.desired = desired,
-        None => {
-            node.registered = false;
-            return Ok(());
-        }
+    if let Some(desired) = southbound.desired(&config.node.id).await? {
+        node.desired = desired;
     }
 
     if let Some(observation) = observation {
@@ -375,15 +371,20 @@ async fn sync_once(
                 tracing::debug!(hop_id, reason, "cannot run desired hop");
             }
         }
-        let actions = hops::actions(&plans, &observation.sources, &observation.routes);
+        let actions = hops::actions(
+            &config.node.id,
+            &plans,
+            &observation.sources,
+            &observation.routes,
+        );
         node.failed
             .retain(|hop_id| plans.get(hop_id).is_some_and(Result::is_ok));
         for action in actions {
-            apply(spaghetti, action, &mut node.failed).await;
+            apply(spaghetti, &config.node.id, action, &mut node.failed).await;
         }
         let sources = spaghetti.sources().await?;
         let routes = spaghetti.routes().await?;
-        let (applied, _) = hops::applied(&sources, &routes);
+        let (applied, _) = hops::applied(&config.node.id, &sources, &routes);
         let now = Instant::now();
         node.statuses = node
             .desired
@@ -417,7 +418,12 @@ async fn sync_once(
     Ok(())
 }
 
-async fn apply(spaghetti: &SpaghettiClient, action: Action, failed: &mut BTreeSet<String>) {
+async fn apply(
+    spaghetti: &SpaghettiClient,
+    node_id: &str,
+    action: Action,
+    failed: &mut BTreeSet<String>,
+) {
     match action {
         Action::Destroy { source_id } => match spaghetti.destroy_source(source_id).await {
             Ok(()) => tracing::info!(source_id, "removed spaghetti source"),
@@ -425,27 +431,23 @@ async fn apply(spaghetti: &SpaghettiClient, action: Action, failed: &mut BTreeSe
                 tracing::warn!(source_id, error = %error, "cannot remove spaghetti source")
             }
         },
-        Action::Build { hop_id, plan } => match build(spaghetti, &hop_id, &plan).await {
-            Ok(source_id) => {
-                failed.remove(&hop_id);
-                tracing::info!(hop_id, source_id, routes = plan.routes.len(), "built hop");
+        Action::Build { hop_id, plan } => {
+            match build(spaghetti, &hops::tag(node_id, &hop_id), &plan).await {
+                Ok(source_id) => {
+                    failed.remove(&hop_id);
+                    tracing::info!(hop_id, source_id, routes = plan.routes.len(), "built hop");
+                }
+                Err(error) => {
+                    failed.insert(hop_id.clone());
+                    tracing::warn!(hop_id, error = %error, "cannot build hop");
+                }
             }
-            Err(error) => {
-                failed.insert(hop_id.clone());
-                tracing::warn!(hop_id, error = %error, "cannot build hop");
-            }
-        },
+        }
     }
 }
 
-async fn build(
-    spaghetti: &SpaghettiClient,
-    hop_id: &str,
-    plan: &Plan,
-) -> Result<u32, SpaghettiError> {
-    let source_id = spaghetti
-        .create_source(&plan.source, &hops::tag(hop_id))
-        .await?;
+async fn build(spaghetti: &SpaghettiClient, tag: &str, plan: &Plan) -> Result<u32, SpaghettiError> {
+    let source_id = spaghetti.create_source(&plan.source, tag).await?;
     for (_, destination) in &plan.routes {
         if let Err(error) = spaghetti.create_route(source_id, destination, 1.0).await {
             let _ = spaghetti.destroy_source(source_id).await;
