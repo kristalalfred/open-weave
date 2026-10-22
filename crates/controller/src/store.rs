@@ -1427,8 +1427,8 @@ impl StateStore for MemStore {
 pub(crate) mod tests {
     use super::*;
     use weave_core::{
-        NodeCapabilities, NodeDescriptor, NodeStatus, NodeTopology, SrtEndpoint, StreamDestination,
-        StreamTransport,
+        DeclaredTopology, NodeCapabilities, NodeDescriptor, NodeStatus, SrtEndpoint,
+        StreamDestination, StreamTransport,
     };
 
     fn stream(name: &str) -> StreamDefinition {
@@ -1475,8 +1475,9 @@ pub(crate) mod tests {
                 endpoint: "http://10.0.0.1:8080".to_string(),
                 status: NodeStatus::Ready,
                 capabilities: NodeCapabilities::default(),
-                topology: NodeTopology::default(),
+                topology: DeclaredTopology::default(),
             },
+            observation: None,
             endpoints: Vec::new(),
             hop_status: Vec::new(),
         }

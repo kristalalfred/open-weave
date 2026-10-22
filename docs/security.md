@@ -55,7 +55,9 @@ both check it. Nothing about a refused registration is recorded.
 The inventory reads `GET /nodes`, `GET /endpoints` and `GET /state` accept any
 node's token, and the controller's `GET /nodes` also accepts the northbound
 token. They list every node, endpoint and hop status, but no node's desired
-hops.
+hops. With a node token, `GET /nodes` leaves out each node's `site`, which names
+its subnet and public addresses. The observation a node reports is served on no
+route.
 
 ### Revoking a node
 

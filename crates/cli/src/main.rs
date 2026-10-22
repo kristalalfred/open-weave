@@ -433,10 +433,11 @@ fn failing_reasons(conditions: &[read::StreamCondition]) -> String {
     }
 }
 
-fn render_nodes(nodes: &[read::NodeDescriptor]) -> String {
+fn render_nodes(nodes: &[read::NodeResource]) -> String {
     let rows = sorted_by_id(nodes)
         .into_iter()
-        .map(|node| {
+        .map(|resource| {
+            let node = &resource.node;
             let profiles = node
                 .capabilities
                 .hop_profiles
@@ -451,27 +452,41 @@ fn render_nodes(nodes: &[read::NodeDescriptor]) -> String {
                 .map(|attachment| attachment.network.as_str())
                 .collect::<Vec<_>>()
                 .join(",");
+            let site = match &resource.site {
+                None => "-".to_string(),
+                Some(read::SiteState {
+                    state,
+                    subnet: Some(subnet),
+                    public,
+                }) if state == "resolved" => format!("{subnet} via {}", public.join(",")),
+                Some(site) => site.state.clone(),
+            };
             vec![
                 node.id.clone(),
                 node.status.to_string(),
                 node.endpoint.clone(),
                 profiles,
                 networks,
+                site,
             ]
         })
         .collect();
-    table(&["ID", "STATUS", "ENDPOINT", "PROFILES", "NETWORKS"], rows)
+    table(
+        &["ID", "STATUS", "ENDPOINT", "PROFILES", "NETWORKS", "SITE"],
+        rows,
+    )
 }
 
-fn sorted_by_id(nodes: &[read::NodeDescriptor]) -> Vec<&read::NodeDescriptor> {
+fn sorted_by_id(nodes: &[read::NodeResource]) -> Vec<&read::NodeResource> {
     let mut nodes = nodes.iter().collect::<Vec<_>>();
-    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    nodes.sort_by(|left, right| left.node.id.cmp(&right.node.id));
     nodes
 }
 
-fn render_inputs(nodes: &[read::NodeDescriptor]) -> String {
+fn render_inputs(nodes: &[read::NodeResource]) -> String {
     let rows = sorted_by_id(nodes)
         .into_iter()
+        .map(|resource| &resource.node)
         .flat_map(|node| {
             node.inputs.iter().map(|input| {
                 vec![
@@ -492,9 +507,10 @@ fn render_inputs(nodes: &[read::NodeDescriptor]) -> String {
     table(&["NODE", "INPUT", "TRACKS", "NODE STATUS", "LABEL"], rows)
 }
 
-fn render_outputs(nodes: &[read::NodeDescriptor]) -> String {
+fn render_outputs(nodes: &[read::NodeResource]) -> String {
     let rows = sorted_by_id(nodes)
         .into_iter()
+        .map(|resource| &resource.node)
         .flat_map(|node| {
             node.outputs.iter().map(|output| {
                 vec![
@@ -888,16 +904,13 @@ async fn get_nodes(
     url: &str,
     token: Option<&Token>,
     output: OutputFormat,
-    human: fn(&[read::NodeDescriptor]) -> String,
+    human: fn(&[read::NodeResource]) -> String,
 ) -> Result<String> {
     let client = reqwest::Client::new();
     let body = get_body(&client, url, token, "/nodes", "nodes").await?;
-    render(
-        output,
-        &body,
-        "nodes",
-        |nodes: &Vec<read::NodeDescriptor>| human(nodes),
-    )
+    render(output, &body, "nodes", |nodes: &Vec<read::NodeResource>| {
+        human(nodes)
+    })
 }
 
 async fn get_endpoints(
@@ -1419,14 +1432,16 @@ streams:
             ]
         );
 
-        let nodes: Vec<read::NodeDescriptor> = serde_json::from_value(serde_json::json!([{
-            "id": "strom-node-1",
-            "endpoint": "http://strom-node-1:8091",
-            "status": "offline",
-            "capabilities": { "adapters": [], "hop_profiles": [] },
-            "topology": { "attachments": [] },
-            "inputs": [],
-            "outputs": []
+        let nodes: Vec<read::NodeResource> = serde_json::from_value(serde_json::json!([{
+            "node": {
+                "id": "strom-node-1",
+                "endpoint": "http://strom-node-1:8091",
+                "status": "offline",
+                "capabilities": { "adapters": [], "hop_profiles": [] },
+                "topology": { "attachments": [] },
+                "inputs": [],
+                "outputs": []
+            }
         }]))
         .unwrap();
         assert_eq!(
@@ -1436,14 +1451,99 @@ streams:
                 .unwrap()
                 .split_whitespace()
                 .collect::<Vec<_>>(),
-            ["strom-node-1", "offline", "http://strom-node-1:8091"]
+            ["strom-node-1", "offline", "http://strom-node-1:8091", "-"]
+        );
+    }
+
+    #[test]
+    fn nodes_show_where_each_site_resolved_or_why_not() {
+        let node = |id: &str, networks: &[&str], site: Value| {
+            let attachments: Vec<Value> = networks
+                .iter()
+                .map(|network| serde_json::json!({ "id": network, "network": network, "dial": true }))
+                .collect();
+            serde_json::json!({
+                "node": {
+                    "id": id,
+                    "endpoint": format!("http://{id}"),
+                    "status": "ready",
+                    "capabilities": { "adapters": [], "hop_profiles": [] },
+                    "topology": { "attachments": attachments },
+                    "inputs": [],
+                    "outputs": []
+                },
+                "site": site
+            })
+        };
+        let nodes: Vec<read::NodeResource> = serde_json::from_value(serde_json::json!([
+            node(
+                "office-mac",
+                &["studio-lan", "site-3f9a2c1d7e4b"],
+                serde_json::json!({
+                    "state": "resolved",
+                    "network": "site-3f9a2c1d7e4b",
+                    "subnet": "192.168.3.0/24",
+                    "public": ["92.244.18.125"]
+                })
+            ),
+            node(
+                "hotspot-mac",
+                &["site-0a1b2c3d4e5f"],
+                serde_json::json!({
+                    "state": "resolved",
+                    "network": "site-0a1b2c3d4e5f",
+                    "subnet": "172.20.10.0/28",
+                    "public": ["100.64.9.1", "100.64.9.2"]
+                })
+            ),
+            node(
+                "quiet-mac",
+                &[],
+                serde_json::json!({ "state": "no_public_address" })
+            ),
+        ]))
+        .unwrap();
+        let rendered = render_nodes(&nodes);
+        let rows: Vec<Vec<&str>> = rendered
+            .lines()
+            .skip(1)
+            .map(|line| line.split_whitespace().collect())
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                vec![
+                    "hotspot-mac",
+                    "ready",
+                    "http://hotspot-mac",
+                    "site-0a1b2c3d4e5f",
+                    "172.20.10.0/28",
+                    "via",
+                    "100.64.9.1,100.64.9.2"
+                ],
+                vec![
+                    "office-mac",
+                    "ready",
+                    "http://office-mac",
+                    "studio-lan,site-3f9a2c1d7e4b",
+                    "192.168.3.0/24",
+                    "via",
+                    "92.244.18.125"
+                ],
+                vec![
+                    "quiet-mac",
+                    "ready",
+                    "http://quiet-mac",
+                    "no_public_address"
+                ],
+            ]
         );
     }
 
     #[test]
     fn inputs_and_outputs_list_one_row_per_declaration_sorted_by_node() {
         let node = |id: &str, inputs: Value, outputs: Value| {
-            serde_json::json!({
+            serde_json::json!({ "node": {
                 "id": id,
                 "endpoint": format!("spaghetti://{id}"),
                 "status": "ready",
@@ -1451,9 +1551,9 @@ streams:
                 "topology": { "attachments": [] },
                 "inputs": inputs,
                 "outputs": outputs
-            })
+            }})
         };
-        let nodes: Vec<read::NodeDescriptor> = serde_json::from_value(serde_json::json!([
+        let nodes: Vec<read::NodeResource> = serde_json::from_value(serde_json::json!([
             node(
                 "filips-mac",
                 serde_json::json!([]),
@@ -1968,12 +2068,12 @@ destinations:
         let cases = [
             (
                 "/nodes",
-                serde_json::json!([{
+                serde_json::json!([{ "node": {
                     "id": "strom-node-1",
                     "endpoint": "http://strom-node-1:8091",
                     "status": "ready",
                     "topology": { "attachments": [] }
-                }]),
+                }}]),
                 "nodes",
             ),
             (

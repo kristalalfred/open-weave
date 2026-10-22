@@ -297,6 +297,7 @@ async fn sync_once(
         outputs: Vec::new(),
         node_id: node_id.clone(),
         status,
+        observation: None,
         endpoints,
         hop_status,
     };
@@ -802,6 +803,7 @@ fn registration(
             },
             topology: config.node.topology.clone(),
         },
+        observation: None,
         endpoints,
         hop_status,
     }

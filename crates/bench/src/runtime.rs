@@ -175,10 +175,11 @@ impl Bench {
         loop {
             let body: Value = self.get("/nodes").await?;
             self.report.event("preflight_nodes", &body)?;
-            let nodes = Vec::<read::NodeDescriptor>::deserialize(&body)?;
+            let nodes = Vec::<read::NodeResource>::deserialize(&body)?;
             if (1..=4).all(|n| {
-                nodes.iter().any(|node| {
-                    node.id == format!("strom-node-{n}") && node.status == NodeStatus::Ready
+                nodes.iter().any(|resource| {
+                    resource.node.id == format!("strom-node-{n}")
+                        && resource.node.status == NodeStatus::Ready
                 })
             }) {
                 break;

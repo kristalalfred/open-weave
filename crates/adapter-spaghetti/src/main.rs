@@ -14,11 +14,12 @@ use tokio::task::JoinHandle;
 use weave_core::auth::{self, Token};
 use weave_core::logging::ErrorChain;
 use weave_core::{
-    AdapterDescriptor, AdapterKind, AudioCodec, AudioConstraint, Container, DesiredHop,
-    FormatConstraint, HopEndpointClass, HopProfile, HopStatus, LocalEnd, MediaBehavior,
+    AdapterDescriptor, AdapterKind, AudioCodec, AudioConstraint, Container, DeclaredNode,
+    DesiredHop, FormatConstraint, HopEndpointClass, HopProfile, HopStatus, LocalEnd, MediaBehavior,
     NodeCapabilities, NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus,
     PROTOCOL_VERSION, RoleSet, Transport, TransportClass,
 };
+use weave_reach::{Reach, STUN_SERVERS};
 use weave_spaghetti::{SpaghettiClient, SpaghettiError};
 
 use config::AdapterConfig;
@@ -56,6 +57,11 @@ async fn main() -> Result<()> {
     let southbound = Southbound::new(config.node.southbound_url.clone(), token)?;
     let spaghetti = SpaghettiClient::new(&config.spaghetti.socket);
     let health_server = spawn_health_server(config.node.listen.clone());
+    let reach = if config.node.topology.site.is_some() {
+        Some(Reach::start(&STUN_SERVERS).await)
+    } else {
+        None
+    };
 
     tracing::info!(
         node_id = %config.node.id,
@@ -71,7 +77,7 @@ async fn main() -> Result<()> {
             tracing::info!("spaghetti adapter shutting down");
             Ok(())
         }
-        result = sync_loop(&southbound, &spaghetti, &config) => result,
+        result = sync_loop(&southbound, &spaghetti, &config, reach.as_ref()) => result,
     };
     health_server.abort();
     result
@@ -226,7 +232,7 @@ fn profiles() -> Vec<HopProfile> {
     ]
 }
 
-fn descriptor(config: &AdapterConfig, inventory: &Inventory, status: NodeStatus) -> NodeDescriptor {
+fn descriptor(config: &AdapterConfig, inventory: &Inventory, status: NodeStatus) -> DeclaredNode {
     NodeDescriptor {
         id: config.node.id.clone(),
         endpoint: config.node.public_endpoint(),
@@ -274,6 +280,7 @@ async fn sync_loop(
     southbound: &Southbound,
     spaghetti: &SpaghettiClient,
     config: &AdapterConfig,
+    reach: Option<&Reach>,
 ) -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut node = Node {
@@ -286,7 +293,7 @@ async fn sync_loop(
         statuses: Vec::new(),
     };
     loop {
-        match sync_once(southbound, spaghetti, config, &home, &mut node).await {
+        match sync_once(southbound, spaghetti, config, reach, &home, &mut node).await {
             Ok(()) => {}
             Err(error)
                 if error.is::<RegistrationRejected>()
@@ -310,6 +317,7 @@ async fn sync_once(
     southbound: &Southbound,
     spaghetti: &SpaghettiClient,
     config: &AdapterConfig,
+    reach: Option<&Reach>,
     home: &str,
     node: &mut Node,
 ) -> Result<()> {
@@ -336,12 +344,14 @@ async fn sync_once(
     if let Some(observation) = &observation {
         node.inventory = observation.inventory.clone();
     }
+    let network_observation = reach.map(Reach::latest);
 
     if !node.registered {
         southbound
             .register(&NodeRegistration {
                 protocol_version: PROTOCOL_VERSION,
                 node: descriptor(config, &node.inventory, status),
+                observation: network_observation.clone(),
                 endpoints: Vec::new(),
                 hop_status: node.statuses.clone(),
             })
@@ -430,6 +440,7 @@ async fn sync_once(
         status,
         inputs: node.inventory.inputs.clone(),
         outputs: node.inventory.outputs.clone(),
+        observation: network_observation,
         endpoints: Vec::new(),
         hop_status: node.statuses.clone(),
     };
@@ -517,14 +528,11 @@ node:
   southbound_url: http://127.0.0.1:8081
   listen: 127.0.0.1:8092
   topology:
-    attachments:
-      - id: lan
-        network: office
-        dial: true
-        listeners:
-          srt:
-            host: 192.168.1.20
-            port_range: { start: 23000, end: 23099 }
+    site:
+      id: lan
+      listeners:
+        srt:
+          port_range: { start: 23000, end: 23099 }
 ",
         )
         .unwrap();

@@ -191,6 +191,7 @@ impl Control {
             outputs: Vec::new(),
             node_id: registration.node.id,
             status: NodeStatus::Ready,
+            observation: None,
             endpoints: vec![],
             hop_status: reports(hops),
         };
@@ -217,19 +218,29 @@ fn reports(hops: &BTreeMap<String, Hop>) -> Vec<HopStatus> {
         .collect()
 }
 
+impl Config {
+    pub fn validate(&self) -> Result<()> {
+        self.node
+            .validate()
+            .context("validating native node configuration")?;
+        anyhow::ensure!(
+            self.node.topology.site.is_none(),
+            "topology.site needs a node that observes its own uplink, and the native node does not; declare an attachment with a network and listener host instead"
+        );
+        anyhow::ensure!(
+            (1..=65_536).contains(&self.media.max_buffer_records),
+            "buffer record limit must be between 1 and 65536"
+        );
+        anyhow::ensure!(
+            (1_088..=256 * 1024 * 1024).contains(&self.media.max_buffer_bytes),
+            "buffer byte limit must be between 1088 and 268435456"
+        );
+        Ok(())
+    }
+}
+
 pub async fn run(config: Config) -> Result<()> {
-    config
-        .node
-        .validate()
-        .context("validating native node configuration")?;
-    anyhow::ensure!(
-        (1..=65_536).contains(&config.media.max_buffer_records),
-        "buffer record limit must be between 1 and 65536"
-    );
-    anyhow::ensure!(
-        (1_088..=256 * 1024 * 1024).contains(&config.media.max_buffer_bytes),
-        "buffer byte limit must be between 1088 and 268435456"
-    );
+    config.validate()?;
     let clock = Clock::new(config.clock.clone());
     anyhow::ensure!(!clock.domain().is_empty(), "clock domain must not be empty");
     clock.refresh().await;
@@ -302,6 +313,7 @@ pub async fn run(config: Config) -> Result<()> {
             let registration = NodeRegistration {
                 protocol_version: PROTOCOL_VERSION,
                 node: node.clone(),
+                observation: None,
                 endpoints: vec![],
                 hop_status: reports(&hops),
             };
@@ -336,4 +348,30 @@ pub async fn run(config: Config) -> Result<()> {
     refresh.abort();
     health.abort();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_example_is_valid_and_a_site_is_refused() {
+        let example = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../examples/native-node.yaml"),
+        )
+        .expect("reading examples/native-node.yaml");
+        let config: Config = serde_norway::from_str(&example).unwrap();
+        config
+            .validate()
+            .unwrap_or_else(|error| panic!("{error:#}"));
+
+        let with_site = example.replace(
+            "  topology:\n",
+            "  topology:\n    site:\n      id: office\n",
+        );
+        let config: Config = serde_norway::from_str(&with_site).unwrap();
+        let error = format!("{:#}", config.validate().unwrap_err());
+        assert!(error.contains("topology.site"), "{error}");
+    }
 }

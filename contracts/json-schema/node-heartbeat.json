@@ -74,6 +74,69 @@
         ]
       }
     },
+    "observation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "uplink": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "interface": {
+              "type": "string"
+            },
+            "address": {
+              "type": "string",
+              "format": "ipv4"
+            },
+            "prefix_len": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 32
+            },
+            "gateway": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"
+            },
+            "reflexive": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "server": {
+                    "type": "string"
+                  },
+                  "mapped": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "server",
+                  "mapped"
+                ]
+              },
+              "default": []
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "interface",
+            "address",
+            "prefix_len"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "endpoints": {
       "type": "array",
       "items": {

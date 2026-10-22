@@ -3,8 +3,8 @@ use schemars::{JsonSchema, Schema, generate::SchemaSettings, json_schema};
 use serde_json::{Map, Value, json};
 
 use crate::{
-    ApiError, DesiredHop, EndpointDescriptor, NodeAccepted, NodeDescriptor, NodeHeartbeat,
-    NodeRegistration, ObservedState, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
+    ApiError, DesiredHop, EndpointDescriptor, NodeAccepted, NodeHeartbeat, NodeRegistration,
+    NodeResource, ObservedState, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
     ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, ROUTE_STATUS, ROUTE_STREAM,
     ROUTE_STREAM_ENDPOINTS, ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS, ROUTE_STREAMS,
     StatusResponse, StreamAccepted, StreamDefinition, StreamEndpoints, StreamPlan, StreamResource,
@@ -432,7 +432,7 @@ pub fn northbound_openapi() -> Value {
         }),
         components(&[
             ("ApiError", schema::<ApiError>(Client)),
-            ("NodeList", schema::<Vec<NodeDescriptor>>(Client)),
+            ("NodeList", schema::<Vec<NodeResource>>(Client)),
             ("StatusResponse", schema::<StatusResponse>(Client)),
             ("StreamAccepted", schema::<StreamAccepted>(Client)),
             ("StreamDefinition", schema::<StreamDefinition>(Controller)),
@@ -547,7 +547,7 @@ pub fn southbound_openapi() -> Value {
             ("EndpointList", schema::<Vec<EndpointDescriptor>>(Adapter)),
             ("NodeAccepted", schema::<NodeAccepted>(Adapter)),
             ("NodeHeartbeat", schema::<NodeHeartbeat>(Controller)),
-            ("NodeList", schema::<Vec<NodeDescriptor>>(Adapter)),
+            ("NodeList", schema::<Vec<NodeResource>>(Adapter)),
             ("NodeRegistration", schema::<NodeRegistration>(Controller)),
             ("ObservedState", schema::<ObservedState>(Adapter)),
         ]),

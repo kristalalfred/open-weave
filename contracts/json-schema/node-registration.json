@@ -411,6 +411,65 @@
         "topology": {
           "type": "object",
           "properties": {
+            "site": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 63,
+                  "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                },
+                "listeners": {
+                  "type": "object",
+                  "properties": {
+                    "srt": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "port_range": {
+                          "type": "object",
+                          "properties": {
+                            "start": {
+                              "type": "integer",
+                              "format": "uint16",
+                              "minimum": 0,
+                              "maximum": 65535
+                            },
+                            "end": {
+                              "type": "integer",
+                              "format": "uint16",
+                              "minimum": 0,
+                              "maximum": 65535
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "start",
+                            "end"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "port_range"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "default": {}
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id"
+              ]
+            },
             "attachments": {
               "type": "array",
               "items": {
@@ -623,6 +682,69 @@
         "status",
         "topology"
       ]
+    },
+    "observation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "uplink": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "interface": {
+              "type": "string"
+            },
+            "address": {
+              "type": "string",
+              "format": "ipv4"
+            },
+            "prefix_len": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 32
+            },
+            "gateway": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"
+            },
+            "reflexive": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "server": {
+                    "type": "string"
+                  },
+                  "mapped": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "server",
+                  "mapped"
+                ]
+              },
+              "default": []
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "interface",
+            "address",
+            "prefix_len"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "endpoints": {
       "type": "array",

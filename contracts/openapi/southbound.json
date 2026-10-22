@@ -1254,6 +1254,69 @@
               ]
             }
           },
+          "observation": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "uplink": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "interface": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string",
+                    "format": "ipv4"
+                  },
+                  "prefix_len": {
+                    "type": "integer",
+                    "format": "uint8",
+                    "minimum": 0,
+                    "maximum": 32
+                  },
+                  "gateway": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"
+                  },
+                  "reflexive": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "server": {
+                          "type": "string"
+                        },
+                        "mapped": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "server",
+                        "mapped"
+                      ]
+                    },
+                    "default": []
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "interface",
+                  "address",
+                  "prefix_len"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
           "endpoints": {
             "type": "array",
             "items": {
@@ -1781,251 +1844,234 @@
       },
       "NodeList": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "Array_of_NodeDescriptor",
+        "title": "Array_of_NodeResource",
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 63,
-              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-            },
-            "endpoint": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string",
-              "enum": [
-                "unknown",
-                "ready",
-                "degraded",
-                "offline"
-              ]
-            },
-            "capabilities": {
+            "node": {
               "type": "object",
               "properties": {
-                "adapters": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "name": {
-                        "type": "string"
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "native_srt",
-                          "strom",
-                          "spaghetti",
-                          "nmos",
-                          "mxl_domain",
-                          "mxl_k8s",
-                          "mcm",
-                          "vendor",
-                          "custom"
-                        ]
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "name",
-                      "kind"
-                    ]
-                  },
-                  "default": []
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 63,
+                  "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                 },
-                "hop_profiles": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "timed_delivery": {
-                        "type": [
-                          "object",
-                          "null"
-                        ],
+                "endpoint": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "unknown",
+                    "ready",
+                    "degraded",
+                    "offline"
+                  ]
+                },
+                "capabilities": {
+                  "type": "object",
+                  "properties": {
+                    "adapters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
                         "properties": {
-                          "protocol": {
+                          "name": {
                             "type": "string"
                           },
-                          "roles": {
-                            "type": "array",
-                            "items": {
-                              "type": "string",
-                              "enum": [
-                                "origin",
-                                "forward",
-                                "receiver"
-                              ]
-                            }
-                          },
-                          "max_latency_ms": {
-                            "type": "integer",
-                            "format": "uint32",
-                            "minimum": 0
-                          },
-                          "scheduling_error_bound_us": {
-                            "type": "integer",
-                            "format": "uint32",
-                            "minimum": 0
-                          },
-                          "clock_domain": {
-                            "type": "string"
-                          },
-                          "origin_epoch": {
-                            "type": "integer",
-                            "format": "uint64",
-                            "minimum": 0
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "native_srt",
+                              "strom",
+                              "spaghetti",
+                              "nmos",
+                              "mxl_domain",
+                              "mxl_k8s",
+                              "mcm",
+                              "vendor",
+                              "custom"
+                            ]
                           }
                         },
                         "additionalProperties": false,
                         "required": [
-                          "protocol",
-                          "roles",
-                          "max_latency_ms",
-                          "scheduling_error_bound_us",
-                          "clock_domain",
-                          "origin_epoch"
+                          "name",
+                          "kind"
                         ]
                       },
-                      "media_behavior": {
-                        "type": "string",
-                        "enum": [
-                          "preserve",
-                          "unknown"
-                        ],
-                        "default": "unknown"
-                      },
-                      "id": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 63,
-                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-                      },
-                      "ingress": {
-                        "anyOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "transport": {
-                                "type": "string",
-                                "enum": [
-                                  "srt",
-                                  "whip",
-                                  "whep",
-                                  "rist"
-                                ]
-                              },
-                              "roles": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string",
-                                  "enum": [
-                                    "listen",
-                                    "connect"
-                                  ]
-                                },
-                                "minItems": 1
-                              }
-                            },
-                            "additionalProperties": false,
-                            "required": [
-                              "transport",
-                              "roles"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "input",
-                              "output"
-                            ]
-                          }
-                        ]
-                      },
-                      "egress": {
-                        "anyOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "transport": {
-                                "type": "string",
-                                "enum": [
-                                  "srt",
-                                  "whip",
-                                  "whep",
-                                  "rist"
-                                ]
-                              },
-                              "roles": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string",
-                                  "enum": [
-                                    "listen",
-                                    "connect"
-                                  ]
-                                },
-                                "minItems": 1
-                              }
-                            },
-                            "additionalProperties": false,
-                            "required": [
-                              "transport",
-                              "roles"
-                            ]
-                          },
-                          {
-                            "type": "string",
-                            "enum": [
-                              "input",
-                              "output"
-                            ]
-                          }
-                        ]
-                      },
-                      "max_egresses": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "format": "uint",
-                        "minimum": 1
-                      },
-                      "merge": {
-                        "type": "boolean"
-                      },
-                      "accepts": {
-                        "type": [
-                          "object",
-                          "null"
-                        ],
+                      "default": []
+                    },
+                    "hop_profiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
                         "properties": {
-                          "container": {
-                            "type": [
-                              "array",
-                              "null"
-                            ],
-                            "items": {
-                              "type": "string",
-                              "enum": [
-                                "mpeg_ts",
-                                "rtp"
-                              ]
-                            },
-                            "minItems": 1
-                          },
-                          "video": {
+                          "timed_delivery": {
                             "type": [
                               "object",
                               "null"
                             ],
                             "properties": {
-                              "codec": {
+                              "protocol": {
+                                "type": "string"
+                              },
+                              "roles": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "origin",
+                                    "forward",
+                                    "receiver"
+                                  ]
+                                }
+                              },
+                              "max_latency_ms": {
+                                "type": "integer",
+                                "format": "uint32",
+                                "minimum": 0
+                              },
+                              "scheduling_error_bound_us": {
+                                "type": "integer",
+                                "format": "uint32",
+                                "minimum": 0
+                              },
+                              "clock_domain": {
+                                "type": "string"
+                              },
+                              "origin_epoch": {
+                                "type": "integer",
+                                "format": "uint64",
+                                "minimum": 0
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "protocol",
+                              "roles",
+                              "max_latency_ms",
+                              "scheduling_error_bound_us",
+                              "clock_domain",
+                              "origin_epoch"
+                            ]
+                          },
+                          "media_behavior": {
+                            "type": "string",
+                            "enum": [
+                              "preserve",
+                              "unknown"
+                            ],
+                            "default": "unknown"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "ingress": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "type": "string",
+                                    "enum": [
+                                      "srt",
+                                      "whip",
+                                      "whep",
+                                      "rist"
+                                    ]
+                                  },
+                                  "roles": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "listen",
+                                        "connect"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "transport",
+                                  "roles"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "input",
+                                  "output"
+                                ]
+                              }
+                            ]
+                          },
+                          "egress": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "type": "string",
+                                    "enum": [
+                                      "srt",
+                                      "whip",
+                                      "whep",
+                                      "rist"
+                                    ]
+                                  },
+                                  "roles": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "listen",
+                                        "connect"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "transport",
+                                  "roles"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "input",
+                                  "output"
+                                ]
+                              }
+                            ]
+                          },
+                          "max_egresses": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "format": "uint",
+                            "minimum": 1
+                          },
+                          "merge": {
+                            "type": "boolean"
+                          },
+                          "accepts": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "container": {
                                 "type": [
                                   "array",
                                   "null"
@@ -2033,164 +2079,335 @@
                                 "items": {
                                   "type": "string",
                                   "enum": [
-                                    "h264",
-                                    "h265",
-                                    "av1",
-                                    "vp8",
-                                    "vp9"
+                                    "mpeg_ts",
+                                    "rtp"
                                   ]
                                 },
                                 "minItems": 1
                               },
-                              "width": {
+                              "video": {
                                 "type": [
-                                  "array",
+                                  "object",
                                   "null"
                                 ],
-                                "items": {
-                                  "type": "integer",
-                                  "format": "uint32",
-                                  "minimum": 0
-                                },
-                                "minItems": 1
-                              },
-                              "height": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "integer",
-                                  "format": "uint32",
-                                  "minimum": 0
-                                },
-                                "minItems": 1
-                              },
-                              "framerate": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "numerator": {
+                                "properties": {
+                                  "codec": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "h264",
+                                        "h265",
+                                        "av1",
+                                        "vp8",
+                                        "vp9"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "width": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
                                       "type": "integer",
                                       "format": "uint32",
                                       "minimum": 0
                                     },
-                                    "denominator": {
+                                    "minItems": 1
+                                  },
+                                  "height": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
                                       "type": "integer",
                                       "format": "uint32",
                                       "minimum": 0
-                                    }
+                                    },
+                                    "minItems": 1
                                   },
-                                  "additionalProperties": false,
-                                  "required": [
-                                    "numerator",
-                                    "denominator"
-                                  ]
+                                  "framerate": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "numerator": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 0
+                                        },
+                                        "denominator": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 0
+                                        }
+                                      },
+                                      "additionalProperties": false,
+                                      "required": [
+                                        "numerator",
+                                        "denominator"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "chroma_subsampling": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "yuv420",
+                                        "yuv422",
+                                        "yuv444"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
                                 },
-                                "minItems": 1
+                                "additionalProperties": false
                               },
-                              "chroma_subsampling": {
+                              "audio": {
                                 "type": [
-                                  "array",
+                                  "object",
                                   "null"
                                 ],
-                                "items": {
-                                  "type": "string",
-                                  "enum": [
-                                    "yuv420",
-                                    "yuv422",
-                                    "yuv444"
-                                  ]
+                                "properties": {
+                                  "codec": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "aac",
+                                        "opus",
+                                        "mp2",
+                                        "pcm_s16",
+                                        "pcm_s24"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "sample_rate": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "integer",
+                                      "format": "uint32",
+                                      "minimum": 0
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "channels": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "integer",
+                                      "format": "uint8",
+                                      "minimum": 0,
+                                      "maximum": 255
+                                    },
+                                    "minItems": 1
+                                  }
                                 },
-                                "minItems": 1
-                              }
-                            },
-                            "additionalProperties": false
-                          },
-                          "audio": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "codec": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "string",
-                                  "enum": [
-                                    "aac",
-                                    "opus",
-                                    "mp2",
-                                    "pcm_s16",
-                                    "pcm_s24"
-                                  ]
-                                },
-                                "minItems": 1
-                              },
-                              "sample_rate": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "integer",
-                                  "format": "uint32",
-                                  "minimum": 0
-                                },
-                                "minItems": 1
-                              },
-                              "channels": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "integer",
-                                  "format": "uint8",
-                                  "minimum": 0,
-                                  "maximum": 255
-                                },
-                                "minItems": 1
+                                "additionalProperties": false
                               }
                             },
                             "additionalProperties": false
                           }
                         },
-                        "additionalProperties": false
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "media_behavior",
-                      "id",
-                      "ingress",
-                      "egress"
-                    ]
+                        "additionalProperties": false,
+                        "required": [
+                          "media_behavior",
+                          "id",
+                          "ingress",
+                          "egress"
+                        ]
+                      },
+                      "default": []
+                    }
                   },
-                  "default": []
-                }
-              },
-              "additionalProperties": false,
-              "required": [
-                "adapters",
-                "hop_profiles"
-              ],
-              "default": {
-                "adapters": [],
-                "hop_profiles": []
-              }
-            },
-            "topology": {
-              "type": "object",
-              "properties": {
-                "attachments": {
+                  "additionalProperties": false,
+                  "required": [
+                    "adapters",
+                    "hop_profiles"
+                  ],
+                  "default": {
+                    "adapters": [],
+                    "hop_profiles": []
+                  }
+                },
+                "topology": {
+                  "type": "object",
+                  "properties": {
+                    "attachments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "network": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "dial": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "listeners": {
+                            "type": "object",
+                            "properties": {
+                              "srt": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "host": {
+                                    "type": "string"
+                                  },
+                                  "port_range": {
+                                    "type": "object",
+                                    "properties": {
+                                      "start": {
+                                        "type": "integer",
+                                        "format": "uint16",
+                                        "minimum": 0,
+                                        "maximum": 65535
+                                      },
+                                      "end": {
+                                        "type": "integer",
+                                        "format": "uint16",
+                                        "minimum": 0,
+                                        "maximum": 65535
+                                      }
+                                    },
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "start",
+                                      "end"
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "host",
+                                  "port_range"
+                                ]
+                              },
+                              "whip": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "base_url": {
+                                    "type": "string"
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "base_url"
+                                ]
+                              },
+                              "whep": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "base_url": {
+                                    "type": "string"
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "base_url"
+                                ]
+                              },
+                              "rist": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "host": {
+                                    "type": "string"
+                                  },
+                                  "port_range": {
+                                    "type": "object",
+                                    "properties": {
+                                      "start": {
+                                        "type": "integer",
+                                        "format": "uint16",
+                                        "minimum": 0,
+                                        "maximum": 65535
+                                      },
+                                      "end": {
+                                        "type": "integer",
+                                        "format": "uint16",
+                                        "minimum": 0,
+                                        "maximum": 65535
+                                      }
+                                    },
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "start",
+                                      "end"
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "host",
+                                  "port_range"
+                                ]
+                              }
+                            },
+                            "additionalProperties": false,
+                            "default": {}
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "network",
+                          "dial",
+                          "listeners"
+                        ]
+                      },
+                      "default": []
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "attachments"
+                  ]
+                },
+                "inputs": {
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -2201,136 +2418,49 @@
                         "maxLength": 63,
                         "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                       },
-                      "network": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 63,
-                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      "label": {
+                        "type": "string"
                       },
-                      "dial": {
-                        "type": "boolean",
-                        "default": false
-                      },
-                      "listeners": {
-                        "type": "object",
-                        "properties": {
-                          "srt": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "host": {
-                                "type": "string"
-                              },
-                              "port_range": {
-                                "type": "object",
-                                "properties": {
-                                  "start": {
-                                    "type": "integer",
-                                    "format": "uint16",
-                                    "minimum": 0,
-                                    "maximum": 65535
-                                  },
-                                  "end": {
-                                    "type": "integer",
-                                    "format": "uint16",
-                                    "minimum": 0,
-                                    "maximum": 65535
-                                  }
-                                },
-                                "additionalProperties": false,
-                                "required": [
-                                  "start",
-                                  "end"
-                                ]
-                              }
-                            },
-                            "additionalProperties": false,
-                            "required": [
-                              "host",
-                              "port_range"
-                            ]
-                          },
-                          "whip": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "base_url": {
-                                "type": "string"
-                              }
-                            },
-                            "additionalProperties": false,
-                            "required": [
-                              "base_url"
-                            ]
-                          },
-                          "whep": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "base_url": {
-                                "type": "string"
-                              }
-                            },
-                            "additionalProperties": false,
-                            "required": [
-                              "base_url"
-                            ]
-                          },
-                          "rist": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "host": {
-                                "type": "string"
-                              },
-                              "port_range": {
-                                "type": "object",
-                                "properties": {
-                                  "start": {
-                                    "type": "integer",
-                                    "format": "uint16",
-                                    "minimum": 0,
-                                    "maximum": 65535
-                                  },
-                                  "end": {
-                                    "type": "integer",
-                                    "format": "uint16",
-                                    "minimum": 0,
-                                    "maximum": 65535
-                                  }
-                                },
-                                "additionalProperties": false,
-                                "required": [
-                                  "start",
-                                  "end"
-                                ]
-                              }
-                            },
-                            "additionalProperties": false,
-                            "required": [
-                              "host",
-                              "port_range"
-                            ]
-                          }
+                      "tracks": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "audio",
+                            "video"
+                          ]
                         },
-                        "additionalProperties": false,
-                        "default": {}
+                        "minItems": 1
                       }
                     },
                     "additionalProperties": false,
                     "required": [
                       "id",
-                      "network",
-                      "dial",
-                      "listeners"
+                      "label",
+                      "tracks"
+                    ]
+                  },
+                  "default": []
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "label"
                     ]
                   },
                   "default": []
@@ -2338,77 +2468,102 @@
               },
               "additionalProperties": false,
               "required": [
-                "attachments"
+                "id",
+                "endpoint",
+                "status",
+                "capabilities",
+                "topology",
+                "inputs",
+                "outputs"
               ]
             },
-            "inputs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 63,
-                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-                  },
-                  "label": {
-                    "type": "string"
-                  },
-                  "tracks": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "audio",
-                        "video"
+            "site": {
+              "anyOf": [
+                {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 63,
+                          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                        },
+                        "subnet": {
+                          "type": "string",
+                          "pattern": "^(\\d{1,3}\\.){3}\\d{1,3}/(3[0-2]|[12]?\\d)$"
+                        },
+                        "public": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "ipv4"
+                          }
+                        },
+                        "state": {
+                          "type": "string",
+                          "const": "resolved"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "state",
+                        "network",
+                        "subnet",
+                        "public"
                       ]
                     },
-                    "minItems": 1
-                  }
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "not_observed"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "no_uplink"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "no_public_address"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 },
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "label",
-                  "tracks"
-                ]
-              },
-              "default": []
-            },
-            "outputs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 63,
-                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-                  },
-                  "label": {
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "label"
-                ]
-              },
-              "default": []
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "additionalProperties": false,
           "required": [
-            "id",
-            "endpoint",
-            "status",
-            "capabilities",
-            "topology",
-            "inputs",
-            "outputs"
+            "node"
           ]
         }
       },
@@ -2825,6 +2980,65 @@
               "topology": {
                 "type": "object",
                 "properties": {
+                  "site": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                      },
+                      "listeners": {
+                        "type": "object",
+                        "properties": {
+                          "srt": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "port_range": {
+                                "type": "object",
+                                "properties": {
+                                  "start": {
+                                    "type": "integer",
+                                    "format": "uint16",
+                                    "minimum": 0,
+                                    "maximum": 65535
+                                  },
+                                  "end": {
+                                    "type": "integer",
+                                    "format": "uint16",
+                                    "minimum": 0,
+                                    "maximum": 65535
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "start",
+                                  "end"
+                                ]
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "port_range"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "default": {}
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "id"
+                    ]
+                  },
                   "attachments": {
                     "type": "array",
                     "items": {
@@ -3037,6 +3251,69 @@
               "status",
               "topology"
             ]
+          },
+          "observation": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "uplink": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "interface": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string",
+                    "format": "ipv4"
+                  },
+                  "prefix_len": {
+                    "type": "integer",
+                    "format": "uint8",
+                    "minimum": 0,
+                    "maximum": 32
+                  },
+                  "gateway": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"
+                  },
+                  "reflexive": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "server": {
+                          "type": "string"
+                        },
+                        "mapped": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "server",
+                        "mapped"
+                      ]
+                    },
+                    "default": []
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "interface",
+                  "address",
+                  "prefix_len"
+                ]
+              }
+            },
+            "additionalProperties": false
           },
           "endpoints": {
             "type": "array",

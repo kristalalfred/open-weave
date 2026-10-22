@@ -242,6 +242,31 @@ hops report.
 SRT endpoint also carries `host` and `port`. A WHIP or WHEP endpoint's `url` is
 its signalling URL. An input or output end has a null endpoint.
 
+## Nodes
+
+`GET /nodes` returns one resource per node. `node` is the node as the controller
+plans with it: a resolved [site](nodes.md#sites) appears among
+`topology.attachments`. `site` is present when the node declares a site, except
+for a caller using a node token.
+
+```json
+[{
+  "node": { "id": "alfreds-mac", "status": "ready", "...": "..." },
+  "site": {
+    "state": "resolved",
+    "network": "site-3f9a2c1d7e4b",
+    "subnet": "192.168.3.0/24",
+    "public": ["92.244.18.125"]
+  }
+}]
+```
+
+`state` is `resolved`, `not_observed`, `no_uplink` or `no_public_address`. Only
+`resolved` carries `network`, `subnet` and `public`, the mapped addresses in
+ascending order. `weave get nodes` shows the derived network under NETWORKS,
+and under SITE `192.168.3.0/24 via 92.244.18.125`, the state of an unresolved
+site, or `-` for a node without one.
+
 ## Adapter contract
 
 Third-party adapters bind to these routes. See [Nodes](nodes.md) for what a
@@ -253,7 +278,7 @@ registration declares.
 `weave_core::PROTOCOL_VERSION`:
 
 ```json
-{ "protocol_version": 9, "node": { "id": "strom-node-1", "...": "..." } }
+{ "protocol_version": 10, "node": { "id": "strom-node-1", "...": "..." } }
 ```
 
 The controller accepts only the version it speaks. Any other value, including an
@@ -274,7 +299,7 @@ before its body is checked, and shipped nodes then register again.
   "details": [{
     "field": "protocol_version",
     "code": "unsupported",
-    "message": "reported 8; supported 9"
+    "message": "reported 9; supported 10"
   }]
 }
 ```
@@ -337,6 +362,23 @@ stored ones; an empty list removes them all, and a heartbeat without them is
 refused with `400 invalid_json`. See
 [Nodes](nodes.md#inputs-and-outputs) for the fields and how streams resolve them.
 
+### Observation
+
+A registration and every heartbeat can carry `observation`, the node's view of
+its uplink, from which the controller resolves its [site](nodes.md#sites). Each
+heartbeat replaces the stored observation, and a heartbeat without one clears
+it. The controller answers `400 invalid_request` when:
+
+- `uplink.interface` is blank;
+- `uplink.address` is unspecified, loopback, multicast or broadcast;
+- `uplink.prefix_len` exceeds 32;
+- a `reflexive` entry's `mapped` address is `0.0.0.0`;
+- `reflexive` has more than eight entries.
+
+A stored registration whose observation breaks these rules is dropped at
+startup, and the node must register again. The controller stores the
+observation with the registration and serves it on no route.
+
 ### Hop status
 
 A heartbeat reports each hop's ingress, and one entry per desired branch,
@@ -354,6 +396,6 @@ empty for an existing flow whose settings do not match the desired hop.
 
 `GET /nodes`, `GET /endpoints` and `GET /state` list every node, endpoint and
 hop status, and no node's desired hops. On southbound they accept any node's
-token. The controller's `GET /nodes` also accepts the northbound token. Nodes
-the controller has not heard from read `offline`, then drop out (see
-[Nodes](nodes.md#lifecycle)).
+token. The controller's `GET /nodes` also accepts the northbound token, and
+leaves out `site` for a node token. Nodes the controller has not heard from read
+`offline`, then drop out (see [Nodes](nodes.md#lifecycle)).

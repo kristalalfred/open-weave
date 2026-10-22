@@ -60,6 +60,11 @@ impl AdapterConfig {
             .node
             .validate()
             .with_context(|| format!("validating node config {}", path.display()))?;
+        anyhow::ensure!(
+            config.node.topology.site.is_none(),
+            "{}: topology.site needs an adapter that runs beside its media, and the Strom adapter is not co-located with Strom; declare an attachment with a network and listener host instead",
+            path.display()
+        );
         Ok(config)
     }
 }
@@ -207,6 +212,27 @@ strom:
         let error = format!("{:#}", loaded.expect_err("step is not a port range field"));
         assert!(error.contains("unknown field `step`"), "{error}");
         assert!(error.contains("port_range"), "{error}");
+    }
+
+    #[test]
+    fn refuses_a_site_attachment() {
+        let path =
+            std::env::temp_dir().join(format!("weave-strom-site-{}.yaml", std::process::id()));
+        std::fs::write(
+            &path,
+            VALID.replace(
+                "  topology:\n",
+                "  topology:\n    site:\n      id: office\n",
+            ),
+        )
+        .expect("writing the config");
+        let loaded = AdapterConfig::load(&path);
+        std::fs::remove_file(&path).expect("removing the config");
+        let error = format!(
+            "{:#}",
+            loaded.expect_err("a Strom node cannot observe a site")
+        );
+        assert!(error.contains("not co-located"), "{error}");
     }
 
     #[test]

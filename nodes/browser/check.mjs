@@ -96,7 +96,7 @@ while (Date.now() < deadline) {
   }).catch(() => null);
   if (response && response.ok) {
     const nodes = await response.json();
-    if (nodes.some(node => node.id === nodeId)) {
+    if (nodes.some(resource => resource.node.id === nodeId)) {
       seen = true;
       break;
     }

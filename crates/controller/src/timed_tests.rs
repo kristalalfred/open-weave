@@ -1,9 +1,9 @@
 use super::*;
 use weave_core::{
-    DeliveryCapability, DeliveryPathReport, DeliveryPolicy, DeliveryReport, DeliveryRole,
-    DeliveryState, EgressStatus, FormatConstraint, HopEndpointClass, HopProfile, HopState,
-    HopStatus, LinkCondition, MediaBehavior, NodeCapabilities, NodeDescriptor, PayloadKind,
-    RoleSet, SocketStatus, Transport, TransportClass,
+    DeclaredTopology, DeliveryCapability, DeliveryPathReport, DeliveryPolicy, DeliveryReport,
+    DeliveryRole, DeliveryState, EgressStatus, FormatConstraint, HopEndpointClass, HopProfile,
+    HopState, HopStatus, LinkCondition, MediaBehavior, NodeCapabilities, NodeDescriptor,
+    PayloadKind, RoleSet, SocketStatus, Transport, TransportClass,
 };
 
 fn node(id: &str, epoch: u64) -> NodeDescriptor {
@@ -303,9 +303,15 @@ fn current_origin_clock_fault_overrides_a_ready_receiver() {
 fn persistence_tracks_timed_readiness_without_writing_every_counter_sample() {
     let observed = observed();
     let planned = reconcile(vec![stream()], &observed, &LinkKeys::for_tests());
+    let node = observed.nodes[1].clone();
+    let topology = DeclaredTopology {
+        site: None,
+        attachments: node.topology.attachments.clone(),
+    };
     let registration = NodeRegistration {
         protocol_version: PROTOCOL_VERSION,
-        node: observed.nodes[1].clone(),
+        node: node.with_topology(topology),
+        observation: None,
         endpoints: vec![],
         hop_status: vec![report(&planned.hops_by_stream["timed"][1])],
     };

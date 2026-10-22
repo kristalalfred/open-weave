@@ -1,10 +1,37 @@
+use std::net::Ipv4Addr;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DesiredHop, EndpointAddr, PathStatus, ReconcileStatus, StreamDefinition, StreamEndpoints,
-    ValidationIssue,
+    DesiredHop, EndpointAddr, NodeDescriptor, PathStatus, ReconcileStatus, StreamDefinition,
+    StreamEndpoints, Subnet, ValidationIssue,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NodeResource {
+    pub node: NodeDescriptor,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<SiteState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SiteState {
+    Resolved {
+        #[schemars(
+            length(min = 1, max = 63),
+            regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+        )]
+        network: String,
+        subnet: Subnet,
+        public: Vec<Ipv4Addr>,
+    },
+    NotObserved,
+    NoUplink,
+    NoPublicAddress,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]

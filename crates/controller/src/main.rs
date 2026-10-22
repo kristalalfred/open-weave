@@ -18,6 +18,9 @@ mod rist_tests;
 mod scale_tests;
 #[cfg(test)]
 mod second_path_tests;
+#[cfg(test)]
+mod site_tests;
+mod sites;
 mod store;
 mod timed;
 #[cfg(test)]
@@ -52,7 +55,7 @@ use weave_core::logging::ErrorChain;
 use weave_core::webhook::{EventType, NodeSummary, StreamSummary, Subject};
 use weave_core::{
     AcceptedState, ApiError, ApiErrorCode, DesiredHop, EndpointDescriptor, Health, LocalEnd,
-    NodeAccepted, NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus, ObservedState,
+    NodeAccepted, NodeHeartbeat, NodeRegistration, NodeResource, NodeStatus, ObservedState,
     PROTOCOL_VERSION, PathStatus, PlanStatus, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED,
     ROUTE_NODE_HEARTBEAT, ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, ROUTE_STATUS,
     ROUTE_STREAM, ROUTE_STREAM_ENDPOINTS, ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS,
@@ -61,7 +64,7 @@ use weave_core::{
     StreamConditionType, StreamDefinition, StreamDestinationStatus, StreamEndpoints, StreamPlan,
     StreamResource, StreamSetAccepted, StreamSetAction, StreamSetApply, StreamSetMemberResult,
     StreamSetResource, StreamStatus, ValidationIssue, protocol_compatible, resource_id_issue,
-    validate_local_io, validate_node, validate_resource_id, validate_stream,
+    validate_local_io, validate_node, validate_observation, validate_resource_id, validate_stream,
 };
 
 use keys::{LinkKeys, SecretSource};
@@ -237,7 +240,13 @@ impl AppState {
             .context("hydrating nodes")?
             .into_iter()
             .filter(|registration| {
-                let issues = validate_node(&registration.node);
+                let mut issues = validate_node(&registration.node);
+                issues.extend(
+                    registration
+                        .observation
+                        .iter()
+                        .flat_map(validate_observation),
+                );
                 if !issues.is_empty() {
                     tracing::warn!(
                         node_id = %registration.node.id,
@@ -831,7 +840,7 @@ async fn reconcile_tick(state: &AppState) {
         let went_offline: Vec<NodeSummary> = transitioned
             .iter()
             .filter_map(|id| nodes.get(id))
-            .map(|registration| NodeSummary::from(&registration.node))
+            .map(|registration| NodeSummary::from(&sites::resolve(registration).node))
             .collect();
         let mut to_store = std::mem::take(&mut state.unsaved().nodes);
         to_store.extend(transitioned);
@@ -851,7 +860,7 @@ async fn reconcile_tick(state: &AppState) {
             last_seen.remove(&id);
             if let Some(registration) = nodes.remove(&id) {
                 tracing::info!(node_id = %id, "forgot an offline node that no stream names");
-                forgotten.push(NodeSummary::from(&registration.node));
+                forgotten.push(NodeSummary::from(&sites::resolve(&registration).node));
             }
         }
         (observed_state(&nodes), went_offline, forgotten)
@@ -1165,7 +1174,7 @@ fn named_nodes<'a>(streams: impl IntoIterator<Item = &'a StreamDefinition>) -> B
 
 fn observed_state(nodes: &BTreeMap<String, NodeRegistration>) -> ObservedState {
     ObservedState {
-        nodes: nodes.values().map(|r| r.node.clone()).collect(),
+        nodes: nodes.values().map(|r| sites::resolve(r).node).collect(),
         endpoints: nodes.values().flat_map(|r| r.endpoints.clone()).collect(),
         hops: nodes.values().flat_map(|r| r.hop_status.clone()).collect(),
     }
@@ -1219,29 +1228,32 @@ fn router(state: AppState, north: Guard, south: NodeGuard) -> Router {
         .with_state(state)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SharedReader {
+    Operator,
+    Node,
+}
+
 async fn require_shared_read_bearer(
     State(guards): State<SharedReadGuards>,
-    request: axum::extract::Request,
+    mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    if guards.north.is_disabled() || guards.south.is_disabled() {
-        return next.run(request).await;
-    }
-    let authorized = request
+    let authorization = request
         .headers()
         .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| {
-            guards
-                .north
-                .token()
-                .is_some_and(|token| token.matches_header(value))
-                || guards.south.caller(Some(value)).is_some()
-        });
-    if authorized {
-        return next.run(request).await;
-    }
-    unauthorized()
+        .and_then(|value| value.to_str().ok());
+    let reader = if guards.north.token().is_none_or(|token| {
+        authorization.is_some_and(|authorization| token.matches_header(authorization))
+    }) {
+        SharedReader::Operator
+    } else if guards.south.caller(authorization).is_some() {
+        SharedReader::Node
+    } else {
+        return unauthorized();
+    };
+    request.extensions_mut().insert(reader);
+    next.run(request).await
 }
 
 fn spawn_api_server(listener: tokio::net::TcpListener, app: Router) -> JoinHandle<Result<()>> {
@@ -1304,7 +1316,7 @@ async fn get_view(State(state): State<AppState>) -> Json<SystemView> {
             id: r.node.id.clone(),
             status: r.node.status,
             endpoint: r.node.endpoint.clone(),
-            topology: r.node.topology.clone(),
+            topology: sites::resolve(r).node.topology,
             last_seen_secs: last_seen
                 .get(&r.node.id)
                 .map(|seen| now.saturating_duration_since(*seen).as_secs()),
@@ -2062,14 +2074,26 @@ async fn get_endpoints(State(state): State<AppState>, Path(name): Path<String>) 
     }
 }
 
-async fn list_nodes(State(state): State<AppState>) -> Json<Vec<NodeDescriptor>> {
+async fn list_nodes(
+    State(state): State<AppState>,
+    Extension(reader): Extension<SharedReader>,
+) -> Json<Vec<NodeResource>> {
     Json(
         state
             .nodes
             .read()
             .await
             .values()
-            .map(|r| r.node.clone())
+            .map(|registration| {
+                let resource = sites::resolve(registration);
+                match reader {
+                    SharedReader::Operator => resource,
+                    SharedReader::Node => NodeResource {
+                        site: None,
+                        ..resource
+                    },
+                }
+            })
             .collect(),
     )
 }
@@ -2152,6 +2176,14 @@ async fn register_node(
     if !node_issues.is_empty() {
         return invalid_request("node descriptor is invalid", node_issues);
     }
+    let observation_issues: Vec<ValidationIssue> = registration
+        .observation
+        .iter()
+        .flat_map(validate_observation)
+        .collect();
+    if !observation_issues.is_empty() {
+        return invalid_request("node observation is invalid", observation_issues);
+    }
     if let Err(issue) = validate_endpoint_node_ids(&registration.endpoints) {
         return invalid_request("endpoint node id is invalid", vec![issue]);
     }
@@ -2173,7 +2205,7 @@ async fn register_node(
         );
     }
 
-    let summary = NodeSummary::from(&registration.node);
+    let summary = NodeSummary::from(&sites::resolve(&registration).node);
     {
         let mut nodes = state.nodes.write().await;
         match state.store.upsert_node(&registration).await {
@@ -2254,6 +2286,14 @@ async fn node_heartbeat(
     if !io_issues.is_empty() {
         return invalid_request("heartbeat inputs or outputs are invalid", io_issues);
     }
+    let observation_issues: Vec<ValidationIssue> = heartbeat
+        .observation
+        .iter()
+        .flat_map(validate_observation)
+        .collect();
+    if !observation_issues.is_empty() {
+        return invalid_request("heartbeat observation is invalid", observation_issues);
+    }
     if let Some(response) = refuse_other_nodes_endpoints(&caller, &heartbeat.endpoints) {
         return response;
     }
@@ -2276,6 +2316,7 @@ async fn node_heartbeat(
     updated.node.status = heartbeat.status;
     updated.node.inputs = heartbeat.inputs;
     updated.node.outputs = heartbeat.outputs;
+    updated.observation = heartbeat.observation;
     updated.endpoints = heartbeat.endpoints;
     updated.hop_status = heartbeat.hop_status;
     if reported(&updated) != reported(registration) {
@@ -2291,7 +2332,7 @@ async fn node_heartbeat(
     *registration = updated;
     let status = registration.node.status;
     let recovered = (was_offline && status != NodeStatus::Offline)
-        .then(|| NodeSummary::from(&registration.node));
+        .then(|| NodeSummary::from(&sites::resolve(registration).node));
     state
         .last_seen
         .write()
@@ -2335,6 +2376,7 @@ type NodeReport<'a> = (
     NodeStatus,
     &'a [weave_core::NodeInput],
     &'a [weave_core::NodeOutput],
+    weave_core::NodeTopology,
     Vec<HopReport<'a>>,
 );
 
@@ -2343,6 +2385,7 @@ fn reported(registration: &NodeRegistration) -> NodeReport<'_> {
         registration.node.status,
         &registration.node.inputs,
         &registration.node.outputs,
+        sites::resolve(registration).node.topology,
         registration
             .hop_status
             .iter()
@@ -3001,9 +3044,9 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
     use weave_core::{
-        HopEndpointClass, HopProfile, HopStatus, NetworkAttachment, NetworkListeners,
-        NodeCapabilities, NodeTopology, PortRange, RoleSet, SrtEndpoint, SrtListener,
-        StreamDestination, StreamTransport, Transport, TransportClass,
+        DeclaredTopology, HopEndpointClass, HopProfile, HopStatus, NetworkAttachment,
+        NetworkListeners, NodeCapabilities, NodeDescriptor, PortRange, RoleSet, SrtEndpoint,
+        SrtListener, StreamDestination, StreamTransport, Transport, TransportClass,
     };
 
     use crate::webhook::tests::{Sink, sink};
@@ -3061,7 +3104,8 @@ mod tests {
                     adapters: Vec::new(),
                     hop_profiles: vec![srt_forward()],
                 },
-                topology: NodeTopology {
+                topology: DeclaredTopology {
+                    site: None,
                     attachments: vec![NetworkAttachment {
                         id: "wan".to_string(),
                         network: "internet".to_string(),
@@ -3081,6 +3125,7 @@ mod tests {
                     }],
                 },
             },
+            observation: None,
             endpoints: Vec::new(),
             hop_status: Vec::new(),
         }
@@ -4720,6 +4765,7 @@ mod tests {
             outputs: Vec::new(),
             node_id: "relay-b".to_string(),
             status: NodeStatus::Ready,
+            observation: None,
             endpoints: Vec::new(),
             hop_status,
         };
@@ -4965,6 +5011,7 @@ mod tests {
             outputs: Vec::new(),
             node_id: "strom-node-1".to_string(),
             status,
+            observation: None,
             endpoints: Vec::new(),
             hop_status,
         };
@@ -5158,6 +5205,7 @@ mod tests {
             outputs: Vec::new(),
             node_id: "strom-node-1".to_string(),
             status: NodeStatus::Ready,
+            observation: None,
             endpoints: Vec::new(),
             hop_status: vec![status_for("strom-node-2")],
         };
@@ -5249,9 +5297,9 @@ mod tests {
         reconcile_tick(&state).await;
 
         let (_, body) = send(&app, "GET", "/nodes", None).await;
-        let nodes: Vec<NodeDescriptor> = serde_json::from_value(body).unwrap();
-        let page = nodes.iter().find(|n| n.id == "browser-a1b2").unwrap();
-        assert_eq!(page.endpoint, "browser://browser-a1b2");
+        let nodes: Vec<NodeResource> = serde_json::from_value(body).unwrap();
+        let page = nodes.iter().find(|n| n.node.id == "browser-a1b2").unwrap();
+        assert_eq!(page.node.endpoint, "browser://browser-a1b2");
 
         let (status, body) = send(&app, "GET", "/nodes/browser-a1b2/desired", None).await;
         assert_eq!(status, StatusCode::OK);
@@ -5737,9 +5785,9 @@ mod tests {
         let app = open_router(state);
         let (status, body) = send(&app, "GET", "/nodes", None).await;
         assert_eq!(status, StatusCode::OK);
-        let nodes: Vec<NodeDescriptor> = serde_json::from_value(body).unwrap();
-        let node1 = nodes.iter().find(|n| n.id == "strom-node-1").unwrap();
-        assert_eq!(node1.status, NodeStatus::Offline);
+        let nodes: Vec<NodeResource> = serde_json::from_value(body).unwrap();
+        let node1 = nodes.iter().find(|n| n.node.id == "strom-node-1").unwrap();
+        assert_eq!(node1.node.status, NodeStatus::Offline);
 
         let (status, body) = desired_hops(&app, "strom-node-1").await;
         assert_eq!(status, StatusCode::OK);
@@ -5971,6 +6019,7 @@ mod tests {
             outputs: Vec::new(),
             node_id: node_id.to_string(),
             status: NodeStatus::Ready,
+            observation: None,
             endpoints: Vec::new(),
             hop_status: flowing_reports(&hops),
         };
@@ -6275,12 +6324,12 @@ mod tests {
 
         let restarted = hydrated(mem, None).await;
         let app = router_after_first_tick(&restarted, Guard::Disabled, NodeGuard::Disabled).await;
-        let nodes: Vec<NodeDescriptor> =
+        let nodes: Vec<NodeResource> =
             serde_json::from_value(get_ok(&app, "/nodes").await).unwrap();
         assert_eq!(
             nodes
                 .iter()
-                .map(|node| (node.id.as_str(), node.status))
+                .map(|resource| (resource.node.id.as_str(), resource.node.status))
                 .collect::<Vec<_>>(),
             [
                 ("restart-node-1", NodeStatus::Offline),
@@ -6309,12 +6358,12 @@ mod tests {
         .unwrap();
         let app = router_after_first_tick(&state, Guard::Disabled, NodeGuard::Disabled).await;
 
-        let nodes: Vec<NodeDescriptor> =
+        let nodes: Vec<NodeResource> =
             serde_json::from_value(get_ok(&app, "/nodes").await).unwrap();
         assert_eq!(
             nodes
                 .iter()
-                .map(|node| (node.id.as_str(), node.status))
+                .map(|resource| (resource.node.id.as_str(), resource.node.status))
                 .collect::<Vec<_>>(),
             [
                 ("restart-node-1", NodeStatus::Ready),
@@ -7028,11 +7077,11 @@ mod tests {
         );
         assert_eq!(events[1].subject.id(), "guest-1");
         let (_, body) = send(&app, "GET", "/nodes", None).await;
-        let listed: Vec<NodeDescriptor> = serde_json::from_value(body).unwrap();
+        let listed: Vec<NodeResource> = serde_json::from_value(body).unwrap();
         assert_eq!(
             listed
                 .iter()
-                .map(|node| node.id.as_str())
+                .map(|resource| resource.node.id.as_str())
                 .collect::<Vec<_>>(),
             ["strom-node-1", "strom-node-2"]
         );
@@ -7087,12 +7136,12 @@ mod tests {
 
         let app = open_router(state);
         let (_, body) = send(&app, "GET", "/nodes", None).await;
-        let listed: Vec<NodeDescriptor> = serde_json::from_value(body).unwrap();
+        let listed: Vec<NodeResource> = serde_json::from_value(body).unwrap();
         let node1 = listed
             .iter()
-            .find(|node| node.id == "strom-node-1")
+            .find(|resource| resource.node.id == "strom-node-1")
             .unwrap();
-        assert_eq!(node1.status, NodeStatus::Offline);
+        assert_eq!(node1.node.status, NodeStatus::Offline);
         let (status, body) = desired_hops(&app, "strom-node-1").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body.as_array().map(Vec::len), Some(1));
@@ -7269,7 +7318,7 @@ mod node_auth_tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|node| node["id"].as_str().unwrap().to_string())
+            .map(|resource| resource["node"]["id"].as_str().unwrap().to_string())
             .collect()
     }
 
@@ -7699,9 +7748,9 @@ mod key_exposure_tests {
     use serde_json::Value;
     use tower::ServiceExt;
     use weave_core::{
-        HopEndpointClass, HopProfile, NetworkAttachment, NetworkListeners, NodeCapabilities,
-        NodeTopology, Passphrase, PortRange, RoleSet, SocketSpec, SrtEndpoint, SrtListener,
-        StreamDestination, StreamTransport, Transport, TransportClass,
+        DeclaredTopology, HopEndpointClass, HopProfile, NetworkAttachment, NetworkListeners,
+        NodeCapabilities, NodeDescriptor, Passphrase, PortRange, RoleSet, SocketSpec, SrtEndpoint,
+        SrtListener, StreamDestination, StreamTransport, Transport, TransportClass,
     };
 
     const PRODUCER_KEY: &str = "producer-passphrase-1";
@@ -7760,10 +7809,12 @@ mod key_exposure_tests {
                     adapters: Vec::new(),
                     hop_profiles,
                 },
-                topology: NodeTopology {
+                topology: DeclaredTopology {
+                    site: None,
                     attachments: vec![attachment("net-a", hosts[0]), attachment("net-b", hosts[1])],
                 },
             },
+            observation: None,
             endpoints: Vec::new(),
             hop_status: Vec::new(),
         }

@@ -246,6 +246,24 @@ pub struct StreamCondition {
 
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
+pub struct NodeResource {
+    pub node: NodeDescriptor,
+    #[serde(default)]
+    pub site: Option<SiteState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+pub struct SiteState {
+    pub state: String,
+    #[serde(default)]
+    pub subnet: Option<String>,
+    #[serde(default)]
+    pub public: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct NodeDescriptor {
     pub id: String,
     pub status: Open<NodeStatus>,
@@ -384,12 +402,41 @@ mod tests {
             .collect()
     }
 
+    fn variants(schema: &Value) -> Vec<&Value> {
+        match union(schema) {
+            Some(branches) if schema.get("properties").is_none() => {
+                branches.iter().flat_map(variants).collect()
+            }
+            _ => vec![schema],
+        }
+    }
+
+    fn sent_property<'a>(sent: &'a Value, name: &str) -> Option<&'a Value> {
+        sent.get("properties")
+            .and_then(|properties| properties.get(name))
+            .or_else(|| {
+                union(sent).into_iter().flatten().find_map(|branch| {
+                    branch
+                        .get("properties")
+                        .and_then(|properties| properties.get(name))
+                })
+            })
+    }
+
     fn misread(read: &Value, sent: &Value, at: &str, misreads: &mut Vec<String>) {
-        if sent.get("properties").is_none()
-            && let Some(branches) = union(sent)
-        {
-            for branch in branches {
+        if sent.get("properties").is_none() && union(sent).is_some() {
+            let (objects, others): (Vec<&Value>, Vec<&Value>) = variants(sent)
+                .into_iter()
+                .partition(|branch| branch.get("properties").is_some());
+            for branch in others {
                 misread(read, branch, at, misreads);
+            }
+            if union(read).is_some() || read.get("properties").is_none() {
+                for branch in objects {
+                    misread(read, branch, at, misreads);
+                }
+            } else if !objects.is_empty() {
+                misread_properties(read, &objects, at, misreads);
             }
             return;
         }
@@ -427,33 +474,41 @@ mod tests {
                 None => misreads.push(format!("{at}: reads a closed set, sent any value")),
             }
         }
-        if let Some(properties) = read.get("properties").and_then(Value::as_object) {
-            let sent_required = names(sent, "required");
-            let read_required = names(read, "required");
-            for (name, property) in properties {
-                let child = format!("{at}.{name}");
-                let sent_property = sent
-                    .get("properties")
-                    .and_then(|properties| properties.get(name))
-                    .or_else(|| {
-                        union(sent).into_iter().flatten().find_map(|branch| {
-                            branch
-                                .get("properties")
-                                .and_then(|properties| properties.get(name))
-                        })
-                    });
-                let Some(sent_property) = sent_property else {
-                    misreads.push(format!("{child}: read but never sent"));
-                    continue;
-                };
-                if read_required.contains(name) && !sent_required.contains(name) {
-                    misreads.push(format!("{child}: read as required, sent only sometimes"));
-                }
-                misread(property, sent_property, &child, misreads);
-            }
+        if sent_types != ["null"] {
+            misread_properties(read, &[sent], at, misreads);
         }
         if let (Some(read_items), Some(sent_items)) = (read.get("items"), sent.get("items")) {
             misread(read_items, sent_items, &format!("{at}[]"), misreads);
+        }
+    }
+
+    fn misread_properties(read: &Value, variants: &[&Value], at: &str, misreads: &mut Vec<String>) {
+        let read_required = names(read, "required");
+        for (name, property) in read
+            .get("properties")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+        {
+            let child = format!("{at}.{name}");
+            let sent: Vec<Option<&Value>> = variants
+                .iter()
+                .map(|variant| sent_property(variant, name))
+                .collect();
+            if sent.iter().all(Option::is_none) {
+                misreads.push(format!("{child}: read but never sent"));
+                continue;
+            }
+            if read_required.contains(name)
+                && variants.iter().zip(&sent).any(|(variant, property)| {
+                    property.is_none() || !names(variant, "required").contains(name)
+                })
+            {
+                misreads.push(format!("{child}: read as required, sent only sometimes"));
+            }
+            for sent_property in sent.into_iter().flatten() {
+                misread(property, sent_property, &child, misreads);
+            }
         }
     }
 
@@ -513,7 +568,7 @@ mod tests {
             check::<StreamPlan, crate::StreamPlan>(),
             check::<StreamEndpoints, crate::StreamEndpoints>(),
             check::<StatusResponse, crate::StatusResponse>(),
-            check::<Vec<NodeDescriptor>, Vec<crate::NodeDescriptor>>(),
+            check::<Vec<NodeResource>, Vec<crate::NodeResource>>(),
             check::<Event, crate::webhook::Event>(),
         ]
         .concat();
@@ -557,6 +612,28 @@ mod tests {
         assert!(
             misreads_of::<ClosedStatus, crate::RunningStatus>()
                 .contains(&r#"RunningStatus.status: sent value "idle" is not read"#.to_string())
+        );
+
+        #[derive(Deserialize, JsonSchema)]
+        #[allow(dead_code)]
+        struct RenamedSite {
+            state: String,
+            subnets: Option<String>,
+        }
+        #[derive(Deserialize, JsonSchema)]
+        #[allow(dead_code)]
+        struct AlwaysLocated {
+            state: String,
+            subnet: String,
+        }
+
+        assert_eq!(
+            misreads_of::<RenamedSite, crate::SiteState>(),
+            ["SiteState.subnets: read but never sent"]
+        );
+        assert_eq!(
+            misreads_of::<AlwaysLocated, crate::SiteState>(),
+            ["SiteState.subnet: read as required, sent only sometimes"]
         );
     }
 
@@ -642,5 +719,47 @@ mod tests {
         assert_eq!(online.event_type, Open::Known(EventType::NodeOnline));
         assert_eq!(online.event_type.to_string(), "node.online");
         assert!(online.node.unwrap().status == NodeStatus::Ready);
+
+        let node = |site: Value| {
+            json!({
+                "node": {
+                    "id": "alfreds-mac",
+                    "endpoint": "http://127.0.0.1:8092",
+                    "status": "ready",
+                    "capabilities": { "adapters": [], "hop_profiles": [] },
+                    "topology": { "attachments": [] },
+                    "inputs": [],
+                    "outputs": []
+                },
+                "site": site
+            })
+        };
+        let nodes: Vec<NodeResource> = serde_json::from_value(json!([
+            node(json!({
+                "state": "resolved",
+                "network": "site-3f9a2c1d7e4b",
+                "subnet": "192.168.3.0/24",
+                "public": ["92.244.18.125"],
+                "mapping": "endpoint_independent"
+            })),
+            node(json!({ "state": "behind_cgnat", "carrier": "100.64.0.0/10" })),
+        ]))
+        .unwrap();
+        assert_eq!(
+            nodes[0].site,
+            Some(SiteState {
+                state: "resolved".to_string(),
+                subnet: Some("192.168.3.0/24".to_string()),
+                public: vec!["92.244.18.125".to_string()],
+            })
+        );
+        assert_eq!(
+            nodes[1].site,
+            Some(SiteState {
+                state: "behind_cgnat".to_string(),
+                subnet: None,
+                public: Vec::new(),
+            })
+        );
     }
 }

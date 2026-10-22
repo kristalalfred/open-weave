@@ -505,7 +505,9 @@ async fn a_plan_with_one_path_of_two_gives_the_reason() {
     use axum::Json;
     use axum::extract::State;
     use http_body_util::BodyExt;
-    use weave_core::{NodeRegistration, PROTOCOL_VERSION, PlanStatus, StreamPlan};
+    use weave_core::{
+        DeclaredTopology, NodeRegistration, PROTOCOL_VERSION, PlanStatus, StreamPlan,
+    };
 
     use crate::store::MemStore;
     use crate::{AppState, plan_stream};
@@ -522,11 +524,16 @@ async fn a_plan_with_one_path_of_two_gives_the_reason() {
     let mut nodes = dual_homed();
     nodes[1].capabilities.hop_profiles.pop();
     for node in nodes {
+        let topology = DeclaredTopology {
+            site: None,
+            attachments: node.topology.attachments.clone(),
+        };
         state.nodes.write().await.insert(
             node.id.clone(),
             NodeRegistration {
                 protocol_version: PROTOCOL_VERSION,
-                node,
+                node: node.with_topology(topology),
+                observation: None,
                 endpoints: Vec::new(),
                 hop_status: Vec::new(),
             },

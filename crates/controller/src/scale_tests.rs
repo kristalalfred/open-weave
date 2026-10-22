@@ -9,9 +9,9 @@ use serde::Serialize;
 use tower::ServiceExt;
 use weave_core::auth::{Guard, NodeGuard};
 use weave_core::{
-    DesiredHop, EgressStatus, HopEndpointClass, HopProfile, HopRole, HopState, HopStatus,
-    LinkCondition, NetworkAttachment, NetworkListeners, NodeCapabilities, NodeDescriptor,
-    NodeHeartbeat, NodeRegistration, NodeStatus, NodeTopology, PROTOCOL_VERSION, PortRange,
+    DeclaredTopology, DesiredHop, EgressStatus, HopEndpointClass, HopProfile, HopRole, HopState,
+    HopStatus, LinkCondition, NetworkAttachment, NetworkListeners, NodeCapabilities,
+    NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus, PROTOCOL_VERSION, PortRange,
     RoleSet, SocketStatus, SrtEndpoint, SrtListener, StreamConditionStatus, StreamConditionType,
     StreamDefinition, StreamDestination, StreamTransport, Transport, TransportClass,
 };
@@ -73,8 +73,12 @@ fn registration(id: &str, attachments: Vec<NetworkAttachment>) -> NodeRegistrati
                     accepts: None,
                 }],
             },
-            topology: NodeTopology { attachments },
+            topology: DeclaredTopology {
+                site: None,
+                attachments,
+            },
         },
+        observation: None,
         endpoints: Vec::new(),
         hop_status: Vec::new(),
     }
@@ -330,6 +334,7 @@ async fn report_every_hop_running(state: &AppState, app: &Router) -> usize {
             outputs: Vec::new(),
             node_id: node.clone(),
             status: NodeStatus::Ready,
+            observation: None,
             endpoints: Vec::new(),
             hop_status: running(hops),
         };

@@ -26,7 +26,8 @@ delivers node events only. The full payload schema is
 Receivers must accept unknown fields and event types; see
 [API compatibility](api.md#compatibility).
 
-Node events carry the node descriptor without endpoints or hop status. Stream
+Node events carry the node descriptor, with a resolved [site](nodes.md#sites)
+among its attachments, and without endpoints or hop status. Stream
 events carry generations, status and conditions for the stream and its
 destinations. The schema above defines both payloads.
 

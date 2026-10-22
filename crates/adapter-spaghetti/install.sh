@@ -3,7 +3,6 @@ set -euo pipefail
 
 bundle_url="__BUNDLE_URL__"
 southbound_url="__SOUTHBOUND_URL__"
-network="__NETWORK__"
 southbound_key="__SOUTHBOUND_KEY__"
 bin="$HOME/.local/bin"
 support="$HOME/Library/Application Support/open-weave"
@@ -88,23 +87,18 @@ node_token() {
     printf '%s.0.%s' "$1" "$mac"
 }
 
-lan_address() {
-    local iface
-    iface="$(route -n get default 2>/dev/null | awk '/interface:/ { print $2 }')"
-    [ -z "$iface" ] || ipconfig getifaddr "$iface" 2>/dev/null || true
+node_config() {
+    local node="$1" token="$2"
+    printf 'node:\n  id: %s\n  southbound_url: %s\n  southbound_token: %s\n' "$node" "$southbound_url" "$token"
+    printf '  listen: 127.0.0.1:8092\n  topology:\n'
+    printf '    site:\n      id: lan\n'
+    printf '      listeners:\n        srt:\n          port_range: { start: 23000, end: 23099 }\n'
 }
 
 write_config() {
-    local node="$1" token="$2" lan="$3"
     (
         umask 077
-        {
-            printf 'node:\n  id: %s\n  southbound_url: %s\n  southbound_token: %s\n' "$node" "$southbound_url" "$token"
-            printf '  listen: 127.0.0.1:8092\n  topology:\n    attachments:\n'
-            printf '      - id: lan\n        network: %s\n        dial: true\n' "$network"
-            printf '        listeners:\n          srt:\n            host: %s\n' "$lan"
-            printf '            port_range: { start: 23000, end: 23099 }\n'
-        } >"$config.new"
+        node_config "$@" >"$config.new"
     )
     mv -f "$config.new" "$config"
 }
@@ -191,11 +185,9 @@ main() {
         return
     fi
     check_platform
-    local node lan from probes registered
+    local node from probes registered
     node="$(node_id "${1:-}")"
     [ -n "$node" ] || die "name this node: curl -fsSL ${bundle_url%/*}/install.sh | bash -s -- <name>"
-    lan="$(lan_address)"
-    [ -n "$lan" ] || die "this Mac has no network address"
 
     work="$(mktemp -d)"
     trap 'rm -rf "$work"' EXIT
@@ -207,7 +199,7 @@ main() {
 
     say "installing the open-weave adapter"
     place "$work/weave-adapter-spaghetti" "$bin/weave-adapter-spaghetti"
-    write_config "$node" "$(node_token "$node")" "$lan"
+    write_config "$node" "$(node_token "$node")"
     write_agent
     touch "$log"
     from="$(wc -l <"$log" | tr -d ' ')"

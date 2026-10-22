@@ -295,9 +295,9 @@ impl State {
                 };
                 if let Some(nodes) = nodes.as_array() {
                     let mut counts = BTreeMap::<&str, usize>::new();
-                    for node in nodes {
+                    for resource in nodes {
                         *counts
-                            .entry(node["status"].as_str().unwrap_or("unknown"))
+                            .entry(resource["node"]["status"].as_str().unwrap_or("unknown"))
                             .or_default() += 1;
                     }
                     self.nodes = counts
@@ -821,6 +821,20 @@ mod tests {
         let line = state.receivers["main/output"].line(now + Duration::from_secs(3));
         assert!(line.contains("idle 3010ms/3020ms"));
         assert!(line.contains("retries:1"));
+    }
+
+    #[test]
+    fn listed_nodes_are_counted_by_status() {
+        let mut state = State::new("test", "e2e-1", 1, 1, &[]);
+        let node = |status: &str| json!({ "node": { "id": "n", "status": status } });
+        state.event(
+            "/nodes",
+            &json!({ "status": 200, "body": [node("ready"), node("offline"), node("ready")] }),
+            state.started,
+        );
+        assert_eq!(state.nodes, "1 offline, 2 ready");
+        state.event("preflight_nodes", &json!([node("ready")]), state.started);
+        assert_eq!(state.nodes, "1 ready");
     }
 
     #[test]

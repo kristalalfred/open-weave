@@ -12,6 +12,7 @@ members = [
     "crates/media",
     "crates/spaghetti",
     "crates/adapter-spaghetti",
+    "crates/reach",
 ]
 
 [workspace.package]
@@ -26,6 +27,7 @@ repository = "https://github.com/KristalAlfred/open-weave"
 weave-core = { path = "crates/core" }
 weave-strom = { path = "crates/strom" }
 weave-spaghetti = { path = "crates/spaghetti" }
+weave-reach = { path = "crates/reach" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 axum = "0.8"
@@ -40,6 +42,7 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 hmac = "0.12"
 sha2 = "0.10"
 getrandom = "0.3"
+netdev = "0.46"
 percent-encoding = "2"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tracing = "0.1"

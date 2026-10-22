@@ -1099,504 +1099,649 @@
       },
       "NodeList": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "Array_of_NodeDescriptor",
+        "title": "Array_of_NodeResource",
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 63,
-              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-            },
-            "endpoint": {
-              "type": "string"
-            },
-            "status": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "unknown",
-                    "ready",
-                    "degraded",
-                    "offline"
-                  ]
-                },
-                {
-                  "type": "string"
-                }
-              ]
-            },
-            "capabilities": {
+            "node": {
               "type": "object",
               "properties": {
-                "adapters": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "name": {
-                        "type": "string"
-                      },
-                      "kind": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "native_srt",
-                              "strom",
-                              "spaghetti",
-                              "nmos",
-                              "mxl_domain",
-                              "mxl_k8s",
-                              "mcm",
-                              "vendor",
-                              "custom"
-                            ]
-                          },
-                          {
-                            "type": "string"
-                          }
-                        ]
-                      }
-                    },
-                    "required": [
-                      "name",
-                      "kind"
-                    ]
-                  },
-                  "default": []
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 63,
+                  "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                 },
-                "hop_profiles": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "timed_delivery": {
-                        "type": [
-                          "object",
-                          "null"
-                        ],
+                "endpoint": {
+                  "type": "string"
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "unknown",
+                        "ready",
+                        "degraded",
+                        "offline"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "capabilities": {
+                  "type": "object",
+                  "properties": {
+                    "adapters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
                         "properties": {
-                          "protocol": {
+                          "name": {
                             "type": "string"
                           },
-                          "roles": {
-                            "type": "array",
-                            "items": {
-                              "anyOf": [
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "origin",
-                                    "forward",
-                                    "receiver"
-                                  ]
-                                },
-                                {
-                                  "type": "string"
-                                }
-                              ]
-                            }
-                          },
-                          "max_latency_ms": {
-                            "type": "integer",
-                            "format": "uint32",
-                            "minimum": 0
-                          },
-                          "scheduling_error_bound_us": {
-                            "type": "integer",
-                            "format": "uint32",
-                            "minimum": 0
-                          },
-                          "clock_domain": {
-                            "type": "string"
-                          },
-                          "origin_epoch": {
-                            "type": "integer",
-                            "format": "uint64",
-                            "minimum": 0
+                          "kind": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "native_srt",
+                                  "strom",
+                                  "spaghetti",
+                                  "nmos",
+                                  "mxl_domain",
+                                  "mxl_k8s",
+                                  "mcm",
+                                  "vendor",
+                                  "custom"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
                           }
                         },
                         "required": [
-                          "protocol",
-                          "roles",
-                          "max_latency_ms",
-                          "scheduling_error_bound_us",
-                          "clock_domain",
-                          "origin_epoch"
+                          "name",
+                          "kind"
                         ]
                       },
-                      "media_behavior": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "enum": [
-                              "preserve",
-                              "unknown"
-                            ],
-                            "default": "unknown"
-                          },
-                          {
-                            "type": "string"
-                          }
-                        ]
-                      },
-                      "id": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 63,
-                        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-                      },
-                      "ingress": {
-                        "anyOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "transport": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "srt",
-                                      "whip",
-                                      "whep",
-                                      "rist"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string"
-                                  }
-                                ]
-                              },
-                              "roles": {
-                                "type": "array",
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "listen",
-                                        "connect"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                },
-                                "minItems": 1
-                              }
-                            },
-                            "required": [
-                              "transport",
-                              "roles"
-                            ]
-                          },
-                          {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "input",
-                                  "output"
-                                ]
-                              },
-                              {
-                                "type": "string"
-                              }
-                            ]
-                          }
-                        ]
-                      },
-                      "egress": {
-                        "anyOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "transport": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "srt",
-                                      "whip",
-                                      "whep",
-                                      "rist"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string"
-                                  }
-                                ]
-                              },
-                              "roles": {
-                                "type": "array",
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "listen",
-                                        "connect"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                },
-                                "minItems": 1
-                              }
-                            },
-                            "required": [
-                              "transport",
-                              "roles"
-                            ]
-                          },
-                          {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "input",
-                                  "output"
-                                ]
-                              },
-                              {
-                                "type": "string"
-                              }
-                            ]
-                          }
-                        ]
-                      },
-                      "max_egresses": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "format": "uint",
-                        "minimum": 1
-                      },
-                      "merge": {
-                        "type": "boolean"
-                      },
-                      "accepts": {
-                        "type": [
-                          "object",
-                          "null"
-                        ],
-                        "properties": {
-                          "container": {
-                            "type": [
-                              "array",
-                              "null"
-                            ],
-                            "items": {
-                              "anyOf": [
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "mpeg_ts",
-                                    "rtp"
-                                  ]
-                                },
-                                {
-                                  "type": "string"
-                                }
-                              ]
-                            },
-                            "minItems": 1
-                          },
-                          "video": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "codec": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "h264",
-                                        "h265",
-                                        "av1",
-                                        "vp8",
-                                        "vp9"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                },
-                                "minItems": 1
-                              },
-                              "width": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "integer",
-                                  "format": "uint32",
-                                  "minimum": 0
-                                },
-                                "minItems": 1
-                              },
-                              "height": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "integer",
-                                  "format": "uint32",
-                                  "minimum": 0
-                                },
-                                "minItems": 1
-                              },
-                              "framerate": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "numerator": {
-                                      "type": "integer",
-                                      "format": "uint32",
-                                      "minimum": 0
-                                    },
-                                    "denominator": {
-                                      "type": "integer",
-                                      "format": "uint32",
-                                      "minimum": 0
-                                    }
-                                  },
-                                  "required": [
-                                    "numerator",
-                                    "denominator"
-                                  ]
-                                },
-                                "minItems": 1
-                              },
-                              "chroma_subsampling": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "yuv420",
-                                        "yuv422",
-                                        "yuv444"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                },
-                                "minItems": 1
-                              }
-                            }
-                          },
-                          "audio": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "codec": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "aac",
-                                        "opus",
-                                        "mp2",
-                                        "pcm_s16",
-                                        "pcm_s24"
-                                      ]
-                                    },
-                                    {
-                                      "type": "string"
-                                    }
-                                  ]
-                                },
-                                "minItems": 1
-                              },
-                              "sample_rate": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "integer",
-                                  "format": "uint32",
-                                  "minimum": 0
-                                },
-                                "minItems": 1
-                              },
-                              "channels": {
-                                "type": [
-                                  "array",
-                                  "null"
-                                ],
-                                "items": {
-                                  "type": "integer",
-                                  "format": "uint8",
-                                  "minimum": 0,
-                                  "maximum": 255
-                                },
-                                "minItems": 1
-                              }
-                            }
-                          }
-                        }
-                      }
+                      "default": []
                     },
-                    "required": [
-                      "media_behavior",
-                      "id",
-                      "ingress",
-                      "egress"
-                    ]
+                    "hop_profiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "timed_delivery": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "protocol": {
+                                "type": "string"
+                              },
+                              "roles": {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "origin",
+                                        "forward",
+                                        "receiver"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                }
+                              },
+                              "max_latency_ms": {
+                                "type": "integer",
+                                "format": "uint32",
+                                "minimum": 0
+                              },
+                              "scheduling_error_bound_us": {
+                                "type": "integer",
+                                "format": "uint32",
+                                "minimum": 0
+                              },
+                              "clock_domain": {
+                                "type": "string"
+                              },
+                              "origin_epoch": {
+                                "type": "integer",
+                                "format": "uint64",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "protocol",
+                              "roles",
+                              "max_latency_ms",
+                              "scheduling_error_bound_us",
+                              "clock_domain",
+                              "origin_epoch"
+                            ]
+                          },
+                          "media_behavior": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "preserve",
+                                  "unknown"
+                                ],
+                                "default": "unknown"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "ingress": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "srt",
+                                          "whip",
+                                          "whep",
+                                          "rist"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  },
+                                  "roles": {
+                                    "type": "array",
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "listen",
+                                            "connect"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                },
+                                "required": [
+                                  "transport",
+                                  "roles"
+                                ]
+                              },
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "input",
+                                      "output"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          "egress": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "srt",
+                                          "whip",
+                                          "whep",
+                                          "rist"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  },
+                                  "roles": {
+                                    "type": "array",
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "listen",
+                                            "connect"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                },
+                                "required": [
+                                  "transport",
+                                  "roles"
+                                ]
+                              },
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "input",
+                                      "output"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          "max_egresses": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "format": "uint",
+                            "minimum": 1
+                          },
+                          "merge": {
+                            "type": "boolean"
+                          },
+                          "accepts": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "container": {
+                                "type": [
+                                  "array",
+                                  "null"
+                                ],
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "mpeg_ts",
+                                        "rtp"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                "minItems": 1
+                              },
+                              "video": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "codec": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "h264",
+                                            "h265",
+                                            "av1",
+                                            "vp8",
+                                            "vp9"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "width": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "integer",
+                                      "format": "uint32",
+                                      "minimum": 0
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "height": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "integer",
+                                      "format": "uint32",
+                                      "minimum": 0
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "framerate": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "numerator": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 0
+                                        },
+                                        "denominator": {
+                                          "type": "integer",
+                                          "format": "uint32",
+                                          "minimum": 0
+                                        }
+                                      },
+                                      "required": [
+                                        "numerator",
+                                        "denominator"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "chroma_subsampling": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "yuv420",
+                                            "yuv422",
+                                            "yuv444"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                }
+                              },
+                              "audio": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "codec": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "aac",
+                                            "opus",
+                                            "mp2",
+                                            "pcm_s16",
+                                            "pcm_s24"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "sample_rate": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "integer",
+                                      "format": "uint32",
+                                      "minimum": 0
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "channels": {
+                                    "type": [
+                                      "array",
+                                      "null"
+                                    ],
+                                    "items": {
+                                      "type": "integer",
+                                      "format": "uint8",
+                                      "minimum": 0,
+                                      "maximum": 255
+                                    },
+                                    "minItems": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "required": [
+                          "media_behavior",
+                          "id",
+                          "ingress",
+                          "egress"
+                        ]
+                      },
+                      "default": []
+                    }
                   },
-                  "default": []
-                }
-              },
-              "default": {
-                "adapters": [],
-                "hop_profiles": []
-              },
-              "required": [
-                "adapters",
-                "hop_profiles"
-              ]
-            },
-            "topology": {
-              "type": "object",
-              "properties": {
-                "attachments": {
+                  "default": {
+                    "adapters": [],
+                    "hop_profiles": []
+                  },
+                  "required": [
+                    "adapters",
+                    "hop_profiles"
+                  ]
+                },
+                "topology": {
+                  "type": "object",
+                  "properties": {
+                    "attachments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "network": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                          },
+                          "dial": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "listeners": {
+                            "type": "object",
+                            "properties": {
+                              "srt": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "host": {
+                                    "type": "string"
+                                  },
+                                  "port_range": {
+                                    "type": "object",
+                                    "properties": {
+                                      "start": {
+                                        "type": "integer",
+                                        "format": "uint16",
+                                        "minimum": 0,
+                                        "maximum": 65535
+                                      },
+                                      "end": {
+                                        "type": "integer",
+                                        "format": "uint16",
+                                        "minimum": 0,
+                                        "maximum": 65535
+                                      }
+                                    },
+                                    "required": [
+                                      "start",
+                                      "end"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "host",
+                                  "port_range"
+                                ]
+                              },
+                              "whip": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "base_url": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "base_url"
+                                ]
+                              },
+                              "whep": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "base_url": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "base_url"
+                                ]
+                              },
+                              "rist": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "host": {
+                                    "type": "string"
+                                  },
+                                  "port_range": {
+                                    "type": "object",
+                                    "properties": {
+                                      "start": {
+                                        "type": "integer",
+                                        "format": "uint16",
+                                        "minimum": 0,
+                                        "maximum": 65535
+                                      },
+                                      "end": {
+                                        "type": "integer",
+                                        "format": "uint16",
+                                        "minimum": 0,
+                                        "maximum": 65535
+                                      }
+                                    },
+                                    "required": [
+                                      "start",
+                                      "end"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "host",
+                                  "port_range"
+                                ]
+                              }
+                            },
+                            "default": {}
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "network",
+                          "dial",
+                          "listeners"
+                        ]
+                      },
+                      "default": []
+                    }
+                  },
+                  "required": [
+                    "attachments"
+                  ]
+                },
+                "inputs": {
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -1607,209 +1752,182 @@
                         "maxLength": 63,
                         "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                       },
-                      "network": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "tracks": {
+                        "type": "array",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "audio",
+                                "video"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "tracks"
+                    ]
+                  },
+                  "default": []
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 63,
                         "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                       },
-                      "dial": {
-                        "type": "boolean",
-                        "default": false
-                      },
-                      "listeners": {
-                        "type": "object",
-                        "properties": {
-                          "srt": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "host": {
-                                "type": "string"
-                              },
-                              "port_range": {
-                                "type": "object",
-                                "properties": {
-                                  "start": {
-                                    "type": "integer",
-                                    "format": "uint16",
-                                    "minimum": 0,
-                                    "maximum": 65535
-                                  },
-                                  "end": {
-                                    "type": "integer",
-                                    "format": "uint16",
-                                    "minimum": 0,
-                                    "maximum": 65535
-                                  }
-                                },
-                                "required": [
-                                  "start",
-                                  "end"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "host",
-                              "port_range"
-                            ]
-                          },
-                          "whip": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "base_url": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "base_url"
-                            ]
-                          },
-                          "whep": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "base_url": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "base_url"
-                            ]
-                          },
-                          "rist": {
-                            "type": [
-                              "object",
-                              "null"
-                            ],
-                            "properties": {
-                              "host": {
-                                "type": "string"
-                              },
-                              "port_range": {
-                                "type": "object",
-                                "properties": {
-                                  "start": {
-                                    "type": "integer",
-                                    "format": "uint16",
-                                    "minimum": 0,
-                                    "maximum": 65535
-                                  },
-                                  "end": {
-                                    "type": "integer",
-                                    "format": "uint16",
-                                    "minimum": 0,
-                                    "maximum": 65535
-                                  }
-                                },
-                                "required": [
-                                  "start",
-                                  "end"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "host",
-                              "port_range"
-                            ]
-                          }
-                        },
-                        "default": {}
+                      "label": {
+                        "type": "string"
                       }
                     },
                     "required": [
                       "id",
-                      "network",
-                      "dial",
-                      "listeners"
+                      "label"
                     ]
                   },
                   "default": []
                 }
               },
               "required": [
-                "attachments"
+                "id",
+                "endpoint",
+                "status",
+                "capabilities",
+                "topology",
+                "inputs",
+                "outputs"
               ]
             },
-            "inputs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 63,
-                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-                  },
-                  "label": {
-                    "type": "string"
-                  },
-                  "tracks": {
-                    "type": "array",
-                    "items": {
-                      "anyOf": [
-                        {
+            "site": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "network": {
                           "type": "string",
-                          "enum": [
-                            "audio",
-                            "video"
-                          ]
+                          "minLength": 1,
+                          "maxLength": 63,
+                          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
                         },
-                        {
-                          "type": "string"
+                        "subnet": {
+                          "type": "string",
+                          "pattern": "^(\\d{1,3}\\.){3}\\d{1,3}/(3[0-2]|[12]?\\d)$"
+                        },
+                        "public": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "ipv4"
+                          }
+                        },
+                        "state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "resolved"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
                         }
+                      },
+                      "required": [
+                        "state",
+                        "network",
+                        "subnet",
+                        "public"
                       ]
                     },
-                    "minItems": 1
-                  }
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "not_observed"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "no_uplink"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "no_public_address"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object"
+                    }
+                  ]
                 },
-                "required": [
-                  "id",
-                  "label",
-                  "tracks"
-                ]
-              },
-              "default": []
-            },
-            "outputs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 63,
-                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-                  },
-                  "label": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "label"
-                ]
-              },
-              "default": []
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
-            "id",
-            "endpoint",
-            "status",
-            "capabilities",
-            "topology",
-            "inputs",
-            "outputs"
+            "node"
           ]
         }
       },

@@ -154,6 +154,87 @@ one for RTCP, and the sender pushes to both. SRT and RIST can share a port
 range. An SRT socket takes half of a free RIST pair only when no other port in
 the range is free.
 
+Network ids starting with `site-` are reserved for [sites](#sites). A
+registration that declares one gets `400` with code `reserved`, and the shipped
+adapters and the native node refuse to start on a config that declares one.
+
+### Sites
+
+A node can declare one site in place of a network it would have to name:
+
+```yaml
+topology:
+  site:
+    id: lan
+    listeners:
+      srt:
+        port_range: { start: 23000, end: 23099 }
+```
+
+`site.id` shares the id space of the node's attachments. `listeners.srt` is
+optional and takes only a `port_range`. A site takes no `network`, `host` or
+`dial`. The controller derives them from what the node observes.
+
+The spaghetti adapter is the only node that declares a site. It sends an
+`observation` with its registration and every heartbeat:
+
+| Field | Meaning |
+|---|---|
+| `uplink.interface` | The interface the node reaches the internet through. |
+| `uplink.address`, `uplink.prefix_len` | That interface's IPv4 address and prefix length. |
+| `uplink.gateway` | Optional. The default gateway's hardware address. |
+| `uplink.reflexive` | Up to eight `{ server, mapped }` pairs: a STUN server and the address and port it saw. |
+
+The adapter reads the uplink every 2 s and asks `stun.cloudflare.com:3478` and
+`stun.l.google.com:19302` when the uplink changes, every 60 s, and on every read
+while it holds no answer, allowing each server 1.5 s including its DNS lookup:
+
+- A server that does not answer keeps its last answer while the uplink holds.
+  When another server answers in the same round, a kept answer older than
+  5 minutes is dropped; when no server answers, every kept answer stays.
+- A read that finds the same interface, address and prefix but no gateway
+  hardware address keeps the last known one.
+- When the uplink cannot be read, the adapter reports the previous observation
+  for ten more reads (about 20 s), then an observation without `uplink`. It
+  then reads the uplink every 250 ms, and when the same uplink returns it
+  reports the previous observation again on that read.
+- An answer with an unspecified mapped address, mapped port 0 or a non-unicast
+  server address is discarded.
+
+The Strom adapter and the native node do not observe the network their media
+uses, and refuse to start on a config with `topology.site`.
+
+The controller resolves the site from the observation in the latest registration
+or heartbeat:
+
+| Observation | `state` |
+|---|---|
+| Absent | `not_observed` |
+| Without `uplink` | `no_uplink` |
+| Without `reflexive` entries | `no_public_address` |
+| Otherwise | `resolved` |
+
+A resolved site becomes an attachment with the site's `id`, `dial: true`, a
+derived network and, when the site declares `listeners.srt`, an SRT listener at
+`uplink.address` with the declared port range. Planning treats it like a
+declared attachment. An unresolved site adds no attachment.
+
+The derived network is `site-` followed by the first 12 hex digits of the
+SHA-256 of a key made of:
+
+- the uplink subnet, such as `192.168.3.0/24`;
+- the distinct mapped addresses in ascending order, unless they are exactly the
+  uplink address;
+- the gateway hardware address, when reported.
+
+Nodes on one subnet behind the same public addresses and gateway get the same
+network, and the controller links them directly. Mapped ports are not part of
+the key. Only IPv4 is observed.
+
+Each heartbeat replaces the observation, and a heartbeat without one clears the
+site. The controller stores the observation with the registration and serves
+only the resolved site, as `site` on [`GET /nodes`](api.md#nodes).
+
 ## Planning
 
 A link is possible when one end offers `connect` and has a dialing attachment,

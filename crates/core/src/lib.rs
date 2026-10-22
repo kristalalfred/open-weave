@@ -11,7 +11,11 @@ pub mod upstream;
 pub mod validation;
 pub mod webhook;
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::{
+    collections::BTreeMap,
+    net::{Ipv4Addr, SocketAddrV4},
+    ops::Deref,
+};
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
@@ -22,11 +26,11 @@ pub use delivery::{
 };
 
 pub use api::{
-    AcceptedState, ApiError, ApiErrorCode, Health, NodeAccepted, PlanStatus, RunningStatus,
-    StartingState, StartingStatus, StatusResponse, StreamAccepted, StreamCondition,
-    StreamConditionReason, StreamConditionStatus, StreamConditionType, StreamDestinationStatus,
-    StreamPlan, StreamResource, StreamSetAccepted, StreamSetAction, StreamSetApply,
-    StreamSetMemberResult, StreamSetResource, StreamStatus,
+    AcceptedState, ApiError, ApiErrorCode, Health, NodeAccepted, NodeResource, PlanStatus,
+    RunningStatus, SiteState, StartingState, StartingStatus, StatusResponse, StreamAccepted,
+    StreamCondition, StreamConditionReason, StreamConditionStatus, StreamConditionType,
+    StreamDestinationStatus, StreamPlan, StreamResource, StreamSetAccepted, StreamSetAction,
+    StreamSetApply, StreamSetMemberResult, StreamSetResource, StreamStatus,
 };
 pub use media::{
     AudioCodec, AudioConstraint, AudioFormat, ChromaSubsampling, Container, FormatConstraint,
@@ -34,7 +38,7 @@ pub use media::{
 };
 pub use validation::{
     RESOURCE_ID_MAX_LEN, ResourceIdError, ValidationIssue, resource_id_issue, validate_local_io,
-    validate_node, validate_resource_id, validate_stream,
+    validate_node, validate_observation, validate_resource_id, validate_stream,
 };
 
 pub const ROUTE_ENDPOINTS: &str = "/endpoints";
@@ -51,7 +55,7 @@ pub const ROUTE_STREAM_SET: &str = "/stream-sets/{owner}";
 pub const ROUTE_STREAM_SETS: &str = "/stream-sets";
 pub const ROUTE_STREAMS: &str = "/streams";
 
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 
 #[must_use]
 pub fn protocol_compatible(version: u32) -> bool {
@@ -182,7 +186,8 @@ mod contract_tests {
             endpoint: "http://studio".to_string(),
             status: NodeStatus::Ready,
             capabilities: NodeCapabilities::default(),
-            topology: NodeTopology {
+            topology: DeclaredTopology {
+                site: None,
                 attachments: vec![NetworkAttachment {
                     id: "wan".to_string(),
                     network: "internet".to_string(),
@@ -1458,7 +1463,7 @@ pub struct LinkStats {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct NodeDescriptor {
+pub struct NodeDescriptor<T = NodeTopology> {
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -1468,12 +1473,14 @@ pub struct NodeDescriptor {
     pub status: NodeStatus,
     #[serde(default)]
     pub capabilities: NodeCapabilities,
-    pub topology: NodeTopology,
+    pub topology: T,
     #[serde(default)]
     pub inputs: Vec<NodeInput>,
     #[serde(default)]
     pub outputs: Vec<NodeOutput>,
 }
+
+pub type DeclaredNode = NodeDescriptor<DeclaredTopology>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1499,7 +1506,20 @@ pub struct NodeOutput {
     pub label: String,
 }
 
-impl NodeDescriptor {
+impl<T> NodeDescriptor<T> {
+    #[must_use]
+    pub fn with_topology<U>(self, topology: U) -> NodeDescriptor<U> {
+        NodeDescriptor {
+            id: self.id,
+            endpoint: self.endpoint,
+            status: self.status,
+            capabilities: self.capabilities,
+            topology,
+            inputs: self.inputs,
+            outputs: self.outputs,
+        }
+    }
+
     #[must_use]
     pub fn local_ids(&self, end: LocalEnd) -> Vec<&str> {
         match end {
@@ -1636,6 +1656,225 @@ pub struct NodeTopology {
     pub attachments: Vec<NetworkAttachment>,
 }
 
+pub const SITE_NETWORK_PREFIX: &str = "site-";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
+pub struct DeclaredTopology {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<SiteAttachment>,
+    #[serde(default)]
+    pub attachments: Vec<NetworkAttachment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SiteAttachment {
+    #[schemars(
+        length(min = 1, max = 63),
+        regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    )]
+    pub id: String,
+    #[serde(default)]
+    pub listeners: SiteListeners,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SiteListeners {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub srt: Option<SiteListener>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SiteListener {
+    pub port_range: PortRange,
+}
+
+impl DeclaredTopology {
+    pub fn attachment_ids(&self) -> impl Iterator<Item = &str> {
+        self.site.iter().map(|site| site.id.as_str()).chain(
+            self.attachments
+                .iter()
+                .map(|attachment| attachment.id.as_str()),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NodeObservation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uplink: Option<Uplink>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Uplink {
+    pub interface: String,
+    pub address: Ipv4Addr,
+    #[schemars(range(max = 32))]
+    pub prefix_len: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<HardwareAddress>,
+    #[serde(default)]
+    pub reflexive: Vec<ReflexiveAddress>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReflexiveAddress {
+    pub server: SocketAddrV4,
+    pub mapped: SocketAddrV4,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct HardwareAddress(pub [u8; 6]);
+
+impl std::fmt::Display for HardwareAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [a, b, c, d, e, g] = self.0;
+        write!(f, "{a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{g:02x}")
+    }
+}
+
+impl std::str::FromStr for HardwareAddress {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let mut bytes = [0_u8; 6];
+        let mut parts = text.split(':');
+        for byte in &mut bytes {
+            let part = parts
+                .next()
+                .filter(|part| part.len() == 2)
+                .ok_or_else(|| format!("{text:?} is not six colon-separated hex bytes"))?;
+            *byte = u8::from_str_radix(part, 16).map_err(|error| format!("{text:?}: {error}"))?;
+        }
+        if parts.next().is_some() {
+            return Err(format!("{text:?} is not six colon-separated hex bytes"));
+        }
+        Ok(Self(bytes))
+    }
+}
+
+impl Serialize for HardwareAddress {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for HardwareAddress {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for HardwareAddress {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "HardwareAddress".into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        concat!(module_path!(), "::HardwareAddress").into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Subnet {
+    address: Ipv4Addr,
+    prefix_len: u8,
+}
+
+impl Subnet {
+    #[must_use]
+    pub fn containing(address: Ipv4Addr, prefix_len: u8) -> Option<Self> {
+        let host_bits = 32_u32.checked_sub(u32::from(prefix_len))?;
+        let mask = u32::MAX.checked_shl(host_bits).unwrap_or(0);
+        Some(Self {
+            address: Ipv4Addr::from(u32::from(address) & mask),
+            prefix_len,
+        })
+    }
+}
+
+impl std::fmt::Display for Subnet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.address, self.prefix_len)
+    }
+}
+
+impl std::str::FromStr for Subnet {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let invalid = || format!("{text:?} is not an IPv4 subnet such as 192.168.3.0/24");
+        let (address, prefix_len) = text.split_once('/').ok_or_else(invalid)?;
+        let address: Ipv4Addr = address.parse().map_err(|_| invalid())?;
+        let prefix_len: u8 = prefix_len.parse().map_err(|_| invalid())?;
+        let subnet = Self::containing(address, prefix_len).ok_or_else(invalid)?;
+        if subnet.address != address {
+            return Err(format!(
+                "{text:?} has host bits set; the subnet is {subnet}"
+            ));
+        }
+        Ok(subnet)
+    }
+}
+
+impl Serialize for Subnet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for Subnet {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for Subnet {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Subnet".into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        concat!(module_path!(), "::Subnet").into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": r"^(\d{1,3}\.){3}\d{1,3}/(3[0-2]|[12]?\d)$"
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkAttachment {
@@ -1739,7 +1978,7 @@ pub struct NodeConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_endpoint: Option<String>,
-    pub topology: NodeTopology,
+    pub topology: DeclaredTopology,
 }
 
 impl NodeConfig {
@@ -1767,11 +2006,28 @@ impl NodeConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         validate_resource_id(&self.id).map_err(ConfigError::InvalidId)?;
         let mut ids = std::collections::HashSet::new();
+        for id in self.topology.attachment_ids() {
+            validate_resource_id(id).map_err(ConfigError::InvalidAttachmentId)?;
+            if !ids.insert(id) {
+                return Err(ConfigError::DuplicateAttachment(id.to_string()));
+            }
+        }
+        if let Some(listener) = self
+            .topology
+            .site
+            .as_ref()
+            .and_then(|site| site.listeners.srt.as_ref())
+            && listener.port_range.start > listener.port_range.end
+        {
+            return Err(ConfigError::InvalidPortRange {
+                start: listener.port_range.start,
+                end: listener.port_range.end,
+            });
+        }
         for attachment in &self.topology.attachments {
-            validate_resource_id(&attachment.id).map_err(ConfigError::InvalidAttachmentId)?;
             validate_resource_id(&attachment.network).map_err(ConfigError::InvalidNetworkId)?;
-            if !ids.insert(&attachment.id) {
-                return Err(ConfigError::DuplicateAttachment(attachment.id.clone()));
+            if attachment.network.starts_with(SITE_NETWORK_PREFIX) {
+                return Err(ConfigError::ReservedNetwork(attachment.network.clone()));
             }
             let port_listeners = attachment
                 .listeners
@@ -1827,6 +2083,10 @@ pub enum ConfigError {
     InvalidAttachmentId(ResourceIdError),
     #[error("network id {0}")]
     InvalidNetworkId(ResourceIdError),
+    #[error(
+        "network {0} starts with the reserved prefix {SITE_NETWORK_PREFIX}; rename it, or declare topology.site for the controller to derive the site network"
+    )]
+    ReservedNetwork(String),
     #[error("duplicate attachment id {0}")]
     DuplicateAttachment(String),
     #[error("listener host or base_url must not be blank")]
@@ -1980,7 +2240,9 @@ pub enum EndpointKind {
 pub struct NodeRegistration {
     #[serde(default)]
     pub protocol_version: u32,
-    pub node: NodeDescriptor,
+    pub node: DeclaredNode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation: Option<NodeObservation>,
     #[serde(default)]
     pub endpoints: Vec<EndpointDescriptor>,
     #[serde(default)]
@@ -1998,6 +2260,8 @@ pub struct NodeHeartbeat {
     pub status: NodeStatus,
     pub inputs: Vec<NodeInput>,
     pub outputs: Vec<NodeOutput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation: Option<NodeObservation>,
     #[serde(default)]
     pub endpoints: Vec<EndpointDescriptor>,
     #[serde(default)]
@@ -2563,7 +2827,8 @@ mod tests {
             southbound_token: None,
             listen: "0.0.0.0:8091".to_string(),
             public_endpoint: None,
-            topology: NodeTopology {
+            topology: DeclaredTopology {
+                site: None,
                 attachments: vec![NetworkAttachment {
                     id: "lan".to_string(),
                     network: "studio-lan".to_string(),
@@ -2642,6 +2907,63 @@ mod tests {
                 end: 20000,
             })
         );
+    }
+
+    #[test]
+    fn a_site_attachment_shares_the_attachment_id_space() {
+        let mut config = node_config();
+        config.topology.site = Some(SiteAttachment {
+            id: "lan".to_string(),
+            listeners: SiteListeners::default(),
+        });
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::DuplicateAttachment("lan".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_declared_network_cannot_take_the_site_prefix() {
+        let mut config = node_config();
+        config.topology.attachments[0].network = "site-3f9a2c1d7e4b".to_string();
+        let error = config.validate().unwrap_err();
+        assert_eq!(
+            error,
+            ConfigError::ReservedNetwork("site-3f9a2c1d7e4b".to_string())
+        );
+        assert!(
+            error.to_string().contains("declare topology.site"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_subnet_is_written_as_its_network_address_and_prefix() {
+        let subnet = Subnet::containing("192.168.3.20".parse().unwrap(), 24).unwrap();
+        assert_eq!(subnet.to_string(), "192.168.3.0/24");
+        assert_eq!("192.168.3.0/24".parse::<Subnet>(), Ok(subnet));
+        assert_eq!(
+            serde_json::to_value(subnet).unwrap(),
+            serde_json::json!("192.168.3.0/24")
+        );
+        assert_eq!(
+            Subnet::containing(Ipv4Addr::new(10, 1, 2, 3), 0)
+                .unwrap()
+                .to_string(),
+            "0.0.0.0/0"
+        );
+        assert_eq!(Subnet::containing(Ipv4Addr::new(10, 1, 2, 3), 33), None);
+        assert!("192.168.3.20/24".parse::<Subnet>().is_err());
+        assert!("192.168.3.0/33".parse::<Subnet>().is_err());
+        assert!("192.168.3.0".parse::<Subnet>().is_err());
+    }
+
+    #[test]
+    fn a_hardware_address_round_trips_as_lowercase_hex() {
+        let address: HardwareAddress = "A4:83:E7:0B:1C:2D".parse().unwrap();
+        assert_eq!(address.to_string(), "a4:83:e7:0b:1c:2d");
+        assert!("a4:83:e7:0b:1c".parse::<HardwareAddress>().is_err());
+        assert!("a4:83:e7:0b:1c:2d:00".parse::<HardwareAddress>().is_err());
     }
 
     fn stream_with_formats(

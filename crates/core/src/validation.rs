@@ -4,12 +4,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    FormatConstraint, HopEndpointClass, LocalEnd, LocalEndpoint, MediaFormat, NodeDescriptor,
-    NodeInput, NodeOutput, Passphrase, SignallingEndpoint, SrtEndpoint, StreamDefinition,
-    StreamDestination, StreamTransport,
+    DeclaredNode, FormatConstraint, HopEndpointClass, LocalEnd, LocalEndpoint, MediaFormat,
+    NodeInput, NodeObservation, NodeOutput, Passphrase, SITE_NETWORK_PREFIX, SignallingEndpoint,
+    SrtEndpoint, StreamDefinition, StreamDestination, StreamTransport,
 };
 
 pub const RESOURCE_ID_MAX_LEN: usize = 63;
+const MAX_REFLEXIVE_ADDRESSES: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ResourceIdError {
@@ -161,7 +162,7 @@ fn validate_paths(destination: &StreamDestination, path: &str, issues: &mut Vec<
 }
 
 #[must_use]
-pub fn validate_node(node: &NodeDescriptor) -> Vec<ValidationIssue> {
+pub fn validate_node(node: &DeclaredNode) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
     validate_id(&node.id, "node.id", "node id", &mut issues);
     let mut profile_ids = HashSet::new();
@@ -215,6 +216,24 @@ pub fn validate_node(node: &NodeDescriptor) -> Vec<ValidationIssue> {
     }
     issues.extend(validate_local_io(&node.inputs, &node.outputs, "node."));
     let mut attachment_ids = HashSet::new();
+    if let Some(site) = &node.topology.site {
+        validate_id(
+            &site.id,
+            "node.topology.site.id",
+            "attachment id",
+            &mut issues,
+        );
+        attachment_ids.insert(&site.id);
+        if let Some(listener) = &site.listeners.srt
+            && listener.port_range.start > listener.port_range.end
+        {
+            issues.push(ValidationIssue::new(
+                "node.topology.site.listeners.srt.port_range",
+                "invalid_range",
+                "port range start must not exceed end",
+            ));
+        }
+    }
     for (index, attachment) in node.topology.attachments.iter().enumerate() {
         let base = format!("node.topology.attachments[{index}]");
         validate_id(
@@ -229,6 +248,15 @@ pub fn validate_node(node: &NodeDescriptor) -> Vec<ValidationIssue> {
             "network id",
             &mut issues,
         );
+        if attachment.network.starts_with(SITE_NETWORK_PREFIX) {
+            issues.push(ValidationIssue::new(
+                format!("{base}.network"),
+                "reserved",
+                format!(
+                    "network ids starting with {SITE_NETWORK_PREFIX} are reserved for derived sites; rename the network, or declare topology.site for the controller to derive it"
+                ),
+            ));
+        }
         if !attachment_ids.insert(&attachment.id) {
             issues.push(ValidationIssue::new(
                 format!("{base}.id"),
@@ -267,6 +295,57 @@ pub fn validate_node(node: &NodeDescriptor) -> Vec<ValidationIssue> {
                     "RIST port range must hold an even port and the port after it",
                 ));
             }
+        }
+    }
+    issues
+}
+
+#[must_use]
+pub fn validate_observation(observation: &NodeObservation) -> Vec<ValidationIssue> {
+    let Some(uplink) = &observation.uplink else {
+        return Vec::new();
+    };
+    let mut issues = Vec::new();
+    if uplink.interface.trim().is_empty() {
+        issues.push(ValidationIssue::new(
+            "observation.uplink.interface",
+            "blank",
+            "uplink interface must not be blank",
+        ));
+    }
+    let address = uplink.address;
+    if address.is_unspecified()
+        || address.is_loopback()
+        || address.is_multicast()
+        || address.is_broadcast()
+    {
+        issues.push(ValidationIssue::new(
+            "observation.uplink.address",
+            "not_routable",
+            format!("{address} cannot be a node's uplink address"),
+        ));
+    }
+    if uplink.prefix_len > 32 {
+        issues.push(ValidationIssue::new(
+            "observation.uplink.prefix_len",
+            "invalid_range",
+            format!("an IPv4 address has no /{} prefix", uplink.prefix_len),
+        ));
+    }
+    if uplink.reflexive.len() > MAX_REFLEXIVE_ADDRESSES {
+        issues.push(ValidationIssue::new(
+            "observation.uplink.reflexive",
+            "too_many",
+            format!("at most {MAX_REFLEXIVE_ADDRESSES} reflexive addresses"),
+        ));
+    }
+    for (index, reflexive) in uplink.reflexive.iter().enumerate() {
+        if reflexive.mapped.ip().is_unspecified() {
+            issues.push(ValidationIssue::new(
+                format!("observation.uplink.reflexive[{index}].mapped"),
+                "not_routable",
+                "a mapped address cannot be 0.0.0.0",
+            ));
         }
     }
     issues
@@ -606,14 +685,15 @@ fn validate_constraint(accepts: &FormatConstraint, path: &str, issues: &mut Vec<
 #[cfg(test)]
 mod tests {
     use crate::{
-        AudioConstraint, Container, FormatConstraint, LocalEndpoint, MediaFormat, NodeDescriptor,
-        NodeInput, NodeOutput, RemoteAddr, SrtEndpoint, StreamDefinition, StreamDestination,
-        StreamTransport, Track, VideoConstraint,
+        AudioConstraint, Container, DeclaredNode, FormatConstraint, LocalEndpoint, MediaFormat,
+        NodeDescriptor, NodeInput, NodeObservation, NodeOutput, ReflexiveAddress, RemoteAddr,
+        SrtEndpoint, StreamDefinition, StreamDestination, StreamTransport, Track, Uplink,
+        VideoConstraint,
     };
 
     use super::{
-        RESOURCE_ID_MAX_LEN, ResourceIdError, ValidationIssue, validate_node, validate_resource_id,
-        validate_stream,
+        RESOURCE_ID_MAX_LEN, ResourceIdError, ValidationIssue, validate_node, validate_observation,
+        validate_resource_id, validate_stream,
     };
 
     fn srt_node(node: &str) -> SrtEndpoint {
@@ -1182,7 +1262,7 @@ mod tests {
                     }),
                 }],
             },
-            topology: crate::NodeTopology::default(),
+            topology: crate::DeclaredTopology::default(),
         };
         assert_eq!(
             super::validate_node(&node),
@@ -1194,7 +1274,7 @@ mod tests {
         );
     }
 
-    fn node_with(inputs: Vec<NodeInput>, outputs: Vec<NodeOutput>) -> NodeDescriptor {
+    fn node_with(inputs: Vec<NodeInput>, outputs: Vec<NodeOutput>) -> DeclaredNode {
         NodeDescriptor {
             inputs,
             outputs,
@@ -1235,7 +1315,7 @@ mod tests {
         }
     }
 
-    fn codes(node: &NodeDescriptor) -> Vec<(String, String)> {
+    fn codes(node: &DeclaredNode) -> Vec<(String, String)> {
         validate_node(node)
             .into_iter()
             .map(|issue| (issue.field, issue.code))
@@ -1303,6 +1383,105 @@ mod tests {
                     "wrong_end".to_string()
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn a_site_shares_attachment_ids_and_no_declared_network_takes_its_prefix() {
+        let mut node = node_with(Vec::new(), Vec::new());
+        node.topology = serde_json::from_value(serde_json::json!({
+            "site": {
+                "id": "lan",
+                "listeners": { "srt": { "port_range": { "start": 23099, "end": 23000 } } }
+            },
+            "attachments": [{ "id": "lan", "network": "site-3f9a2c1d7e4b", "dial": true }]
+        }))
+        .expect("topology fixture");
+        let issues = validate_node(&node);
+        assert_eq!(
+            issues
+                .iter()
+                .map(|issue| (issue.field.as_str(), issue.code.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "node.topology.site.listeners.srt.port_range",
+                    "invalid_range"
+                ),
+                ("node.topology.attachments[0].network", "reserved"),
+                ("node.topology.attachments[0].id", "duplicate"),
+            ]
+        );
+        assert!(
+            issues[1].message.contains("declare topology.site"),
+            "{}",
+            issues[1].message
+        );
+    }
+
+    fn observation(address: &str, mapped: &[&str]) -> NodeObservation {
+        NodeObservation {
+            uplink: Some(Uplink {
+                interface: "en0".to_string(),
+                address: address.parse().unwrap(),
+                prefix_len: 24,
+                gateway: None,
+                reflexive: mapped
+                    .iter()
+                    .map(|mapped| ReflexiveAddress {
+                        server: "192.0.2.1:3478".parse().unwrap(),
+                        mapped: mapped.parse().unwrap(),
+                    })
+                    .collect(),
+            }),
+        }
+    }
+
+    fn observation_issues(observation: &NodeObservation) -> Vec<(String, String)> {
+        validate_observation(observation)
+            .into_iter()
+            .map(|issue| (issue.field, issue.code))
+            .collect()
+    }
+
+    #[test]
+    fn an_uplink_must_be_an_address_a_peer_could_reach() {
+        assert!(
+            observation_issues(&observation("192.168.1.20", &["203.0.113.7:61000"])).is_empty()
+        );
+        for address in ["0.0.0.0", "127.0.0.1", "224.0.0.251", "255.255.255.255"] {
+            assert_eq!(
+                observation_issues(&observation(address, &[])),
+                [(
+                    "observation.uplink.address".to_string(),
+                    "not_routable".to_string()
+                )],
+                "{address}"
+            );
+        }
+    }
+
+    #[test]
+    fn reflexive_addresses_are_mapped_and_at_most_eight() {
+        assert_eq!(
+            observation_issues(&observation(
+                "192.168.1.20",
+                &["203.0.113.7:61000", "0.0.0.0:61000"]
+            )),
+            [(
+                "observation.uplink.reflexive[1].mapped".to_string(),
+                "not_routable".to_string()
+            )]
+        );
+        assert!(
+            observation_issues(&observation("192.168.1.20", &["203.0.113.7:61000"; 8])).is_empty()
+        );
+        assert_eq!(
+            observation_issues(&observation("192.168.1.20", &["203.0.113.7:61000"; 9])),
+            [(
+                "observation.uplink.reflexive".to_string(),
+                "too_many".to_string()
+            )]
         );
     }
 }

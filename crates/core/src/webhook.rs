@@ -162,46 +162,39 @@ impl From<&StreamStatus> for StreamSummary {
 mod tests {
     use super::*;
     use crate::{
-        HopEndpointClass, HopProfile, LocalEnd, NodeRegistration, PROTOCOL_VERSION, RoleSet,
-        SocketRole, Transport, TransportClass,
+        HopEndpointClass, HopProfile, LocalEnd, RoleSet, SocketRole, Transport, TransportClass,
     };
 
-    fn registration() -> NodeRegistration {
-        NodeRegistration {
-            protocol_version: PROTOCOL_VERSION,
-            node: NodeDescriptor {
-                inputs: Vec::new(),
-                outputs: Vec::new(),
-                id: "guest-1".to_string(),
-                endpoint: "http://guest-1:8080".to_string(),
-                status: NodeStatus::Ready,
-                capabilities: NodeCapabilities {
-                    adapters: Vec::new(),
-                    hop_profiles: vec![HopProfile {
-                        timed_delivery: None,
-                        id: "camera-to-whip".to_string(),
-                        ingress: HopEndpointClass::Local(LocalEnd::Input),
-                        egress: HopEndpointClass::Transport(TransportClass {
-                            transport: Transport::Whip,
-                            roles: RoleSet::only(SocketRole::Connect),
-                        }),
-                        max_egresses: Some(1),
-                        media_behavior: crate::MediaBehavior::Unknown,
-                        merge: false,
-                        accepts: None,
-                    }],
-                },
-                topology: NodeTopology::default(),
+    fn node() -> NodeDescriptor {
+        NodeDescriptor {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            id: "guest-1".to_string(),
+            endpoint: "http://guest-1:8080".to_string(),
+            status: NodeStatus::Ready,
+            capabilities: NodeCapabilities {
+                adapters: Vec::new(),
+                hop_profiles: vec![HopProfile {
+                    timed_delivery: None,
+                    id: "camera-to-whip".to_string(),
+                    ingress: HopEndpointClass::Local(LocalEnd::Input),
+                    egress: HopEndpointClass::Transport(TransportClass {
+                        transport: Transport::Whip,
+                        roles: RoleSet::only(SocketRole::Connect),
+                    }),
+                    max_egresses: Some(1),
+                    media_behavior: crate::MediaBehavior::Unknown,
+                    merge: false,
+                    accepts: None,
+                }],
             },
-            endpoints: Vec::new(),
-            hop_status: Vec::new(),
+            topology: NodeTopology::default(),
         }
     }
 
     #[test]
-    fn summary_carries_the_node_and_nothing_else_from_the_registration() {
-        let registration = registration();
-        let summary = NodeSummary::from(&registration.node);
+    fn summary_carries_the_node_and_nothing_else() {
+        let summary = NodeSummary::from(&node());
 
         assert_eq!(summary.id, "guest-1");
         assert_eq!(summary.status, NodeStatus::Ready);
@@ -303,7 +296,7 @@ mod tests {
             event_id: "guest-1-0".to_string(),
             event_type: EventType::NodeRegistered,
             occurred_at: "2026-09-25T10:00:00Z".to_string(),
-            subject: Subject::Node(NodeSummary::from(&registration().node)),
+            subject: Subject::Node(NodeSummary::from(&node())),
         };
         let body = serde_json::to_value(&event).unwrap();
         assert_eq!(
