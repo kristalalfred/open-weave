@@ -4,6 +4,7 @@ set -euo pipefail
 bundle_url="__BUNDLE_URL__"
 southbound_url="__SOUTHBOUND_URL__"
 network="__NETWORK__"
+southbound_key="__SOUTHBOUND_KEY__"
 bin="$HOME/.local/bin"
 support="$HOME/Library/Application Support/open-weave"
 logs="$HOME/Library/Logs/open-weave"
@@ -70,18 +71,38 @@ install_spaghetti() {
     die "the spaghetti daemon did not start; see ~/Library/Logs/spaghetti/spaghettid.log"
 }
 
+node_id() {
+    local wanted="${1:-}"
+    if [ -z "$wanted" ] && [ -f "$config" ]; then
+        wanted="$(awk '/^  id:/ { print $2; exit }' "$config")"
+    fi
+    [ -n "$wanted" ] || wanted="$(id -un)"
+    printf '%s' "$wanted" | tr '[:upper:]' '[:lower:]' \
+        | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' | cut -c1-63 | sed 's/-$//'
+}
+
+node_token() {
+    local mac
+    mac="$(printf '%s' "$1.0" | openssl dgst -sha256 -hmac "$southbound_key" | awk '{ print $NF }')"
+    printf '%s.0.%s' "$1" "$mac"
+}
+
+lan_address() {
+    local iface
+    iface="$(route -n get default 2>/dev/null | awk '/interface:/ { print $2 }')"
+    [ -z "$iface" ] || ipconfig getifaddr "$iface" 2>/dev/null || true
+}
+
 write_config() {
-    local node="$1" token="$2" srt_host="$3"
+    local node="$1" token="$2" lan="$3"
     (
         umask 077
         {
             printf 'node:\n  id: %s\n  southbound_url: %s\n  southbound_token: %s\n' "$node" "$southbound_url" "$token"
             printf '  listen: 127.0.0.1:8092\n  topology:\n    attachments:\n'
             printf '      - id: lan\n        network: %s\n        dial: true\n' "$network"
-            if [ -n "$srt_host" ]; then
-                printf '        listeners:\n          srt:\n            host: %s\n' "$srt_host"
-                printf '            port_range: { start: 23000, end: 23099 }\n'
-            fi
+            printf '        listeners:\n          srt:\n            host: %s\n' "$lan"
+            printf '            port_range: { start: 23000, end: 23099 }\n'
         } >"$config.new"
     )
     mv -f "$config.new" "$config"
@@ -131,11 +152,17 @@ start_adapter() {
     die "launchctl could not start $label"
 }
 
-ask_for_local_network() {
+probe() {
+    "$spaghetti" receive "$1" 2>/dev/null | sed -n 's/.*id=\([0-9][0-9]*\).*/\1/p' || true
+}
+
+ask_for_network_access() {
     local gateway
     gateway="$(route -n get default 2>/dev/null | awk '/gateway:/ { print $2 }')"
-    [ -n "$gateway" ] || return 0
-    "$spaghetti" receive "srt://$gateway:9" 2>/dev/null | sed -n 's/.*id=\([0-9][0-9]*\).*/\1/p' || true
+    [ -z "$gateway" ] || probe "srt://$gateway:9"
+    if /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null | grep -q enabled; then
+        probe "srt://:23099"
+    fi
 }
 
 wait_for_registration() {
@@ -163,9 +190,11 @@ main() {
         return
     fi
     check_platform
-    local token="${1:-}" srt_host="${2:-}" node from probe registered
-    node="${token%%.*}"
-    [ -n "$token" ] && [ "$node" != "$token" ] || die "usage: install.sh <node token> [srt listener host]"
+    local node lan from probes registered
+    node="$(node_id "${1:-}")"
+    [ -n "$node" ] || die "name this node: curl -fsSL ${bundle_url%/*}/install.sh | bash -s -- <name>"
+    lan="$(lan_address)"
+    [ -n "$lan" ] || die "this Mac has no network address"
 
     work="$(mktemp -d)"
     trap 'rm -rf "$work"' EXIT
@@ -177,17 +206,19 @@ main() {
 
     say "installing the open-weave adapter"
     place "$work/weave-adapter-spaghetti" "$bin/weave-adapter-spaghetti"
-    write_config "$node" "$token" "$srt_host"
+    write_config "$node" "$(node_token "$node")" "$lan"
     write_agent
     touch "$log"
     from="$(wc -l <"$log" | tr -d ' ')"
-    probe="$(ask_for_local_network)"
+    probes="$(ask_for_network_access)"
     start_adapter
 
-    say "waiting for $node to register; allow local network access if macOS asks"
+    say "waiting for $node to register; allow network access if macOS asks"
     registered="$(wait_for_registration "$node" "$from")"
     sleep 5
-    [ -z "$probe" ] || "$spaghetti" unsource "$probe" >/dev/null 2>&1 || true
+    for probe in $probes; do
+        "$spaghetti" unsource "$probe" >/dev/null 2>&1 || true
+    done
 
     say "$node is on open-weave with $registered"
     echo "logs:      $log"

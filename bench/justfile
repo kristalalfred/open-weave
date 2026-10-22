@@ -491,9 +491,9 @@ page port="8000" seat="guest-1":
 node-token id epoch="0":
     @WEAVE_SOUTHBOUND_KEY={{sb_key}} cargo run --quiet -p weave-cli -- node-token {{id}} --epoch {{epoch}}
 
-[doc("Serve the spaghetti node installer to the LAN and print the command that installs node <id>; give <srt_host> for a node that accepts SRT calls.")]
+[doc("Serve the spaghetti node installer to the LAN; each Mac that runs it joins as a node named after its user.")]
 [group("spaghetti")]
-spaghetti-node id srt_host="" network="office" port="29097":
+spaghetti-installer network="office" port="29097":
     #!/usr/bin/env bash
     set -euo pipefail
     iface="$(route -n get default | awk '/interface:/ { print $2 }')"
@@ -503,7 +503,6 @@ spaghetti-node id srt_host="" network="office" port="29097":
     launchctl plist __TEXT,__info_plist "$daemon" 2>/dev/null | grep -q NSLocalNetworkUsageDescription \
         || { echo "$daemon cannot ask for Local Network access; reinstall spaghetti" >&2; exit 1; }
     cargo build --release --quiet -p weave-adapter-spaghetti
-    token="$(just node-token {{id}})"
     sb_plain="{{sb_plain}}"
     dir="$(mktemp -d)"; trap 'rm -rf "$dir"' EXIT
     mkdir "$dir/node"
@@ -514,9 +513,10 @@ spaghetti-node id srt_host="" network="office" port="29097":
     sed -e "s#__BUNDLE_URL__#http://$lan:{{port}}/node.tar.gz#" \
         -e "s#__SOUTHBOUND_URL__#${sb_plain/localhost/$lan}#" \
         -e "s#__NETWORK__#{{network}}#" \
+        -e "s#__SOUTHBOUND_KEY__#{{sb_key}}#" \
         {{source_directory()}}/../crates/adapter-spaghetti/install.sh >"$dir/install.sh"
-    echo "on the Mac for {{id}}, run:"
-    echo "  curl -fsSL http://$lan:{{port}}/install.sh | bash -s -- $token {{srt_host}}"
+    echo "on any Mac, run:"
+    echo "  curl -fsSL http://$lan:{{port}}/install.sh | bash"
     python3 -m http.server {{port}} -d "$dir" --bind "$lan"
 
 [doc("Apply browser-cam-host for <seat> (the id `just bench page` pinned); print its WHIP URL and SRT output.")]
