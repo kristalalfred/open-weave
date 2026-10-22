@@ -36,8 +36,8 @@ stream, and `weave plan -f` previews its placement without storing it.
 controller takes the node's listener on the lowest network id, then the lowest
 attachment id. A `remote` listener must name its network.
 
-`id` on an `input` or `output` names one the node declares. It may be left out
-when the node declares exactly one. `srt`, `whip` and `whep` endpoints are
+`id` on an `input` or `output` names one the node declares, and is required.
+`srt`, `whip` and `whep` endpoints are
 ingest and playback points the controller opens for the stream. Inputs and
 outputs exist on the node whether or not a stream uses them.
 

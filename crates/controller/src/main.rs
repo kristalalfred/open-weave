@@ -2553,9 +2553,7 @@ fn placement_failed_conditions(
         StreamConditionReason::TimedDeliveryUnsupported
     } else if matches!(error, PlacementError::LatencyBudget { .. }) {
         StreamConditionReason::LatencyBudgetInfeasible
-    } else if let PlacementError::NoLocal { end, .. } | PlacementError::LocalMissing { end, .. } =
-        error
-    {
+    } else if let PlacementError::LocalMissing { end, .. } = error {
         match end {
             LocalEnd::Input => StreamConditionReason::InputMissing,
             LocalEnd::Output => StreamConditionReason::OutputMissing,
@@ -5239,7 +5237,7 @@ mod tests {
         let mut cam = stream("alice-cam");
         cam.source = StreamTransport::Input(weave_core::LocalEndpoint {
             node: "browser-a1b2".to_string(),
-            id: None,
+            id: "camera".to_string(),
             network: None,
         });
         state
@@ -5336,12 +5334,12 @@ mod tests {
         let mut spec = stream("music-to-speakers");
         spec.source = StreamTransport::Input(weave_core::LocalEndpoint {
             node: "alfreds-mac".to_string(),
-            id: Some("music".to_string()),
+            id: "music".to_string(),
             network: None,
         });
         spec.destinations[0].endpoint = StreamTransport::Output(weave_core::LocalEndpoint {
             node: "alfreds-mac".to_string(),
-            id: None,
+            id: "speakers".to_string(),
             network: None,
         });
         state

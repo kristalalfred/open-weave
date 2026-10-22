@@ -496,12 +496,11 @@ pub struct LocalEndpoint {
     )]
     pub node: String,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         length(min = 1, max = 63),
         regex(pattern = r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     )]
-    pub id: Option<String>,
+    pub id: String,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<String>,
@@ -2812,14 +2811,14 @@ mod tests {
         let json = serde_json::json!({
             "name": "alice-cam",
             "source": { "input": { "node": "browser-a1b2", "id": "camera" } },
-            "destinations": [ { "id": "desk", "output": { "node": "filips-mac" } } ]
+            "destinations": [ { "id": "desk", "output": { "node": "filips-mac", "id": "speakers" } } ]
         });
         let stream: StreamDefinition = serde_json::from_value(json.clone()).expect("parse stream");
         assert_eq!(
             stream.source,
             StreamTransport::Input(LocalEndpoint {
                 node: "browser-a1b2".to_string(),
-                id: Some("camera".to_string()),
+                id: "camera".to_string(),
                 network: None,
             })
         );
@@ -2827,7 +2826,7 @@ mod tests {
             stream.destinations[0].endpoint,
             StreamTransport::Output(LocalEndpoint {
                 node: "filips-mac".to_string(),
-                id: None,
+                id: "speakers".to_string(),
                 network: None,
             })
         );
@@ -2844,9 +2843,13 @@ mod tests {
         assert_eq!(stream, round_trip);
 
         let with_latency: Result<StreamTransport, _> = serde_json::from_value(serde_json::json!({
-            "input": { "node": "browser-a1b2", "latency": 200 }
+            "input": { "node": "browser-a1b2", "id": "camera", "latency": 200 }
         }));
         assert!(with_latency.is_err(), "an input endpoint has no SRT fields");
+        let unnamed: Result<StreamTransport, _> = serde_json::from_value(serde_json::json!({
+            "output": { "node": "filips-mac" }
+        }));
+        assert!(unnamed.is_err(), "an output endpoint names its output");
     }
 
     #[test]
@@ -2882,7 +2885,7 @@ mod tests {
             allow_cleartext_links: false,
             source: StreamTransport::Input(LocalEndpoint {
                 node: "browser-a1b2".to_string(),
-                id: None,
+                id: "camera".to_string(),
                 network: None,
             }),
             destinations: vec![StreamDestination {

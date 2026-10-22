@@ -102,16 +102,13 @@ carries the full current `inputs` and `outputs`, which replace the declared
 ones, so a node can add and remove them while it runs. A heartbeat whose inputs
 or outputs fail these rules gets `400` and changes nothing.
 
-A stream endpoint picks an input or output by `id`. Without an `id`, the node
-must declare exactly one of that kind. The controller plans the endpoint only
-when the node also has a hop profile whose `ingress` is `input` or whose
-`egress` is `output`.
+A stream endpoint names an input or output by `id`. The controller plans the
+endpoint only when the node also has a hop profile whose `ingress` is `input` or
+whose `egress` is `output`.
 
 | Case | Placement |
 |---|---|
 | The named `id` is not declared | `placement_ready` is `false` with reason `input_missing` or `output_missing`. |
-| No `id`, and the node declares none | The same reasons. |
-| No `id`, and the node declares several | `placement_failed`; the detail lists the ids. |
 | No hop profile takes an input or feeds an output | `placement_failed`. |
 
 When an input or output disappears from a heartbeat, the next reconcile tick

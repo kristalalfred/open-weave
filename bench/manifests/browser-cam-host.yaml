@@ -3,6 +3,7 @@ enabled: true
 source:
   input:
     node: browser-placeholder
+    id: camera
 destinations:
   - id: output
     srt:

@@ -568,7 +568,7 @@ mod tests {
         let payload = json!({
             "name": "alice-cam",
             "source": { "input": { "node": "alfreds-mac", "id": "music" } },
-            "destinations": [ { "id": "filip", "output": { "node": "filips-mac" } } ]
+            "destinations": [ { "id": "filip", "output": { "node": "filips-mac", "id": "macbook-pro-speakers" } } ]
         });
         let response = app
             .oneshot(
@@ -597,7 +597,7 @@ mod tests {
         let payload = json!({
             "name": "alice-return",
             "source": { "srt": { "node": "strom-node-2" } },
-            "destinations": [ { "id": "preview", "output": { "node": "  " } } ]
+            "destinations": [ { "id": "preview", "output": { "node": "  ", "id": "speakers" } } ]
         });
         let response = app
             .oneshot(

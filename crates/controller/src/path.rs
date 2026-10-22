@@ -91,19 +91,11 @@ pub enum PlacementError {
     NoSignalling { node: String, transport: Transport },
     #[error("node {node} has no hop profile for an {end}")]
     NoLocalProfile { node: String, end: LocalEnd },
-    #[error("node {node} declares no {end}s")]
-    NoLocal { node: String, end: LocalEnd },
     #[error("node {node} declares no {end} {id}")]
     LocalMissing {
         node: String,
         end: LocalEnd,
         id: String,
-    },
-    #[error("node {node} declares several {end}s ({}); name one with id", .ids.join(", "))]
-    LocalAmbiguous {
-        node: String,
-        end: LocalEnd,
-        ids: Vec<String>,
     },
     #[error("node {node} has no hop profile for {ingress} to {egress} with {egresses} egress(es)")]
     NoHopProfile {
@@ -166,7 +158,7 @@ enum Placement<'a> {
 enum Terminal<'a> {
     Srt,
 
-    Local(LocalEnd, Option<&'a str>),
+    Local(LocalEnd, &'a str),
 
     Signalling(SignallingTransport),
 }
@@ -208,7 +200,7 @@ fn local(endpoint: &LocalEndpoint, end: LocalEnd) -> Endpoint<'_> {
         via: &[],
         latency: None,
         passphrase: None,
-        terminal: Terminal::Local(end, endpoint.id.as_deref()),
+        terminal: Terminal::Local(end, &endpoint.id),
     }
 }
 
@@ -2313,7 +2305,7 @@ fn signalling_listener(
 fn local_socket(
     node_id: &str,
     end: LocalEnd,
-    requested: Option<&str>,
+    id: &str,
     nodes: &[NodeDescriptor],
 ) -> Result<SocketSpec, PlacementError> {
     let node = find_node(nodes, node_id).ok_or_else(|| PlacementError::NodeNotRegistered {
@@ -2325,31 +2317,13 @@ fn local_socket(
             end,
         });
     }
-    let declared = node.local_ids(end);
-    let id = match (requested, declared.as_slice()) {
-        (Some(id), _) if declared.contains(&id) => id,
-        (Some(id), _) => {
-            return Err(PlacementError::LocalMissing {
-                node: node_id.to_string(),
-                end,
-                id: id.to_string(),
-            });
-        }
-        (None, [id]) => id,
-        (None, []) => {
-            return Err(PlacementError::NoLocal {
-                node: node_id.to_string(),
-                end,
-            });
-        }
-        (None, ids) => {
-            return Err(PlacementError::LocalAmbiguous {
-                node: node_id.to_string(),
-                end,
-                ids: ids.iter().map(ToString::to_string).collect(),
-            });
-        }
-    };
+    if !node.local_ids(end).contains(&id) {
+        return Err(PlacementError::LocalMissing {
+            node: node_id.to_string(),
+            end,
+            id: id.to_string(),
+        });
+    }
     Ok(SocketSpec::Local(LocalSocket {
         end,
         id: id.to_string(),
@@ -2796,7 +2770,7 @@ mod contract_tests {
             allow_cleartext_links: false,
             source: StreamTransport::Input(LocalEndpoint {
                 node: "browser".to_string(),
-                id: None,
+                id: "camera".to_string(),
                 network: Some("internet".to_string()),
             }),
             destinations: vec![destination("studio", "studio-node")],
@@ -2857,7 +2831,7 @@ mod contract_tests {
             allow_cleartext_links: false,
             source: StreamTransport::Input(LocalEndpoint {
                 node: "browser".to_string(),
-                id: None,
+                id: "camera".to_string(),
                 network: None,
             }),
             destinations: vec![
@@ -4900,22 +4874,22 @@ mod tests {
         &mut node.topology.attachments[0].listeners
     }
 
-    fn input_ref(node: &str, id: Option<&str>) -> StreamTransport {
+    fn input_ref(node: &str, id: &str) -> StreamTransport {
         StreamTransport::Input(LocalEndpoint {
             node: node.to_string(),
-            id: id.map(str::to_string),
+            id: id.to_string(),
             network: None,
         })
     }
 
-    fn output_dest(id: &str, node: &str, output: Option<&str>) -> StreamDestination {
+    fn output_dest(id: &str, node: &str, output: &str) -> StreamDestination {
         StreamDestination {
             delivery: None,
             id: id.to_string(),
             paths: 1,
             endpoint: StreamTransport::Output(LocalEndpoint {
                 node: node.to_string(),
-                id: output.map(str::to_string),
+                id: output.to_string(),
                 network: None,
             }),
         }
@@ -4927,7 +4901,7 @@ mod tests {
             enabled: true,
             format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
-            source: input_ref("browser-a1b2", None),
+            source: input_ref("browser-a1b2", "camera"),
             destinations: vec![dest("studio", node_ref("strom-node-2", 1000))],
         }
     }
@@ -4939,7 +4913,7 @@ mod tests {
             format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
             source: StreamTransport::Srt(node_ref("strom-node-2", 200)),
-            destinations: vec![output_dest("guest", "browser-a1b2", None)],
+            destinations: vec![output_dest("guest", "browser-a1b2", "player")],
         }
     }
 
@@ -5053,8 +5027,8 @@ mod tests {
             enabled: true,
             format_policy: weave_core::FormatPolicy::Report,
             allow_cleartext_links: false,
-            source: input_ref("browser-a1b2", None),
-            destinations: vec![output_dest("display", "browser-c3d4", None)],
+            source: input_ref("browser-a1b2", "camera"),
+            destinations: vec![output_dest("display", "browser-c3d4", "player")],
         };
         let mut strom = webrtc_node("strom-node-2", "172.27.0.10");
         let without_profile = vec![
@@ -5227,7 +5201,7 @@ mod tests {
     #[test]
     fn two_browsers_without_a_relay_share_no_transport() {
         let mut stream = alice_cam();
-        stream.destinations = vec![output_dest("guest", "browser-c3d4", None)];
+        stream.destinations = vec![output_dest("guest", "browser-c3d4", "player")];
         let nodes = vec![browser_node("browser-a1b2"), browser_node("browser-c3d4")];
 
         assert_eq!(
@@ -5242,7 +5216,7 @@ mod tests {
     #[test]
     fn two_browsers_bridge_only_through_a_relay_with_a_whip_to_whep_profile() {
         let mut stream = alice_cam();
-        stream.destinations = vec![output_dest("guest", "browser-c3d4", None)];
+        stream.destinations = vec![output_dest("guest", "browser-c3d4", "player")];
         let mut relay = webrtc_node("strom-node-1", "172.26.0.10");
         let mut nodes = vec![
             browser_node("browser-a1b2"),
@@ -5332,7 +5306,7 @@ mod tests {
     #[test]
     fn a_relay_that_cannot_carry_both_halves_is_passed_over() {
         let mut stream = alice_cam();
-        stream.destinations = vec![output_dest("guest", "browser-c3d4", None)];
+        stream.destinations = vec![output_dest("guest", "browser-c3d4", "player")];
 
         let nodes = vec![
             browser_node("browser-a1b2"),
@@ -5348,7 +5322,7 @@ mod tests {
     #[test]
     fn a_local_endpoint_needs_a_node_with_a_profile_for_it() {
         let mut stream = alice_cam();
-        stream.source = input_ref("strom-node-2", None);
+        stream.source = input_ref("strom-node-2", "camera");
         assert_eq!(
             derive(&stream, &webrtc_nodes()),
             Err(PlacementError::NoLocalProfile {
@@ -5358,7 +5332,7 @@ mod tests {
         );
 
         let mut stream = alice_return();
-        stream.destinations = vec![output_dest("guest", "strom-node-2", None)];
+        stream.destinations = vec![output_dest("guest", "strom-node-2", "player")];
         assert_eq!(
             derive(&stream, &webrtc_nodes()),
             Err(PlacementError::NoLocalProfile {
@@ -5384,7 +5358,7 @@ mod tests {
     #[test]
     fn a_named_input_is_planned_into_the_sender_ingress() {
         let mut stream = alice_cam();
-        stream.source = input_ref("browser-a1b2", Some("music"));
+        stream.source = input_ref("browser-a1b2", "music");
         let path = derive(&stream, &with_inputs(&["camera", "music"])).expect("derive");
         assert_eq!(path.hops[0].ingress, SocketSpec::input("music"));
         assert!(
@@ -5397,7 +5371,7 @@ mod tests {
     #[test]
     fn an_input_the_node_does_not_declare_cannot_be_placed() {
         let mut stream = alice_cam();
-        stream.source = input_ref("browser-a1b2", Some("music"));
+        stream.source = input_ref("browser-a1b2", "music");
         assert_eq!(
             derive(&stream, &with_inputs(&["camera"])),
             Err(PlacementError::LocalMissing {
@@ -5408,29 +5382,11 @@ mod tests {
         );
         assert_eq!(
             derive(&alice_cam(), &with_inputs(&[])),
-            Err(PlacementError::NoLocal {
+            Err(PlacementError::LocalMissing {
                 node: "browser-a1b2".to_string(),
                 end: LocalEnd::Input,
+                id: "camera".to_string(),
             })
-        );
-    }
-
-    #[test]
-    fn an_unnamed_input_must_be_the_nodes_only_one() {
-        let path = derive(&alice_cam(), &with_inputs(&["music"])).expect("derive");
-        assert_eq!(path.hops[0].ingress, SocketSpec::input("music"));
-        let error = derive(&alice_cam(), &with_inputs(&["camera", "music"])).unwrap_err();
-        assert_eq!(
-            error,
-            PlacementError::LocalAmbiguous {
-                node: "browser-a1b2".to_string(),
-                end: LocalEnd::Input,
-                ids: vec!["camera".to_string(), "music".to_string()],
-            }
-        );
-        assert_eq!(
-            error.to_string(),
-            "node browser-a1b2 declares several inputs (camera, music); name one with id"
         );
     }
 
@@ -5442,14 +5398,14 @@ mod tests {
             label: "Speakers".to_string(),
         });
         let mut stream = alice_return();
-        stream.destinations = vec![output_dest("guest", "browser-a1b2", Some("speakers"))];
+        stream.destinations = vec![output_dest("guest", "browser-a1b2", "speakers")];
         let path = derive(&stream, &nodes).expect("derive");
         assert_eq!(
             path.hops[1].egresses[0].socket,
             SocketSpec::output("speakers")
         );
 
-        stream.destinations = vec![output_dest("guest", "browser-a1b2", Some("headphones"))];
+        stream.destinations = vec![output_dest("guest", "browser-a1b2", "headphones")];
         assert_eq!(
             derive(&stream, &nodes),
             Err(PlacementError::LocalMissing {
@@ -5465,7 +5421,7 @@ mod tests {
         let mut stream = alice_cam();
         stream.source = StreamTransport::Output(LocalEndpoint {
             node: "browser-a1b2".to_string(),
-            id: None,
+            id: "player".to_string(),
             network: None,
         });
         assert_eq!(

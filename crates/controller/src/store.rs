@@ -68,13 +68,15 @@ const SCHEMA_VERSION: i32 = 3;
 
 const LOCAL_ENDPOINT_MIGRATION: [&str; 2] = [
     "UPDATE streams
-        SET definition = jsonb_set(definition, '{source}', jsonb_build_object('input', definition->'source'->'device'))
+        SET definition = jsonb_set(definition, '{source}', jsonb_build_object('input',
+              jsonb_build_object('id', 'camera') || (definition->'source'->'device')))
       WHERE definition->'source' ? 'device'",
     "UPDATE streams
         SET definition = jsonb_set(definition, '{destinations}', (
               SELECT jsonb_agg(
                        CASE WHEN destination ? 'device'
-                            THEN (destination - 'device') || jsonb_build_object('output', destination->'device')
+                            THEN (destination - 'device') || jsonb_build_object('output',
+                                   jsonb_build_object('id', 'player') || (destination->'device'))
                             ELSE destination END
                        ORDER BY position)
                 FROM jsonb_array_elements(definition->'destinations') WITH ORDINALITY AS t(destination, position)))
@@ -1972,7 +1974,7 @@ pub(crate) mod tests {
             cam.spec.source,
             StreamTransport::Input(weave_core::LocalEndpoint {
                 node: "browser-a1b2".into(),
-                id: None,
+                id: "camera".into(),
                 network: None,
             })
         );
@@ -1985,7 +1987,7 @@ pub(crate) mod tests {
             cam.spec.destinations[1].endpoint,
             StreamTransport::Output(weave_core::LocalEndpoint {
                 node: "browser-c3d4".into(),
-                id: None,
+                id: "player".into(),
                 network: Some("internet".into()),
             })
         );

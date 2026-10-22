@@ -576,6 +576,7 @@ function manifests() {
 source:
   input:
     node: ${nodeId}
+    id: camera
 destinations:
   - id: studio
     srt:
@@ -588,7 +589,8 @@ source:
 destinations:
   - id: player
     output:
-      node: ${nodeId}`;
+      node: ${nodeId}
+      id: player`;
 }
 
 function derivedStreamName(suffix) {

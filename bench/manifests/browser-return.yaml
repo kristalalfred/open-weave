@@ -8,3 +8,4 @@ destinations:
   - id: display
     output:
       node: browser-placeholder
+      id: player

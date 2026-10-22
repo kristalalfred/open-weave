@@ -3,7 +3,9 @@ enabled: true
 source:
   input:
     node: browser-placeholder
+    id: camera
 destinations:
   - id: display
     output:
       node: viewer-placeholder
+      id: player

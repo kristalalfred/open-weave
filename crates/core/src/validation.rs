@@ -393,9 +393,7 @@ fn validate_local_endpoint(
     issues: &mut Vec<ValidationIssue>,
 ) {
     validate_id(&endpoint.node, &format!("{path}.node"), "node id", issues);
-    if let Some(id) = &endpoint.id {
-        validate_id(id, &format!("{path}.id"), "id", issues);
-    }
+    validate_id(&endpoint.id, &format!("{path}.id"), "id", issues);
     if let Some(network) = &endpoint.network {
         validate_id(network, &format!("{path}.network"), "network id", issues);
     }
@@ -662,10 +660,10 @@ mod tests {
         }
     }
 
-    fn local(node: &str, id: Option<&str>) -> LocalEndpoint {
+    fn local(node: &str, id: &str) -> LocalEndpoint {
         LocalEndpoint {
             node: node.to_string(),
-            id: id.map(str::to_string),
+            id: id.to_string(),
             network: None,
         }
     }
@@ -686,8 +684,8 @@ mod tests {
         assert!(validate_stream(&stream()).is_empty());
         assert!(
             validate_stream(&local_stream(
-                StreamTransport::Input(local("alfreds-mac", Some("music"))),
-                StreamTransport::Output(local("filips-mac", None)),
+                StreamTransport::Input(local("alfreds-mac", "music")),
+                StreamTransport::Output(local("filips-mac", "speakers")),
             ))
             .is_empty()
         );
@@ -696,8 +694,8 @@ mod tests {
     #[test]
     fn an_input_is_only_a_source_and_an_output_only_a_destination() {
         let issues = validate_stream(&local_stream(
-            StreamTransport::Output(local("alfreds-mac", Some("speakers"))),
-            StreamTransport::Input(local("filips-mac", Some("Music"))),
+            StreamTransport::Output(local("alfreds-mac", "speakers")),
+            StreamTransport::Input(local("filips-mac", "Music")),
         ));
         assert_eq!(
             issues
@@ -845,7 +843,7 @@ mod tests {
         });
         invalid.destinations.push(destination(
             "screen",
-            StreamTransport::Output(local(" ", None)),
+            StreamTransport::Output(local(" ", "screen")),
         ));
 
         assert_eq!(
@@ -978,7 +976,7 @@ mod tests {
         endpoint.via = vec!["relay.one".to_string()];
         invalid.destinations.push(destination(
             "display/one",
-            StreamTransport::Output(local("display/one", None)),
+            StreamTransport::Output(local("display/one", "screen")),
         ));
 
         let issues = validate_stream(&invalid);
