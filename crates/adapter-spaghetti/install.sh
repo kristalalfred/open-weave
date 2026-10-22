@@ -31,7 +31,8 @@ place() {
 
 uninstall() {
     launchctl bootout "$domain/$label" 2>/dev/null || true
-    rm -f "$plist" "$config" "$bin/weave-adapter-spaghetti"
+    rm -f "$plist" "$bin/weave-adapter-spaghetti"
+    rm -rf "$support" "$logs"
     if [ "$(spaghetti_daemon)" = "$bin/spaghettid" ]; then
         "$bin/spaghetti" daemon uninstall >/dev/null
         rm -f "$bin/spaghetti" "$bin/spaghettid"
