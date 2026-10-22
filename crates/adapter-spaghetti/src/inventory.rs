@@ -19,7 +19,7 @@ impl Inventory {
             "/System/Applications/".to_string(),
             format!("{}/Applications/", home.trim_end_matches('/')),
         ];
-        let mut apps: Vec<&AppInfo> = apps
+        let apps: Vec<&AppInfo> = apps
             .iter()
             .filter(|app| !app.pids.is_empty())
             .filter(|app| {
@@ -28,34 +28,38 @@ impl Inventory {
                     .is_some_and(|path| roots.iter().any(|root| path.starts_with(root.as_str())))
             })
             .collect();
-        apps.sort_by(|a, b| (&a.name, &a.bundle_id).cmp(&(&b.name, &b.bundle_id)));
+        let devices: Vec<&SystemDevice> = devices.iter().filter(|d| d.is_output).collect();
 
         let mut inventory = Self::default();
-        let mut taken = BTreeSet::new();
-        for app in apps {
+        let named = assign(apps.iter().map(|app| {
+            let key = app
+                .bundle_id
+                .as_deref()
+                .or(app.bundle_path.as_deref())
+                .unwrap_or(&app.name);
             let base = slug(&app.name)
                 .or_else(|| app.bundle_id.as_deref().and_then(slug))
                 .unwrap_or_else(|| "app".to_string());
-            let id = unique(&base, &mut taken);
+            (base, key, &app.name, *app)
+        }));
+        for (id, label, app) in named {
             inventory.inputs.push(NodeInput {
                 id: id.clone(),
-                label: app.name.clone(),
+                label,
                 tracks: vec![Track::Audio],
             });
             inventory.pids.insert(id, app.pids.clone());
         }
-
-        let mut devices: Vec<&SystemDevice> = devices.iter().filter(|d| d.is_output).collect();
-        devices.sort_by(|a, b| (&a.name, &a.uid).cmp(&(&b.name, &b.uid)));
-        let mut taken = BTreeSet::new();
-        for device in devices {
+        let named = assign(devices.iter().map(|device| {
             let base = slug(&device.name)
                 .or_else(|| slug(&device.uid))
                 .unwrap_or_else(|| "output".to_string());
-            let id = unique(&base, &mut taken);
+            (base, device.uid.as_str(), &device.name, *device)
+        }));
+        for (id, label, device) in named {
             inventory.outputs.push(NodeOutput {
                 id: id.clone(),
-                label: device.name.clone(),
+                label,
             });
             inventory.devices.insert(id, device.uid.clone());
         }
@@ -73,6 +77,41 @@ impl Inventory {
     }
 }
 
+fn assign<'a, T>(
+    entries: impl Iterator<Item = (String, &'a str, &'a String, T)>,
+) -> Vec<(String, String, T)> {
+    let mut entries: Vec<_> = entries.collect();
+    entries.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+    let mut sharing: BTreeMap<String, usize> = BTreeMap::new();
+    for (base, ..) in &entries {
+        *sharing.entry(base.clone()).or_default() += 1;
+    }
+    let mut taken = BTreeSet::new();
+    entries
+        .into_iter()
+        .map(|(base, key, label, item)| {
+            let wanted = if sharing[&base] == 1 {
+                base
+            } else {
+                format!("{base}-{}", short_hash(key))
+            };
+            let id = unique(&wanted, &mut taken);
+            let label = match label.trim() {
+                "" => id.clone(),
+                label => label.to_string(),
+            };
+            (id, label, item)
+        })
+        .collect()
+}
+
+fn short_hash(key: &str) -> String {
+    let hash = key.bytes().fold(0x811c_9dc5u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    });
+    format!("{:04x}", (hash >> 16) ^ (hash & 0xffff))
+}
+
 fn slug(text: &str) -> Option<String> {
     let mut slug = String::new();
     for c in text.chars().flat_map(char::to_lowercase) {
@@ -82,7 +121,7 @@ fn slug(text: &str) -> Option<String> {
             slug.push('-');
         }
     }
-    slug.truncate(RESOURCE_ID_MAX_LEN - 4);
+    slug.truncate(RESOURCE_ID_MAX_LEN - 8);
     let slug = slug.trim_end_matches('-').to_string();
     (!slug.is_empty()).then_some(slug)
 }
@@ -182,24 +221,50 @@ mod tests {
     }
 
     #[test]
-    fn ids_follow_the_identifier_rule_and_stay_unique() {
+    fn ids_follow_the_identifier_rule_and_never_move_to_another_device() {
         let long = "A".repeat(80);
-        let inventory = Inventory::detect(
-            &[],
-            &[
-                device("uid-b", "Studio Display", true),
-                device("uid-a", "Studio Display", true),
-                device("uid-c", "✦✦✦", true),
-                device("uid-d", &long, true),
-            ],
-            "/Users/alfred",
-        );
+        let all = [
+            device("uid-b", "Studio Display", true),
+            device("uid-a", "Studio Display", true),
+            device("uid-c", "✦✦✦", true),
+            device("uid-d", &long, true),
+            device("uid-e", " ", true),
+        ];
+        let inventory = Inventory::detect(&[], &all, "/Users/alfred");
         for output in &inventory.outputs {
             weave_core::validate_resource_id(&output.id).unwrap();
+            assert!(!output.label.trim().is_empty(), "{output:?}");
         }
-        let ids: Vec<&str> = inventory.outputs.iter().map(|o| o.id.as_str()).collect();
-        assert_eq!(ids[1..3], ["studio-display", "studio-display-2"]);
-        assert_eq!(inventory.device("studio-display"), Some("uid-a"));
+        let ids: BTreeSet<&str> = inventory.outputs.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids.len(), all.len());
         assert_eq!(inventory.device("uid-c"), Some("uid-c"));
+
+        let id_of = |inventory: &Inventory, uid: &str| {
+            inventory
+                .outputs
+                .iter()
+                .map(|o| o.id.clone())
+                .find(|id| inventory.device(id) == Some(uid))
+                .unwrap()
+        };
+        let a = id_of(&inventory, "uid-a");
+        let b = id_of(&inventory, "uid-b");
+        assert!(a.starts_with("studio-display-") && b.starts_with("studio-display-"));
+        assert_ne!(a, b);
+
+        let without_b: Vec<SystemDevice> =
+            all.iter().filter(|d| d.uid != "uid-b").cloned().collect();
+        let after = Inventory::detect(&[], &without_b, "/Users/alfred");
+        assert_eq!(
+            after.device(&b),
+            None,
+            "the unplugged display's id names nothing"
+        );
+        assert_eq!(
+            after.device(&a),
+            None,
+            "and the other display does not take it"
+        );
+        assert_eq!(id_of(&after, "uid-a"), "studio-display");
     }
 }

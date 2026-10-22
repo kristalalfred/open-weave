@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use weave_core::{
     DesiredHop, EgressStatus, HopState, HopStatus, LinkCondition, LinkStats, LocalEnd, LocalSocket,
@@ -19,6 +19,9 @@ pub const MAX_SENDER_EGRESSES: usize = 8;
 const TAG_PREFIX: &str = "weave:";
 const DEFAULT_LATENCY_MS: u32 = 200;
 const RATE_WINDOW_SECS: f64 = 0.2;
+const SRT_PASSPHRASE_CHARS: std::ops::RangeInclusive<usize> = 10..=79;
+const FIRST_RETRY: Duration = Duration::from_secs(1);
+const LAST_RETRY: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
@@ -108,6 +111,11 @@ fn srt(socket: &SocketSpec) -> Result<SrtSocket, String> {
     if params.payload != PayloadKind::Raw {
         return Err("this node carries only raw SRT payloads".into());
     }
+    if let Some(passphrase) = &params.passphrase
+        && !SRT_PASSPHRASE_CHARS.contains(&passphrase.expose().len())
+    {
+        return Err("this node takes SRT passphrases of 10 to 79 characters".into());
+    }
     let mode = match socket {
         WeaveSrt::Listen { port, .. } => SrtMode::Listen { port: *port },
         WeaveSrt::Connect { host, port, .. } => SrtMode::Call {
@@ -188,8 +196,49 @@ pub fn applied<'a>(
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    Destroy { source_id: u32 },
-    Build { hop_id: String, plan: Plan },
+    Destroy {
+        source_id: u32,
+    },
+    RemoveRoute {
+        hop_id: String,
+        route_id: u32,
+    },
+    Retap {
+        hop_id: String,
+        source_id: u32,
+        pids: Vec<u32>,
+    },
+    AddRoute {
+        hop_id: String,
+        source_id: u32,
+        destination: Destination,
+    },
+    Build {
+        hop_id: String,
+        plan: Plan,
+    },
+}
+
+impl Action {
+    #[must_use]
+    pub fn hop_id(&self) -> Option<&str> {
+        match self {
+            Self::Destroy { .. } => None,
+            Self::RemoveRoute { hop_id, .. }
+            | Self::Retap { hop_id, .. }
+            | Self::AddRoute { hop_id, .. }
+            | Self::Build { hop_id, .. } => Some(hop_id),
+        }
+    }
+}
+
+fn reusable(built: &SourceSpec, wanted: &SourceSpec) -> bool {
+    match (built, wanted) {
+        (SourceSpec::Tap { mode: built, .. }, SourceSpec::Tap { mode: wanted, .. }) => {
+            built == wanted
+        }
+        (built, wanted) => built == wanted,
+    }
 }
 
 #[must_use]
@@ -204,20 +253,52 @@ pub fn actions(
         .into_iter()
         .map(|source_id| Action::Destroy { source_id })
         .collect();
+    let mut updates = Vec::new();
     for (hop_id, built) in &applied {
-        let keep = matches!(plans.get(*hop_id), Some(Ok(plan)) if built.matches(plan));
-        if !keep {
-            actions.push(Action::Destroy {
-                source_id: built.source.source_id,
+        let source_id = built.source.source_id;
+        let Some(Ok(plan)) = plans.get(*hop_id) else {
+            actions.push(Action::Destroy { source_id });
+            continue;
+        };
+        if !reusable(&built.source.spec, &plan.source) {
+            actions.push(Action::Destroy { source_id });
+            continue;
+        }
+        if let (SourceSpec::Tap { pids: tapped, .. }, SourceSpec::Tap { pids, .. }) =
+            (&built.source.spec, &plan.source)
+            && tapped != pids
+        {
+            updates.push(Action::Retap {
+                hop_id: (*hop_id).to_string(),
+                source_id,
+                pids: pids.clone(),
             });
         }
+        for route in &built.routes {
+            if !plan.routes.iter().any(|(_, d)| d == &route.destination) {
+                actions.push(Action::RemoveRoute {
+                    hop_id: (*hop_id).to_string(),
+                    route_id: route.route_id,
+                });
+            }
+        }
+        for (_, destination) in &plan.routes {
+            if built.route(destination).is_none() {
+                updates.push(Action::AddRoute {
+                    hop_id: (*hop_id).to_string(),
+                    source_id,
+                    destination: destination.clone(),
+                });
+            }
+        }
     }
+    actions.extend(updates);
     for (hop_id, plan) in plans {
         let Ok(plan) = plan else { continue };
-        let built = applied
+        let kept = applied
             .get(hop_id.as_str())
-            .is_some_and(|built| built.matches(plan));
-        if !built {
+            .is_some_and(|built| reusable(&built.source.spec, &plan.source));
+        if !kept {
             actions.push(Action::Build {
                 hop_id: hop_id.clone(),
                 plan: plan.clone(),
@@ -225,6 +306,55 @@ pub fn actions(
         }
     }
     actions
+}
+
+#[derive(Debug)]
+struct Retry {
+    plan: Plan,
+    at: Instant,
+    delay: Duration,
+}
+
+#[derive(Debug, Default)]
+pub struct Retries(BTreeMap<String, Retry>);
+
+impl Retries {
+    #[must_use]
+    pub fn due(&self, hop_id: &str, plan: &Plan, now: Instant) -> bool {
+        self.0
+            .get(hop_id)
+            .is_none_or(|retry| &retry.plan != plan || now >= retry.at)
+    }
+
+    #[must_use]
+    pub fn failing(&self, hop_id: &str, plan: &Plan) -> bool {
+        self.0.get(hop_id).is_some_and(|retry| &retry.plan == plan)
+    }
+
+    pub fn failed(&mut self, hop_id: &str, plan: &Plan, now: Instant) {
+        let delay = match self.0.get(hop_id) {
+            Some(retry) if &retry.plan == plan => (retry.delay * 2).min(LAST_RETRY),
+            _ => FIRST_RETRY,
+        };
+        self.0.insert(
+            hop_id.to_string(),
+            Retry {
+                plan: plan.clone(),
+                at: now + delay,
+                delay,
+            },
+        );
+    }
+
+    pub fn succeeded(&mut self, hop_id: &str) {
+        self.0.remove(hop_id);
+    }
+
+    pub fn retain(&mut self, plans: &BTreeMap<String, Result<Plan, String>>) {
+        self.0.retain(
+            |hop_id, retry| matches!(plans.get(hop_id), Some(Ok(plan)) if plan == &retry.plan),
+        );
+    }
 }
 
 #[derive(Debug, Default)]
@@ -578,21 +708,20 @@ mod tests {
         assert!(plan(&timed, &inventory()).is_err());
     }
 
+    fn sorted(mut actions: Vec<Action>) -> Vec<Action> {
+        actions.sort_by_key(|action| format!("{action:?}"));
+        actions
+    }
+
     #[test]
-    fn actions_build_what_is_missing_and_destroy_what_is_stale_or_unwanted() {
+    fn actions_build_what_is_missing_and_destroy_only_what_is_unwanted() {
         let hop = sender();
         let wanted = plan(&hop, &inventory()).unwrap();
         let (current, current_routes) = built(&hop, &wanted, 1, 0);
-        let second = DesiredHop {
+        let missing = DesiredHop {
             id: "weave-music-2-sender".into(),
             ..sender()
         };
-        let mut stale_plan = wanted.clone();
-        stale_plan.source = SourceSpec::Tap {
-            pids: vec![999],
-            mode: TapMode::Mirror,
-        };
-        let (stale, stale_routes) = built(&second, &stale_plan, 2, 0);
         let (unwanted, _) = built(
             &DesiredHop {
                 id: "weave-old-sender".into(),
@@ -607,26 +736,130 @@ mod tests {
             ..built(&hop, &wanted, 4, 0).0
         };
         let (other_node, _) = built(&receiver(), &wanted, 5, 0);
-        let sources = [current, stale, unwanted, untagged, other_node];
-        let routes: Vec<RouteInfo> = current_routes.into_iter().chain(stale_routes).collect();
-
+        let sources = [current, unwanted, untagged, other_node];
         let plans = BTreeMap::from([
             (hop.id.clone(), Ok(wanted.clone())),
-            (second.id.clone(), Ok(wanted.clone())),
+            (missing.id.clone(), Ok(wanted.clone())),
         ]);
-        let mut actions = actions(&hop.node_id, &plans, &sources, &routes);
-        actions.sort_by_key(|action| format!("{action:?}"));
         assert_eq!(
-            actions,
+            sorted(actions(&hop.node_id, &plans, &sources, &current_routes)),
             [
                 Action::Build {
-                    hop_id: second.id.clone(),
+                    hop_id: missing.id.clone(),
                     plan: wanted
                 },
-                Action::Destroy { source_id: 2 },
                 Action::Destroy { source_id: 3 },
             ]
         );
+    }
+
+    #[test]
+    fn a_running_hop_is_retapped_and_rerouted_in_place() {
+        let hop = sender();
+        let mut was = plan(&hop, &inventory()).unwrap();
+        was.source = SourceSpec::Tap {
+            pids: vec![731, 732],
+            mode: TapMode::Mirror,
+        };
+        let gone = Destination::Srt(SrtSocket {
+            mode: SrtMode::Call {
+                host: "192.168.1.99".into(),
+                port: 23001,
+            },
+            latency_ms: 120,
+            passphrase: None,
+            key_size: None,
+        });
+        was.routes.push(("old".into(), gone));
+        let (source, routes) = built(&hop, &was, 1, 0);
+
+        let mut wanted = plan(&hop, &inventory()).unwrap();
+        let added = Destination::Device {
+            uid: "elsewhere".into(),
+        };
+        wanted.routes.push(("new".into(), added.clone()));
+        let plans = BTreeMap::from([(hop.id.clone(), Ok(wanted))]);
+        assert_eq!(
+            sorted(actions(&hop.node_id, &plans, &[source], &routes)),
+            [
+                Action::AddRoute {
+                    hop_id: hop.id.clone(),
+                    source_id: 1,
+                    destination: added
+                },
+                Action::RemoveRoute {
+                    hop_id: hop.id.clone(),
+                    route_id: 11
+                },
+                Action::Retap {
+                    hop_id: hop.id.clone(),
+                    source_id: 1,
+                    pids: vec![731]
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_receiver_whose_socket_changed_is_rebuilt() {
+        let hop = receiver();
+        let mut was = plan(&hop, &inventory()).unwrap();
+        was.source = SourceSpec::Srt(SrtSocket {
+            mode: SrtMode::Listen { port: 23001 },
+            latency_ms: 120,
+            passphrase: None,
+            key_size: None,
+        });
+        let (source, routes) = built(&hop, &was, 7, 0);
+        let wanted = plan(&hop, &inventory()).unwrap();
+        let plans = BTreeMap::from([(hop.id.clone(), Ok(wanted.clone()))]);
+        assert_eq!(
+            sorted(actions(&hop.node_id, &plans, &[source], &routes)),
+            [
+                Action::Build {
+                    hop_id: hop.id.clone(),
+                    plan: wanted
+                },
+                Action::Destroy { source_id: 7 },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_failing_hop_backs_off_until_its_plan_changes() {
+        let hop = sender();
+        let plan = plan(&hop, &inventory()).unwrap();
+        let mut retries = Retries::default();
+        let start = Instant::now();
+        assert!(retries.due(&hop.id, &plan, start));
+        retries.failed(&hop.id, &plan, start);
+        assert!(retries.failing(&hop.id, &plan));
+        assert!(!retries.due(&hop.id, &plan, start + Duration::from_millis(500)));
+        assert!(retries.due(&hop.id, &plan, start + FIRST_RETRY));
+        retries.failed(&hop.id, &plan, start + FIRST_RETRY);
+        assert!(!retries.due(&hop.id, &plan, start + FIRST_RETRY * 2));
+        assert!(retries.due(&hop.id, &plan, start + FIRST_RETRY * 3));
+
+        let mut changed = plan.clone();
+        changed.routes.clear();
+        assert!(retries.due(&hop.id, &changed, start));
+        assert!(!retries.failing(&hop.id, &changed));
+        retries.succeeded(&hop.id);
+        assert!(!retries.failing(&hop.id, &plan));
+    }
+
+    #[test]
+    fn a_passphrase_srt_cannot_use_fails_the_hop() {
+        let mut hop = sender();
+        hop.egresses[0].socket = SocketSpec::Srt(WeaveSrt::Connect {
+            host: "192.168.1.30".into(),
+            port: 23000,
+            params: SrtParams {
+                passphrase: Some(Passphrase::new("x".repeat(80))),
+                ..SrtParams::default()
+            },
+        });
+        assert!(plan(&hop, &inventory()).is_err());
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -8,6 +9,7 @@ pub const IPC_VERSION: u32 = 2;
 pub const DEFAULT_SOCKET: &str = "/tmp/spaghetti.sock";
 
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TapMode {
@@ -112,11 +114,18 @@ enum Request<'a> {
     DestroySource {
         source_id: u32,
     },
+    SetTapProcesses {
+        source_id: u32,
+        pids: &'a [u32],
+    },
     ListSources,
     CreateRoute {
         source_id: u32,
         destination: &'a Destination,
         volume: f32,
+    },
+    DestroyRoute {
+        route_id: u32,
     },
     ListRoutes,
     ListSystemDevices,
@@ -150,6 +159,8 @@ pub enum SpaghettiError {
     Refused(String),
     #[error("spaghetti daemon answered {request} with something else")]
     Unexpected { request: &'static str },
+    #[error("spaghetti daemon did not answer within {CALL_TIMEOUT:?}")]
+    Timeout,
     #[error("spaghetti daemon speaks IPC version {found}; this adapter speaks {IPC_VERSION}")]
     Version { found: u32 },
 }
@@ -246,6 +257,27 @@ impl SpaghettiClient {
         }
     }
 
+    pub async fn set_tap_processes(&self, source_id: u32, pids: &[u32]) -> Result<()> {
+        match self
+            .call(&Request::SetTapProcesses { source_id, pids })
+            .await?
+        {
+            Response::Ok => Ok(()),
+            _ => Err(SpaghettiError::Unexpected {
+                request: "SetTapProcesses",
+            }),
+        }
+    }
+
+    pub async fn destroy_route(&self, route_id: u32) -> Result<()> {
+        match self.call(&Request::DestroyRoute { route_id }).await? {
+            Response::Ok => Ok(()),
+            _ => Err(SpaghettiError::Unexpected {
+                request: "DestroyRoute",
+            }),
+        }
+    }
+
     pub async fn create_route(
         &self,
         source_id: u32,
@@ -268,6 +300,12 @@ impl SpaghettiClient {
     }
 
     async fn call(&self, request: &Request<'_>) -> Result<Response> {
+        tokio::time::timeout(CALL_TIMEOUT, self.exchange(request))
+            .await
+            .map_err(|_| SpaghettiError::Timeout)?
+    }
+
+    async fn exchange(&self, request: &Request<'_>) -> Result<Response> {
         let mut stream = UnixStream::connect(&self.socket).await.map_err(|source| {
             SpaghettiError::Unreachable {
                 path: self.socket.display().to_string(),

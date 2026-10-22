@@ -14,7 +14,7 @@ categories = ["api-bindings", "multimedia::audio"]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["io-util"] }
+tokio = { workspace = true, features = ["io-util", "time"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
