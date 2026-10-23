@@ -1933,7 +1933,7 @@ pub(crate) mod tests {
         version
     }
 
-    async fn run_sql(url: &str, statement: &str) {
+    pub(crate) async fn run_sql(url: &str, statement: &str) {
         let pool = sqlx::PgPool::connect(url).await.expect("connect");
         sqlx::query(statement).execute(&pool).await.expect("sql");
         pool.close().await;

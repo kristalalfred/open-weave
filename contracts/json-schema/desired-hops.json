@@ -32,6 +32,7 @@
               "whip",
               "whep",
               "rist",
+              "webrtc",
               "input",
               "output"
             ]
@@ -126,6 +127,55 @@
               }
             },
             "additionalProperties": false
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "stun": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "turn": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": "string"
+                },
+                "credential": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "address",
+                "username",
+                "credential"
+              ]
+            }
           }
         },
         "additionalProperties": false,
@@ -146,6 +196,7 @@
               "whip",
               "whep",
               "rist",
+              "webrtc",
               "input",
               "output"
             ]
@@ -240,6 +291,55 @@
               }
             },
             "additionalProperties": false
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "stun": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "turn": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": "string"
+                },
+                "credential": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "address",
+                "username",
+                "credential"
+              ]
+            }
           }
         },
         "additionalProperties": false,
@@ -262,6 +362,7 @@
                 "whip",
                 "whep",
                 "rist",
+                "webrtc",
                 "input",
                 "output"
               ]
@@ -356,6 +457,55 @@
                 }
               },
               "additionalProperties": false
+            },
+            "link": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "generation": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "stun": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "turn": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "type": "string"
+                  },
+                  "username": {
+                    "type": "string"
+                  },
+                  "credential": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "address",
+                  "username",
+                  "credential"
+                ]
+              }
             }
           },
           "additionalProperties": false,

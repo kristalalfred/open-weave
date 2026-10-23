@@ -8,6 +8,7 @@ use weave_core::{
 
 use crate::keys::LinkKeys;
 use crate::path::{HopReports, PlannedStream, PortAllocator, derive_stream};
+use crate::peers::PeerPlanning;
 
 fn profile(id: &str, merge: bool) -> HopProfile {
     let srt = || {
@@ -121,7 +122,7 @@ fn plan(
     derive_stream(
         definition,
         nodes,
-        observed,
+        &PeerPlanning::default(),
         &mut PortAllocator::holding(HopReports::from_reports(observed, nodes)),
         &LinkKeys::for_tests(),
     )
@@ -130,6 +131,7 @@ fn plan(
 
 fn running(planned: &PlannedStream, nodes: &[NodeDescriptor]) -> Vec<HopStatus> {
     let status = |socket: &SocketSpec, own_host: &str| SocketStatus {
+        peer: None,
         condition: LinkCondition::Flowing,
         resolved: match socket {
             SocketSpec::Srt(SrtSocket::Listen { port, .. }) => Some(ResolvedAddr {

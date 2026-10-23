@@ -4,6 +4,7 @@ pub mod contracts;
 pub mod delivery;
 pub mod logging;
 pub mod media;
+pub mod peer;
 pub mod read;
 pub mod shutdown;
 #[cfg(feature = "server")]
@@ -36,6 +37,11 @@ pub use media::{
     AudioCodec, AudioConstraint, AudioFormat, ChromaSubsampling, Container, FormatConstraint,
     Framerate, MediaFormat, Mismatch, VideoCodec, VideoConstraint, VideoFormat,
 };
+pub use peer::{
+    LinkDescription, PeerAttempt, PeerLinkId, PeerReport, PeerRole, PeerSocket,
+    ROUTE_NODE_SIGNALLING, SessionDescription, SignallingExchange, SignallingReply, TurnCredential,
+    TurnServer, WEBRTC_TRANSPORT, WebrtcClass, WebrtcTransport,
+};
 pub use validation::{
     RESOURCE_ID_MAX_LEN, ResourceIdError, ValidationIssue, resource_id_issue, validate_local_io,
     validate_node, validate_observation, validate_resource_id, validate_stream,
@@ -55,7 +61,7 @@ pub const ROUTE_STREAM_SET: &str = "/stream-sets/{owner}";
 pub const ROUTE_STREAM_SETS: &str = "/stream-sets";
 pub const ROUTE_STREAMS: &str = "/streams";
 
-pub const PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = 11;
 
 #[must_use]
 pub fn protocol_compatible(version: u32) -> bool {
@@ -661,6 +667,22 @@ impl DesiredHop {
             .chain(merge_ingress)
             .chain(egresses.iter_mut().map(|egress| &mut egress.socket))
     }
+
+    pub fn peer_ends(&self) -> impl Iterator<Item = (PeerRole, &PeerSocket)> {
+        let answers = std::iter::once(&self.ingress)
+            .chain(&self.merge_ingress)
+            .map(|socket| (PeerRole::Answer, socket));
+        let offers = self
+            .egresses
+            .iter()
+            .map(|egress| (PeerRole::Offer, &egress.socket));
+        answers
+            .chain(offers)
+            .filter_map(|(role, socket)| match socket {
+                SocketSpec::Webrtc(peer) => Some((role, peer)),
+                _ => None,
+            })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -696,6 +718,8 @@ pub enum SocketSpec {
     Whep(SignallingSocket),
 
     Rist(RistSocket),
+
+    Webrtc(PeerSocket),
 
     Local(LocalSocket),
 }
@@ -774,6 +798,7 @@ impl SocketSpec {
             Self::Srt(socket) => socket.role().name(),
             Self::Whip(socket) | Self::Whep(socket) => socket.role.name(),
             Self::Rist(socket) => socket.role().name(),
+            Self::Webrtc(_) => "link",
             Self::Local(socket) => socket.end.name(),
         }
     }
@@ -786,6 +811,7 @@ impl std::fmt::Display for SocketSpec {
             Self::Whip(_) => f.write_str(Transport::Whip.name()),
             Self::Whep(_) => f.write_str(Transport::Whep.name()),
             Self::Rist(_) => f.write_str(Transport::Rist.name()),
+            Self::Webrtc(_) => f.write_str(WEBRTC_TRANSPORT),
             Self::Local(socket) => write!(f, "{} {}", socket.end, socket.id),
         }
     }
@@ -902,6 +928,14 @@ struct SocketRepr {
     endpoint_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     params: Option<SrtParams>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    link: Option<PeerLinkId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    generation: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stun: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    turn: Option<Vec<TurnServer>>,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, JsonSchema)]
@@ -911,6 +945,7 @@ enum SocketTransport {
     Whip,
     Whep,
     Rist,
+    Webrtc,
     Input,
     Output,
 }
@@ -940,6 +975,10 @@ impl From<&SocketSpec> for SocketRepr {
             url: None,
             endpoint_id: None,
             params: None,
+            link: None,
+            generation: None,
+            stun: None,
+            turn: None,
         };
         match spec {
             SocketSpec::Srt(SrtSocket::Listen { port, params }) => Self {
@@ -972,6 +1011,13 @@ impl From<&SocketSpec> for SocketRepr {
                 port: Some(*port),
                 ..bare(SocketTransport::Rist, Some(SocketRole::Connect))
             },
+            SocketSpec::Webrtc(socket) => Self {
+                link: Some(socket.attempt.link.clone()),
+                generation: Some(socket.attempt.generation),
+                stun: Some(socket.stun.clone()),
+                turn: Some(socket.turn.clone()),
+                ..bare(SocketTransport::Webrtc, None)
+            },
             SocketSpec::Local(socket) => Self {
                 id: Some(socket.id.clone()),
                 ..bare(
@@ -999,7 +1045,17 @@ impl TryFrom<SocketRepr> for SocketSpec {
             url,
             endpoint_id,
             params,
+            link,
+            generation,
+            stun,
+            turn,
         } = repr;
+        let webrtc_fields = [
+            ("link", link.is_some()),
+            ("generation", generation.is_some()),
+            ("stun", stun.is_some()),
+            ("turn", turn.is_some()),
+        ];
 
         match transport {
             SocketTransport::Srt => {
@@ -1011,6 +1067,7 @@ impl TryFrom<SocketRepr> for SocketSpec {
                         ("endpoint_id", endpoint_id.is_some()),
                     ],
                 )?;
+                reject_extra_fields("srt", webrtc_fields)?;
                 let port = port.ok_or_else(|| "an srt socket needs a port".to_string())?;
                 let params = params.unwrap_or_default();
                 match link_role("srt", role)? {
@@ -1042,6 +1099,7 @@ impl TryFrom<SocketRepr> for SocketSpec {
                         ("params", params.is_some()),
                     ],
                 )?;
+                reject_extra_fields(name, webrtc_fields)?;
                 let socket = SignallingSocket {
                     role: link_role(name, role)?,
                     url: url.ok_or_else(|| format!("a {name} socket needs a url"))?,
@@ -1064,6 +1122,7 @@ impl TryFrom<SocketRepr> for SocketSpec {
                         ("params", params.is_some()),
                     ],
                 )?;
+                reject_extra_fields("rist", webrtc_fields)?;
                 let port = port.ok_or_else(|| "a rist socket needs a port".to_string())?;
                 match link_role("rist", role)? {
                     SocketRole::Listen => {
@@ -1094,8 +1153,32 @@ impl TryFrom<SocketRepr> for SocketSpec {
                         ("params", params.is_some()),
                     ],
                 )?;
+                reject_extra_fields(end.name(), webrtc_fields)?;
                 let id = id.ok_or_else(|| format!("an {} socket needs an id", end.name()))?;
                 Ok(Self::Local(LocalSocket { end, id }))
+            }
+            SocketTransport::Webrtc => {
+                reject_extra_fields(
+                    WEBRTC_TRANSPORT,
+                    [
+                        ("role", role.is_some()),
+                        ("id", id.is_some()),
+                        ("host", host.is_some()),
+                        ("port", port.is_some()),
+                        ("url", url.is_some()),
+                        ("endpoint_id", endpoint_id.is_some()),
+                        ("params", params.is_some()),
+                    ],
+                )?;
+                Ok(Self::Webrtc(PeerSocket {
+                    attempt: PeerAttempt {
+                        link: link.ok_or_else(|| "a webrtc socket needs a link".to_string())?,
+                        generation: generation
+                            .ok_or_else(|| "a webrtc socket needs a generation".to_string())?,
+                    },
+                    stun: stun.unwrap_or_default(),
+                    turn: turn.unwrap_or_default(),
+                }))
             }
         }
     }
@@ -1290,6 +1373,8 @@ pub struct SocketStatus {
     pub resolved: Option<ResolvedAddr>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stats: Option<LinkStats>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<PeerReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -1360,6 +1445,17 @@ pub enum LinkCondition {
     Flowing,
 
     Stalled,
+
+    Unreachable,
+
+    Lost,
+}
+
+impl LinkCondition {
+    #[must_use]
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Unreachable | Self::Lost)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1397,10 +1493,11 @@ pub fn roll_up_path(enabled: bool, hops: &[Option<HopConditions>]) -> PathStatus
     if !enabled {
         return PathStatus::Idle;
     }
-    if hops
-        .iter()
-        .any(|hop| hop.as_ref().is_some_and(|h| h.state == HopState::Failed))
-    {
+    if hops.iter().flatten().any(|h| {
+        h.state == HopState::Failed
+            || h.ingresses().any(LinkCondition::is_terminal)
+            || h.egresses.iter().copied().any(LinkCondition::is_terminal)
+    }) {
         return PathStatus::Failed;
     }
     if hops
@@ -1563,6 +1660,20 @@ impl NodeCapabilities {
     }
 
     #[must_use]
+    pub fn offers_webrtc_ingress(&self) -> bool {
+        self.hop_profiles
+            .iter()
+            .any(|profile| profile.ingress.offers_webrtc())
+    }
+
+    #[must_use]
+    pub fn offers_webrtc_egress(&self) -> bool {
+        self.hop_profiles
+            .iter()
+            .any(|profile| profile.egress.offers_webrtc())
+    }
+
+    #[must_use]
     pub fn offers_local(&self, end: LocalEnd) -> bool {
         self.hop_profiles.iter().any(|profile| {
             let class = match end {
@@ -1603,32 +1714,61 @@ pub struct HopProfile {
 #[serde(untagged)]
 pub enum HopEndpointClass {
     Transport(TransportClass),
+    Webrtc(WebrtcClass),
     Local(LocalEnd),
+    AnyOf(Vec<LinkClass>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum LinkClass {
+    Transport(TransportClass),
+    Webrtc(WebrtcClass),
+}
+
+impl LinkClass {
+    pub const WEBRTC: Self = Self::Webrtc(WebrtcClass {
+        transport: WebrtcTransport::Webrtc,
+    });
 }
 
 impl HopEndpointClass {
+    pub const WEBRTC: Self = Self::Webrtc(WebrtcClass {
+        transport: WebrtcTransport::Webrtc,
+    });
+
     #[must_use]
     pub fn offers_transport(&self, transport: Transport, role: SocketRole) -> bool {
-        matches!(self, Self::Transport(class) if class.transport == transport && class.roles.contains(role))
+        match self {
+            Self::Transport(class) => class.offers(transport, role),
+            Self::AnyOf(classes) => classes.iter().any(|class| {
+                matches!(class, LinkClass::Transport(class) if class.offers(transport, role))
+            }),
+            Self::Webrtc(_) | Self::Local(_) => false,
+        }
+    }
+
+    #[must_use]
+    pub fn offers_webrtc(&self) -> bool {
+        match self {
+            Self::Webrtc(_) => true,
+            Self::AnyOf(classes) => classes
+                .iter()
+                .any(|class| matches!(class, LinkClass::Webrtc(_))),
+            Self::Transport(_) | Self::Local(_) => false,
+        }
     }
 
     #[must_use]
     pub fn matches_socket(&self, socket: &SocketSpec) -> bool {
-        match (self, socket) {
-            (Self::Transport(class), SocketSpec::Srt(socket)) => {
-                class.transport == Transport::Srt && class.roles.contains(socket.role())
-            }
-            (Self::Transport(class), SocketSpec::Whip(socket)) => {
-                class.transport == Transport::Whip && class.roles.contains(socket.role)
-            }
-            (Self::Transport(class), SocketSpec::Whep(socket)) => {
-                class.transport == Transport::Whep && class.roles.contains(socket.role)
-            }
-            (Self::Transport(class), SocketSpec::Rist(socket)) => {
-                class.transport == Transport::Rist && class.roles.contains(socket.role())
-            }
-            (Self::Local(end), SocketSpec::Local(socket)) => *end == socket.end,
-            _ => false,
+        match self {
+            Self::Transport(class) => class.matches_socket(socket),
+            Self::Webrtc(_) => matches!(socket, SocketSpec::Webrtc(_)),
+            Self::Local(end) => matches!(socket, SocketSpec::Local(socket) if socket.end == *end),
+            Self::AnyOf(classes) => classes.iter().any(|class| match class {
+                LinkClass::Transport(class) => class.matches_socket(socket),
+                LinkClass::Webrtc(_) => matches!(socket, SocketSpec::Webrtc(_)),
+            }),
         }
     }
 }
@@ -1638,6 +1778,23 @@ impl HopEndpointClass {
 pub struct TransportClass {
     pub transport: Transport,
     pub roles: RoleSet,
+}
+
+impl TransportClass {
+    fn offers(&self, transport: Transport, role: SocketRole) -> bool {
+        self.transport == transport && self.roles.contains(role)
+    }
+
+    fn matches_socket(&self, socket: &SocketSpec) -> bool {
+        let (transport, role) = match socket {
+            SocketSpec::Srt(socket) => (Transport::Srt, socket.role()),
+            SocketSpec::Whip(socket) => (Transport::Whip, socket.role),
+            SocketSpec::Whep(socket) => (Transport::Whep, socket.role),
+            SocketSpec::Rist(socket) => (Transport::Rist, socket.role()),
+            SocketSpec::Webrtc(_) | SocketSpec::Local(_) => return false,
+        };
+        self.offers(transport, role)
+    }
 }
 
 #[derive(
@@ -2464,6 +2621,7 @@ mod tests {
             revision: String::new(),
             state: HopState::Provisioned,
             ingress: SocketStatus {
+                peer: None,
                 condition: LinkCondition::Flowing,
                 resolved: Some(ResolvedAddr {
                     host: "0.0.0.0".to_string(),
@@ -2479,6 +2637,7 @@ mod tests {
             egresses: vec![EgressStatus {
                 branch_id: "studio".to_string(),
                 status: SocketStatus {
+                    peer: None,
                     condition: LinkCondition::Connected,
                     resolved: None,
                     stats: None,
@@ -2707,6 +2866,7 @@ mod tests {
             revision: desired.revision(),
             state: HopState::Provisioned,
             ingress: SocketStatus {
+                peer: None,
                 condition: LinkCondition::Flowing,
                 resolved: None,
                 stats: None,
@@ -2716,6 +2876,7 @@ mod tests {
                 EgressStatus {
                     branch_id: "preview".to_string(),
                     status: SocketStatus {
+                        peer: None,
                         condition: LinkCondition::Connected,
                         resolved: None,
                         stats: None,
@@ -2724,6 +2885,7 @@ mod tests {
                 EgressStatus {
                     branch_id: "studio".to_string(),
                     status: SocketStatus {
+                        peer: None,
                         condition: LinkCondition::Flowing,
                         resolved: None,
                         stats: None,
@@ -2746,6 +2908,7 @@ mod tests {
     fn hop_status_conditions_reject_missing_duplicate_and_extra_branches() {
         let desired = sample_hop();
         let socket = SocketStatus {
+            peer: None,
             condition: LinkCondition::Flowing,
             resolved: None,
             stats: None,
@@ -3278,6 +3441,29 @@ mod tests {
                 SocketSpec::output("player"),
                 serde_json::json!({ "transport": "output", "id": "player" }),
             ),
+            (
+                SocketSpec::Webrtc(PeerSocket {
+                    attempt: PeerAttempt {
+                        link: PeerLinkId::new("weave-music-receiver-filip"),
+                        generation: 1_761_300_000,
+                    },
+                    stun: vec!["stun.example:3478".to_string()],
+                    turn: vec![TurnServer {
+                        address: "turn.example:3478".to_string(),
+                        username: "1761386400:weave-music-receiver-filip".to_string(),
+                        credential: TurnCredential::new("c2VjcmV0"),
+                    }],
+                }),
+                serde_json::json!({
+                    "transport": "webrtc", "link": "weave-music-receiver-filip",
+                    "generation": 1_761_300_000_u32, "stun": ["stun.example:3478"],
+                    "turn": [{
+                        "address": "turn.example:3478",
+                        "username": "1761386400:weave-music-receiver-filip",
+                        "credential": "c2VjcmV0"
+                    }]
+                }),
+            ),
         ];
 
         for (socket, wire) in cases {
@@ -3335,6 +3521,12 @@ mod tests {
                 "transport": "srt", "role": "listen", "port": 7001, "endpoint_id": "y"
             }),
             serde_json::json!({ "transport": "input", "id": "camera", "endpoint_id": "y" }),
+            serde_json::json!({ "transport": "webrtc", "generation": 1 }),
+            serde_json::json!({ "transport": "webrtc", "link": "x" }),
+            serde_json::json!({ "transport": "webrtc", "link": "x", "generation": 1, "role": "listen" }),
+            serde_json::json!({ "transport": "webrtc", "link": "x", "generation": 1, "port": 7001 }),
+            serde_json::json!({ "transport": "srt", "role": "listen", "port": 7001, "link": "x" }),
+            serde_json::json!({ "transport": "output", "id": "player", "turn": [] }),
         ];
 
         for wire in rejected {
@@ -3493,6 +3685,7 @@ mod tests {
     fn a_report_for_an_old_spec_cannot_confirm_a_new_spec() {
         let mut desired = sample_hop();
         let socket = SocketStatus {
+            peer: None,
             condition: LinkCondition::Flowing,
             resolved: None,
             stats: None,
@@ -3536,6 +3729,7 @@ mod tests {
     #[test]
     fn a_merge_ingress_is_reported_exactly_when_desired() {
         let socket = |condition| SocketStatus {
+            peer: None,
             condition,
             resolved: None,
             stats: None,

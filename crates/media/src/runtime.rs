@@ -37,6 +37,7 @@ fn initial_report(desired: &DesiredHop) -> HopStatus {
         revision: desired.revision(),
         state: HopState::Pending,
         ingress: SocketStatus {
+            peer: None,
             condition: weave_core::LinkCondition::Connecting,
             resolved: None,
             stats: None,

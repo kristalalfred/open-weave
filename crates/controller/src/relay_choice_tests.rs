@@ -159,6 +159,7 @@ fn plan(stream: &StreamDefinition, nodes: &[NodeDescriptor], observed: &[HopStat
 
 fn reported(path: &Path, nodes: &[NodeDescriptor], state: HopState) -> Vec<HopStatus> {
     let socket = |spec: &SocketSpec, own_host: &str| SocketStatus {
+        peer: None,
         condition: LinkCondition::Flowing,
         resolved: match spec {
             SocketSpec::Srt(SrtSocket::Listen { port, .. }) => Some(ResolvedAddr {

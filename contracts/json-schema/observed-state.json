@@ -161,11 +161,78 @@
                           ]
                         },
                         {
+                          "type": "object",
+                          "properties": {
+                            "transport": {
+                              "type": "string",
+                              "enum": [
+                                "webrtc"
+                              ]
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "transport"
+                          ]
+                        },
+                        {
                           "type": "string",
                           "enum": [
                             "input",
                             "output"
                           ]
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "type": "string",
+                                    "enum": [
+                                      "srt",
+                                      "whip",
+                                      "whep",
+                                      "rist"
+                                    ]
+                                  },
+                                  "roles": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "listen",
+                                        "connect"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "transport",
+                                  "roles"
+                                ]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "type": "string",
+                                    "enum": [
+                                      "webrtc"
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "transport"
+                                ]
+                              }
+                            ]
+                          }
                         }
                       ]
                     },
@@ -202,11 +269,78 @@
                           ]
                         },
                         {
+                          "type": "object",
+                          "properties": {
+                            "transport": {
+                              "type": "string",
+                              "enum": [
+                                "webrtc"
+                              ]
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "transport"
+                          ]
+                        },
+                        {
                           "type": "string",
                           "enum": [
                             "input",
                             "output"
                           ]
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "type": "string",
+                                    "enum": [
+                                      "srt",
+                                      "whip",
+                                      "whep",
+                                      "rist"
+                                    ]
+                                  },
+                                  "roles": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "listen",
+                                        "connect"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "transport",
+                                  "roles"
+                                ]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "type": "string",
+                                    "enum": [
+                                      "webrtc"
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "transport"
+                                ]
+                              }
+                            ]
+                          }
                         }
                       ]
                     },
@@ -721,7 +855,9 @@
                   "connecting",
                   "connected",
                   "flowing",
-                  "stalled"
+                  "stalled",
+                  "unreachable",
+                  "lost"
                 ],
                 "default": "idle"
               },
@@ -793,6 +929,31 @@
                   "packets_retransmitted",
                   "packets_received_lost",
                   "packets_received_retransmitted"
+                ]
+              },
+              "peer": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "link": {
+                    "type": "string"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "uint32",
+                    "minimum": 0
+                  },
+                  "relayed": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "link",
+                  "generation",
+                  "relayed"
                 ]
               }
             },
@@ -814,7 +975,9 @@
                   "connecting",
                   "connected",
                   "flowing",
-                  "stalled"
+                  "stalled",
+                  "unreachable",
+                  "lost"
                 ],
                 "default": "idle"
               },
@@ -886,6 +1049,31 @@
                   "packets_retransmitted",
                   "packets_received_lost",
                   "packets_received_retransmitted"
+                ]
+              },
+              "peer": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "link": {
+                    "type": "string"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "uint32",
+                    "minimum": 0
+                  },
+                  "relayed": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "link",
+                  "generation",
+                  "relayed"
                 ]
               }
             },
@@ -909,7 +1097,9 @@
                     "connecting",
                     "connected",
                     "flowing",
-                    "stalled"
+                    "stalled",
+                    "unreachable",
+                    "lost"
                   ],
                   "default": "idle"
                 },
@@ -981,6 +1171,31 @@
                     "packets_retransmitted",
                     "packets_received_lost",
                     "packets_received_retransmitted"
+                  ]
+                },
+                "peer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "link": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer",
+                      "format": "uint32",
+                      "minimum": 0
+                    },
+                    "relayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "link",
+                    "generation",
+                    "relayed"
                   ]
                 }
               },

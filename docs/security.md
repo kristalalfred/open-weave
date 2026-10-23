@@ -40,9 +40,9 @@ An adapter takes its token from `WEAVE_SOUTHBOUND_TOKEN`, or from
 `node.southbound_token` in its config, which takes precedence.
 
 A node token acts only for its own node. A registration whose `node.id` is
-another node's, a heartbeat or desired-hops request whose path id is, and a
-registration or heartbeat carrying an endpoint whose `node_id` is, all get
-`403`:
+another node's, a heartbeat, desired-hops or signalling request whose path id
+is, and a registration or heartbeat carrying an endpoint whose `node_id` is, all
+get `403`:
 
 ```json
 { "code": "forbidden", "message": "token does not belong to node strom-node-2" }

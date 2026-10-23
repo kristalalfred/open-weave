@@ -74,6 +74,7 @@ fn timed_routes_frame_internal_links_and_merge_only_authorized_copies() {
         vec![stream()],
         &observed,
         &LinkKeys::for_tests(),
+        &crate::peers::PeerPlanning::default(),
         &BTreeMap::from([("timed".into(), 7)]),
     );
     let hops = &outcome.hops_by_stream["timed"];
@@ -99,6 +100,7 @@ fn timed_routes_frame_internal_links_and_merge_only_authorized_copies() {
         vec![budget_changed],
         &observed,
         &LinkKeys::for_tests(),
+        &crate::peers::PeerPlanning::default(),
         &BTreeMap::from([("timed".into(), 7)]),
     );
     assert_eq!(
@@ -163,6 +165,7 @@ fn raw_two_path_requests_do_not_select_a_timed_merger() {
 
 fn report(hop: &DesiredHop) -> HopStatus {
     let flowing = || SocketStatus {
+        peer: None,
         condition: LinkCondition::Flowing,
         resolved: None,
         stats: None,

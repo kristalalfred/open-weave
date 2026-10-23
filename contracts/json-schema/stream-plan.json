@@ -572,6 +572,7 @@
                       "whip",
                       "whep",
                       "rist",
+                      "webrtc",
                       "input",
                       "output"
                     ]
@@ -684,6 +685,54 @@
                     ]
                   }
                 }
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "generation": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint32",
+                "minimum": 0
+              },
+              "stun": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "turn": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "username": {
+                      "type": "string"
+                    },
+                    "credential": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "address",
+                    "username",
+                    "credential"
+                  ]
+                }
               }
             },
             "required": [
@@ -705,6 +754,7 @@
                       "whip",
                       "whep",
                       "rist",
+                      "webrtc",
                       "input",
                       "output"
                     ]
@@ -816,6 +866,54 @@
                       32
                     ]
                   }
+                }
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "generation": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint32",
+                "minimum": 0
+              },
+              "stun": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "turn": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "username": {
+                      "type": "string"
+                    },
+                    "credential": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "address",
+                    "username",
+                    "credential"
+                  ]
                 }
               }
             },
@@ -840,6 +938,7 @@
                         "whip",
                         "whep",
                         "rist",
+                        "webrtc",
                         "input",
                         "output"
                       ]
@@ -951,6 +1050,54 @@
                         32
                       ]
                     }
+                  }
+                },
+                "link": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "generation": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "stun": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "turn": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "address": {
+                        "type": "string"
+                      },
+                      "username": {
+                        "type": "string"
+                      },
+                      "credential": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "address",
+                      "username",
+                      "credential"
+                    ]
                   }
                 }
               },

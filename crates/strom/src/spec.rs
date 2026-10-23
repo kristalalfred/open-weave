@@ -102,6 +102,7 @@ enum Shape {
     Whip,
     Whep,
     Rist,
+    Webrtc,
     Local,
 }
 
@@ -111,6 +112,7 @@ fn shape(spec: &SocketSpec) -> Shape {
         SocketSpec::Whip(_) => Shape::Whip,
         SocketSpec::Whep(_) => Shape::Whep,
         SocketSpec::Rist(_) => Shape::Rist,
+        SocketSpec::Webrtc(_) => Shape::Webrtc,
         SocketSpec::Local(_) => Shape::Local,
     }
 }

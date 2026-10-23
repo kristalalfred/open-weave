@@ -1,6 +1,6 @@
 "use strict";
 
-const PROTOCOL_VERSION = 10;
+const PROTOCOL_VERSION = 11;
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 2000;
 const STALL_POLLS = 3;

@@ -1,19 +1,21 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use weave_core::{
     DesiredHop, EgressStatus, HopState, HopStatus, LinkCondition, LinkStats, LocalEnd, LocalSocket,
-    PayloadKind, ResolvedAddr, SocketSpec, SocketStatus, SrtSocket as WeaveSrt,
+    PayloadKind, PeerAttempt, PeerLinkId, PeerReport, PeerSocket, ResolvedAddr, SocketSpec,
+    SocketStatus, SrtSocket as WeaveSrt,
 };
 use weave_spaghetti::{
-    Destination, FlowState, FlowStatus, RouteInfo, SourceInfo, SourceSpec, SrtMode, SrtSocket,
-    TapMode,
+    Destination, FlowState, FlowStatus, PeerRef, PeerRole, RouteInfo, SourceInfo, SourceSpec,
+    SrtMode, SrtSocket, TapMode, TurnServer, WebRtcPeer,
 };
 
 use crate::inventory::Inventory;
 
-pub const SENDER_PROFILE: &str = "app-audio-to-srt";
+pub const SENDER_PROFILE: &str = "app-audio-out";
 pub const RECEIVER_PROFILE: &str = "srt-to-speaker";
+pub const WEBRTC_RECEIVER_PROFILE: &str = "webrtc-to-speaker";
 pub const MAX_SENDER_EGRESSES: usize = 8;
 
 const TAG_PREFIX: &str = "weave:";
@@ -60,10 +62,13 @@ pub fn plan(hop: &DesiredHop, inventory: &Inventory) -> Result<Plan, String> {
                 .egresses
                 .iter()
                 .map(|egress| {
-                    Ok((
-                        egress.branch_id.clone(),
-                        Destination::Srt(srt(&egress.socket)?),
-                    ))
+                    let destination = match &egress.socket {
+                        SocketSpec::Webrtc(peer) => {
+                            Destination::WebRtc(webrtc(peer, PeerRole::Offer))
+                        }
+                        socket => Destination::Srt(srt(socket)?),
+                    };
+                    Ok((egress.branch_id.clone(), destination))
                 })
                 .collect::<Result<_, String>>()?;
             Ok(Plan {
@@ -74,8 +79,12 @@ pub fn plan(hop: &DesiredHop, inventory: &Inventory) -> Result<Plan, String> {
                 routes,
             })
         }
-        RECEIVER_PROFILE => {
-            let source = SourceSpec::Srt(srt(&hop.ingress)?);
+        profile @ (RECEIVER_PROFILE | WEBRTC_RECEIVER_PROFILE) => {
+            let source = match (profile, &hop.ingress) {
+                (RECEIVER_PROFILE, socket) => SourceSpec::Srt(srt(socket)?),
+                (_, SocketSpec::Webrtc(peer)) => SourceSpec::WebRtc(webrtc(peer, PeerRole::Answer)),
+                (_, socket) => return Err(format!("{profile} takes a webrtc link, not {socket}")),
+            };
             let routes = hop
                 .egresses
                 .iter()
@@ -94,12 +103,93 @@ pub fn plan(hop: &DesiredHop, inventory: &Inventory) -> Result<Plan, String> {
                             )
                         })
                         .ok_or_else(|| format!("output {id} is not connected")),
-                    other => Err(format!("{RECEIVER_PROFILE} feeds an output, not {other}")),
+                    other => Err(format!("{profile} feeds an output, not {other}")),
                 })
                 .collect::<Result<_, String>>()?;
             Ok(Plan { source, routes })
         }
         other => Err(format!("this node offers no hop profile {other}")),
+    }
+}
+
+fn webrtc(peer: &PeerSocket, role: PeerRole) -> WebRtcPeer {
+    WebRtcPeer {
+        link: peer.attempt.link.to_string(),
+        generation: peer.attempt.generation,
+        role,
+        stun: peer.stun.clone(),
+        turn: peer
+            .turn
+            .iter()
+            .map(|server| TurnServer {
+                address: server.address.clone(),
+                username: server.username.clone(),
+                credential: server.credential.expose().to_string(),
+            })
+            .collect(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltPeer {
+    pub at: PeerRef,
+    pub attempt: PeerAttempt,
+    pub local_description: Option<String>,
+}
+
+#[must_use]
+pub fn built_peers(node_id: &str, sources: &[SourceInfo], routes: &[RouteInfo]) -> Vec<BuiltPeer> {
+    let (applied, _) = applied(node_id, sources, routes);
+    let peer = |spec: &WebRtcPeer| PeerAttempt {
+        link: PeerLinkId::new(spec.link.clone()),
+        generation: spec.generation,
+    };
+    applied
+        .values()
+        .flat_map(|built| {
+            let source = match &built.source.spec {
+                SourceSpec::WebRtc(spec) => Some(BuiltPeer {
+                    at: PeerRef::Source(built.source.source_id),
+                    attempt: peer(spec),
+                    local_description: built.source.local_description.clone(),
+                }),
+                _ => None,
+            };
+            let routes = built
+                .routes
+                .iter()
+                .filter_map(move |route| match &route.destination {
+                    Destination::WebRtc(spec) => Some(BuiltPeer {
+                        at: PeerRef::Route(route.route_id),
+                        attempt: peer(spec),
+                        local_description: route.local_description.clone(),
+                    }),
+                    _ => None,
+                });
+            source.into_iter().chain(routes)
+        })
+        .collect()
+}
+
+#[derive(Debug, Default)]
+pub struct Refusals(BTreeSet<PeerAttempt>);
+
+impl Refusals {
+    pub fn refuse(&mut self, attempt: PeerAttempt) -> bool {
+        self.0.insert(attempt)
+    }
+
+    pub fn retain(&mut self, desired: &[DesiredHop]) {
+        let wanted: BTreeSet<&PeerAttempt> = desired
+            .iter()
+            .flat_map(DesiredHop::peer_ends)
+            .map(|(_, socket)| &socket.attempt)
+            .collect();
+        self.0.retain(|attempt| wanted.contains(attempt));
+    }
+
+    fn contains(&self, attempt: &PeerAttempt) -> bool {
+        self.0.contains(attempt)
     }
 }
 
@@ -396,6 +486,7 @@ pub fn hop_status(
     built: Option<&Applied>,
     failed: bool,
     rates: &mut Rates,
+    refusals: &Refusals,
     now: Instant,
 ) -> HopStatus {
     let applied = match (plan, built) {
@@ -419,6 +510,7 @@ pub fn hop_status(
                 now,
             ),
             Direction::Receiving,
+            refusals,
         ),
         None => idle(&hop.ingress),
     };
@@ -442,6 +534,7 @@ pub fn hop_status(
                         now,
                     ),
                     Direction::Sending,
+                    refusals,
                 ),
                 None => idle(&egress.socket),
             };
@@ -485,6 +578,7 @@ fn resolved(socket: &SocketSpec) -> Option<ResolvedAddr> {
 
 fn idle(socket: &SocketSpec) -> SocketStatus {
     SocketStatus {
+        peer: None,
         condition: LinkCondition::Idle,
         resolved: resolved(socket),
         stats: None,
@@ -496,6 +590,7 @@ fn socket_status(
     socket: &SocketSpec,
     rate_mbps: f64,
     direction: Direction,
+    refusals: &Refusals,
 ) -> SocketStatus {
     let condition = match flow.state {
         FlowState::Idle => LinkCondition::Idle,
@@ -503,6 +598,8 @@ fn socket_status(
         FlowState::Connected => LinkCondition::Connected,
         FlowState::Flowing => LinkCondition::Flowing,
         FlowState::Stalled => LinkCondition::Stalled,
+        FlowState::Unreachable => LinkCondition::Unreachable,
+        FlowState::Lost => LinkCondition::Lost,
     };
     let lost = i64::try_from(flow.packets_lost).unwrap_or(i64::MAX);
     let retransmitted = i64::try_from(flow.packets_retransmitted).unwrap_or(i64::MAX);
@@ -521,10 +618,34 @@ fn socket_status(
             stats.packets_received_retransmitted = retransmitted;
         }
     }
-    SocketStatus {
-        condition,
-        resolved: resolved(socket),
-        stats: Some(stats),
+    match socket {
+        SocketSpec::Webrtc(peer) => SocketStatus {
+            peer: Some(PeerReport {
+                link: peer.attempt.link.clone(),
+                generation: peer.attempt.generation,
+                relayed: flow.relayed,
+            }),
+            condition: if refusals.contains(&peer.attempt) && !condition.is_terminal() {
+                LinkCondition::Lost
+            } else {
+                condition
+            },
+            resolved: flow
+                .peer
+                .as_deref()
+                .and_then(|address| address.parse::<std::net::SocketAddr>().ok())
+                .map(|address| ResolvedAddr {
+                    host: address.ip().to_string(),
+                    port: address.port(),
+                }),
+            stats: Some(stats),
+        },
+        socket => SocketStatus {
+            peer: None,
+            condition,
+            resolved: resolved(socket),
+            stats: Some(stats),
+        },
     }
 }
 
@@ -604,9 +725,143 @@ mod tests {
             state: FlowState::Flowing,
             bytes,
             peer: Some("192.168.1.30:23000".into()),
+            relayed: false,
             packets_lost: 2,
             packets_retransmitted: 5,
         }
+    }
+
+    fn webrtc_socket(generation: u32) -> SocketSpec {
+        SocketSpec::Webrtc(PeerSocket {
+            attempt: PeerAttempt {
+                link: PeerLinkId::new("weave-music-receiver-filip"),
+                generation,
+            },
+            stun: vec!["stun.example:3478".into()],
+            turn: vec![weave_core::TurnServer {
+                address: "turn.example:3478".into(),
+                username: "1761386400:weave-music-receiver-filip".into(),
+                credential: weave_core::TurnCredential::new("c2VjcmV0"),
+            }],
+        })
+    }
+
+    fn webrtc_peer(generation: u32, role: PeerRole) -> WebRtcPeer {
+        WebRtcPeer {
+            link: "weave-music-receiver-filip".into(),
+            generation,
+            role,
+            stun: vec!["stun.example:3478".into()],
+            turn: vec![TurnServer {
+                address: "turn.example:3478".into(),
+                username: "1761386400:weave-music-receiver-filip".into(),
+                credential: "c2VjcmV0".into(),
+            }],
+        }
+    }
+
+    fn webrtc_receiver(generation: u32) -> DesiredHop {
+        DesiredHop {
+            profile_id: WEBRTC_RECEIVER_PROFILE.into(),
+            ingress: webrtc_socket(generation),
+            ..receiver()
+        }
+    }
+
+    #[test]
+    fn a_sender_offers_its_webrtc_egress_next_to_an_srt_one() {
+        let mut hop = sender();
+        hop.egresses.push(DesiredEgress {
+            branch_id: "anna".into(),
+            socket: webrtc_socket(7),
+        });
+        let plan = plan(&hop, &inventory()).unwrap();
+        assert_eq!(plan.routes.len(), 2);
+        assert!(matches!(plan.routes[0].1, Destination::Srt(_)));
+        assert_eq!(
+            plan.routes[1],
+            (
+                "anna".to_string(),
+                Destination::WebRtc(webrtc_peer(7, PeerRole::Offer))
+            )
+        );
+    }
+
+    #[test]
+    fn a_webrtc_receiver_answers_and_each_receiver_profile_takes_only_its_own_link() {
+        let plan = plan(&webrtc_receiver(7), &inventory()).unwrap();
+        assert_eq!(
+            plan.source,
+            SourceSpec::WebRtc(webrtc_peer(7, PeerRole::Answer))
+        );
+        let srt_on_webrtc = DesiredHop {
+            profile_id: WEBRTC_RECEIVER_PROFILE.into(),
+            ..receiver()
+        };
+        assert!(super::plan(&srt_on_webrtc, &inventory()).is_err());
+        let webrtc_on_srt = DesiredHop {
+            profile_id: RECEIVER_PROFILE.into(),
+            ..webrtc_receiver(7)
+        };
+        assert!(super::plan(&webrtc_on_srt, &inventory()).is_err());
+    }
+
+    #[test]
+    fn a_webrtc_end_reports_its_attempt_path_and_a_refusal_as_lost_until_the_generation_moves() {
+        let hop = webrtc_receiver(7);
+        let wanted = plan(&hop, &inventory()).unwrap();
+        let (mut source, routes) = built(&hop, &wanted, 1, 1_000);
+        source.status.peer = Some("91.197.40.98:30025".into());
+        source.status.relayed = true;
+        let status = |refusals: &Refusals, source: &SourceInfo| {
+            let (current, _) = applied(&hop.node_id, std::slice::from_ref(source), &routes);
+            hop_status(
+                &hop,
+                &Ok(wanted.clone()),
+                current.get(hop.id.as_str()),
+                false,
+                &mut Rates::default(),
+                refusals,
+                Instant::now(),
+            )
+            .ingress
+        };
+        let mut refusals = Refusals::default();
+        let reported = status(&refusals, &source);
+        assert_eq!(reported.condition, LinkCondition::Flowing);
+        assert_eq!(
+            reported.peer,
+            Some(PeerReport {
+                link: PeerLinkId::new("weave-music-receiver-filip"),
+                generation: 7,
+                relayed: true,
+            })
+        );
+        assert_eq!(
+            reported.resolved,
+            Some(ResolvedAddr {
+                host: "91.197.40.98".into(),
+                port: 30025
+            })
+        );
+
+        refusals.refuse(PeerAttempt {
+            link: PeerLinkId::new("weave-music-receiver-filip"),
+            generation: 7,
+        });
+        refusals.retain(std::slice::from_ref(&hop));
+        assert_eq!(status(&refusals, &source).condition, LinkCondition::Lost);
+        source.status.state = FlowState::Unreachable;
+        assert_eq!(
+            status(&refusals, &source).condition,
+            LinkCondition::Unreachable
+        );
+        source.status.state = FlowState::Connecting;
+        refusals.retain(&[webrtc_receiver(8)]);
+        assert_eq!(
+            status(&refusals, &source).condition,
+            LinkCondition::Connecting
+        );
     }
 
     fn built(
@@ -621,6 +876,7 @@ mod tests {
             tag: Some(tag(&hop.node_id, &hop.id)),
             label: "x".into(),
             status: flowing(bytes),
+            local_description: None,
         };
         let routes = plan
             .routes
@@ -632,6 +888,7 @@ mod tests {
                 destination: destination.clone(),
                 volume: 1.0,
                 status: flowing(bytes),
+                local_description: None,
             })
             .collect();
         (source, routes)
@@ -876,6 +1133,7 @@ mod tests {
             current.get(hop.id.as_str()),
             false,
             &mut rates,
+            &Refusals::default(),
             start,
         );
         assert_eq!(first.state, HopState::Provisioned);
@@ -904,6 +1162,7 @@ mod tests {
             current.get(hop.id.as_str()),
             false,
             &mut rates,
+            &Refusals::default(),
             later,
         );
         let rate = second.egresses[0].status.stats.unwrap().rate_mbps;
@@ -920,6 +1179,7 @@ mod tests {
             None,
             false,
             &mut rates,
+            &Refusals::default(),
             Instant::now(),
         );
         assert_eq!(pending.state, HopState::Pending);
@@ -938,6 +1198,7 @@ mod tests {
             None,
             false,
             &mut rates,
+            &Refusals::default(),
             Instant::now(),
         );
         assert_eq!(refused.state, HopState::Failed);

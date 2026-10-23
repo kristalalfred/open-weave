@@ -13,7 +13,9 @@ On 2026-10-22 one `cargo test --workspace` run failed
 `weave-media clock::tests::a_sample_widened_by_preemption_does_not_make_the_next_one_a_step`
 at `crates/media/src/clock.rs:214` (`assert!(clock.sample().is_ok())`). The same
 test passed on two reruns, and the code under test had not changed. Other
-worktrees were building on the machine at the time.
+worktrees were building on the machine at the time. On 2026-10-23 it failed at
+the same line in two of about four full runs in another worktree, again with
+other builds running, and passed on rerun.
 
 The test takes a wall-clock sample, plants a previous sample 3 ms ahead with
 3.05 ms uncertainty and the first sample's `monotonic_ns`, and samples again.

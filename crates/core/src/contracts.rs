@@ -5,10 +5,11 @@ use serde_json::{Map, Value, json};
 use crate::{
     ApiError, DesiredHop, EndpointDescriptor, NodeAccepted, NodeHeartbeat, NodeRegistration,
     NodeResource, ObservedState, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
-    ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, ROUTE_STATUS, ROUTE_STREAM,
-    ROUTE_STREAM_ENDPOINTS, ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS, ROUTE_STREAMS,
-    StatusResponse, StreamAccepted, StreamDefinition, StreamEndpoints, StreamPlan, StreamResource,
-    StreamSetAccepted, StreamSetApply, StreamSetResource, webhook,
+    ROUTE_NODE_REGISTER, ROUTE_NODE_SIGNALLING, ROUTE_NODES, ROUTE_STATE, ROUTE_STATUS,
+    ROUTE_STREAM, ROUTE_STREAM_ENDPOINTS, ROUTE_STREAM_PLANS, ROUTE_STREAM_SET, ROUTE_STREAM_SETS,
+    ROUTE_STREAMS, SignallingExchange, SignallingReply, StatusResponse, StreamAccepted,
+    StreamDefinition, StreamEndpoints, StreamPlan, StreamResource, StreamSetAccepted,
+    StreamSetApply, StreamSetResource, webhook,
 };
 
 pub struct ContractArtifact {
@@ -516,6 +517,22 @@ pub fn southbound_openapi() -> Value {
                     }
                 }
             },
+            ROUTE_NODE_SIGNALLING: {
+                "post": {
+                    "operationId": "exchangeDescriptions",
+                    "parameters": [path_parameter("node_id")],
+                    "requestBody": request_body("SignallingExchange"),
+                    "responses": {
+                        "200": response("The other ends' descriptions and any of this node's that were refused", Some(schema_ref("SignallingReply"))),
+                        "400": error_response("Invalid exchange"),
+                        "401": error_response("Authentication failed"),
+                        "403": error_response("Token belongs to another node"),
+                        "502": error_response("Controller unavailable"),
+                        "504": error_response("Controller did not answer in time; it may have applied the request"),
+                        "503": error_response("No controller holds the lease")
+                    }
+                }
+            },
             ROUTE_ENDPOINTS: {
                 "get": {
                     "operationId": "listEndpoints",
@@ -550,6 +567,11 @@ pub fn southbound_openapi() -> Value {
             ("NodeList", schema::<Vec<NodeResource>>(Adapter)),
             ("NodeRegistration", schema::<NodeRegistration>(Controller)),
             ("ObservedState", schema::<ObservedState>(Adapter)),
+            (
+                "SignallingExchange",
+                schema::<SignallingExchange>(Controller),
+            ),
+            ("SignallingReply", schema::<SignallingReply>(Adapter)),
         ]),
     )
 }
@@ -619,7 +641,7 @@ mod tests {
         );
         assert_eq!(
             requests(&south),
-            BTreeSet::from(["NodeHeartbeat", "NodeRegistration"])
+            BTreeSet::from(["NodeHeartbeat", "NodeRegistration", "SignallingExchange"])
         );
         for (name, document, responses_open) in
             [("northbound", &north, true), ("southbound", &south, false)]
@@ -794,6 +816,7 @@ mod tests {
                 "/nodes/register",
                 "/nodes/{node_id}/desired",
                 "/nodes/{node_id}/heartbeat",
+                "/nodes/{node_id}/signalling",
                 "/state"
             ]
         );

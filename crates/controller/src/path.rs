@@ -4,14 +4,15 @@ use std::sync::Arc;
 
 use weave_core::{
     DesiredEgress, DesiredHop, DestinationEndpoint, EndpointAddr, HOP_ID_PREFIX, HopConditions,
-    HopEndpointClass, HopRole, HopState, HopStatus, LocalEnd, LocalEndpoint, LocalSocket,
-    NetworkAttachment, NodeDescriptor, NodeStatus, Passphrase, Path, PathStatus, PortRange,
-    RemoteAddr, RistListener, RistSocket, SignallingEndpoint, SignallingTransport, SocketRole,
-    SocketSpec, SrtParams, SrtSocket, StreamDefinition, StreamEndpoints, StreamTransport, Track,
-    Transport, roll_up_path,
+    HopEndpointClass, HopRole, HopState, HopStatus, LinkCondition, LocalEnd, LocalEndpoint,
+    LocalSocket, NetworkAttachment, NodeDescriptor, NodeStatus, Passphrase, Path, PathStatus,
+    PeerAttempt, PeerLinkId, PortRange, RemoteAddr, ResolvedAddr, RistListener, RistSocket,
+    SignallingEndpoint, SignallingTransport, SocketRole, SocketSpec, SrtParams, SrtSocket,
+    StreamDefinition, StreamEndpoints, StreamTransport, Track, Transport, roll_up_path,
 };
 
 use crate::keys::LinkKeys;
+use crate::peers::{MissingTurn, PeerFailure, PeerPlanning};
 
 const DEFAULT_SRC_LATENCY: u32 = 200;
 const DEFAULT_SINK_LATENCY: u32 = 1000;
@@ -87,6 +88,16 @@ pub enum PlacementError {
         upstream: String,
         downstream: String,
     },
+    #[error(
+        "no route from {upstream} to {downstream}: the webrtc link {failure}, and {}",
+        relay_shortfall(.relay.as_deref())
+    )]
+    WebrtcFailedNoRelay {
+        upstream: String,
+        downstream: String,
+        failure: PeerFailure,
+        relay: Option<Box<PlacementError>>,
+    },
     #[error("node {node} hosts a {transport} link but declares no signalling base for it")]
     NoSignalling { node: String, transport: Transport },
     #[error("node {node} has no hop profile for an {end}")]
@@ -121,6 +132,13 @@ pub enum PlacementError {
         "the link into node {node} can only go over RIST, which carries no encryption; set allow_cleartext_links to plan it"
     )]
     CleartextLink { node: String },
+}
+
+fn relay_shortfall(relay: Option<&PlacementError>) -> String {
+    relay.map_or_else(
+        || "no relay node is available".to_string(),
+        |error| format!("no relay can take it: {error}"),
+    )
 }
 
 fn socket_end_description(socket: &SocketSpec) -> String {
@@ -256,6 +274,24 @@ pub struct HopReports {
     running: HashMap<String, Vec<String>>,
     by_socket: BTreeMap<SocketAt, HashMap<String, u16>>,
     held: HashMap<String, HashSet<u16>>,
+    peers: HashMap<PeerLinkId, Vec<EndReport>>,
+}
+
+#[derive(Debug, Clone)]
+struct EndReport {
+    generation: u32,
+    condition: LinkCondition,
+    relayed: bool,
+    remote: Option<ResolvedAddr>,
+}
+
+impl EndReport {
+    fn running(&self) -> bool {
+        matches!(
+            self.condition,
+            LinkCondition::Connected | LinkCondition::Flowing | LinkCondition::Stalled
+        )
+    }
 }
 
 impl HopReports {
@@ -270,6 +306,22 @@ impl HopReports {
                 .entry(report.id.clone())
                 .or_default()
                 .push(report.node_id.clone());
+            for status in std::iter::once(&report.ingress)
+                .chain(&report.merge_ingress)
+                .chain(report.egresses.iter().map(|egress| &egress.status))
+            {
+                if let Some(peer) = &status.peer {
+                    held.peers
+                        .entry(peer.link.clone())
+                        .or_default()
+                        .push(EndReport {
+                            generation: peer.generation,
+                            condition: status.condition,
+                            relayed: peer.relayed,
+                            remote: status.resolved.clone(),
+                        });
+                }
+            }
             let Some(node) = find_node(nodes, &report.node_id) else {
                 continue;
             };
@@ -303,7 +355,8 @@ impl HopReports {
                         .map(|egress| (Slot::Egress(egress.branch_id.clone()), &egress.status)),
                 );
             for (slot, status) in sockets {
-                let Some(resolved) = &status.resolved else {
+                let Some(resolved) = status.resolved.as_ref().filter(|_| status.peer.is_none())
+                else {
                     continue;
                 };
                 if !own_hosts.contains(resolved.host.as_str()) {
@@ -339,6 +392,60 @@ impl HopReports {
 
     fn running(&self, hop_id: &str) -> &[String] {
         self.running.get(hop_id).map_or(&[], Vec::as_slice)
+    }
+
+    fn latest_peer(&self, link: &PeerLinkId) -> Option<(u32, Vec<&EndReport>)> {
+        let reports = self.peers.get(link)?;
+        let latest = reports.iter().map(|report| report.generation).max()?;
+        Some((
+            latest,
+            reports
+                .iter()
+                .filter(|report| report.generation == latest)
+                .collect(),
+        ))
+    }
+
+    fn peer_generation(&self, link: &PeerLinkId, peers: &PeerPlanning, keys: &LinkKeys) -> u32 {
+        let served = peers.served(link);
+        let Some((latest, reports)) = self.latest_peer(link) else {
+            return served.unwrap_or_else(|| peers.next_generation(None));
+        };
+        if let Some(served) = served.filter(|served| *served > latest) {
+            return served;
+        }
+        let ended = reports.iter().any(|report| report.condition.is_terminal());
+        let renew = reports.iter().any(|report| report.relayed)
+            && keys.turn_renewal_due(latest, peers.now_unix());
+        if ended || renew {
+            peers.next_generation(Some(latest))
+        } else {
+            latest
+        }
+    }
+
+    fn peer_media(&self, link: &PeerLinkId) -> Option<PeerMedia> {
+        let (_, reports) = self.latest_peer(link)?;
+        if reports.iter().any(|report| report.condition.is_terminal()) {
+            return None;
+        }
+        let running: Vec<&EndReport> = reports
+            .into_iter()
+            .filter(|report| report.running())
+            .collect();
+        if running.is_empty() {
+            return None;
+        }
+        Some(if running.iter().any(|report| report.relayed) {
+            PeerMedia::Relayed
+        } else {
+            running
+                .iter()
+                .find_map(|report| report.remote.as_ref())
+                .map_or(PeerMedia::Connected, |remote| {
+                    PeerMedia::Direct(format!("{}:{}", remote.host, remote.port))
+                })
+        })
     }
 
     fn held_on(&self, node: &str) -> Option<&HashSet<u16>> {
@@ -703,7 +810,7 @@ pub fn shared_hop_id(left: &StreamDefinition, right: &StreamDefinition) -> Optio
 pub fn derive_stream(
     stream: &StreamDefinition,
     nodes: &[NodeDescriptor],
-    _observed: &[HopStatus],
+    peers: &PeerPlanning,
     committed_ports: &mut PortAllocator,
     keys: &LinkKeys,
 ) -> Result<PlannedStream, PlacementError> {
@@ -721,7 +828,8 @@ pub fn derive_stream(
             });
         }
         let mut candidate_ports = committed_ports.clone();
-        if let Ok(planned) = derive_transports(stream, &eligible, &mut candidate_ports, keys) {
+        if let Ok(planned) = derive_transports(stream, &eligible, peers, &mut candidate_ports, keys)
+        {
             let compatibility = crate::compatibility::evaluate(stream, Some(&planned.path), nodes);
             if compatibility.aggregate().status == weave_core::StreamConditionStatus::True {
                 *committed_ports = candidate_ports;
@@ -732,19 +840,20 @@ pub fn derive_stream(
                 compatibility,
             });
         }
-        let planned = derive_transports(stream, nodes, &mut committed_ports.clone(), keys)?;
+        let planned = derive_transports(stream, nodes, peers, &mut committed_ports.clone(), keys)?;
         let compatibility = crate::compatibility::evaluate(stream, Some(&planned.path), nodes);
         return Err(PlacementError::FormatBlocked {
             detail: compatibility.aggregate().detail,
             compatibility,
         });
     }
-    derive_transports(stream, nodes, committed_ports, keys)
+    derive_transports(stream, nodes, peers, committed_ports, keys)
 }
 
 fn derive_transports(
     stream: &StreamDefinition,
     nodes: &[NodeDescriptor],
+    peers: &PeerPlanning,
     committed_ports: &mut PortAllocator,
     keys: &LinkKeys,
 ) -> Result<PlannedStream, PlacementError> {
@@ -753,11 +862,11 @@ fn derive_transports(
     } else {
         Cow::Owned(nodes.iter().map(without_rist).collect::<Vec<_>>())
     };
-    derive_on(stream, &keyed, committed_ports, keys).map_err(|error| {
+    derive_on(stream, &keyed, peers, committed_ports, keys).map_err(|error| {
         if matches!(keyed, Cow::Borrowed(_)) {
             return error;
         }
-        derive_on(stream, nodes, &mut committed_ports.clone(), keys)
+        derive_on(stream, nodes, peers, &mut committed_ports.clone(), keys)
             .ok()
             .and_then(|planned| rist_listener_node(&planned.path))
             .map_or(error, |node| PlacementError::CleartextLink { node })
@@ -765,7 +874,13 @@ fn derive_transports(
 }
 
 fn is_rist(class: &HopEndpointClass) -> bool {
-    matches!(class, HopEndpointClass::Transport(class) if class.transport == Transport::Rist)
+    match class {
+        HopEndpointClass::Transport(class) => class.transport == Transport::Rist,
+        HopEndpointClass::AnyOf(classes) => classes.iter().any(|class| {
+            matches!(class, weave_core::LinkClass::Transport(class) if class.transport == Transport::Rist)
+        }),
+        HopEndpointClass::Webrtc(_) | HopEndpointClass::Local(_) => false,
+    }
 }
 
 fn offers_rist(node: &NodeDescriptor) -> bool {
@@ -804,6 +919,7 @@ fn rist_listener_node(path: &Path) -> Option<String> {
 fn derive_on(
     stream: &StreamDefinition,
     nodes: &[NodeDescriptor],
+    peers: &PeerPlanning,
     committed_ports: &mut PortAllocator,
     keys: &LinkKeys,
 ) -> Result<PlannedStream, PlacementError> {
@@ -829,7 +945,8 @@ fn derive_on(
     let mut downstream = Vec::new();
     let mut first_paths = Vec::new();
     let mut single_path = Vec::new();
-    let mut relays = RelayCache::new(Arc::clone(&ports.held));
+    let mut peer_routes = Vec::new();
+    let mut relays = RelayCache::new(Arc::clone(&ports.held), peers);
     ports.yielding = Arc::new(ports.held.second_path_held(stream));
 
     let mut destinations: Vec<_> = stream.destinations.iter().collect();
@@ -871,6 +988,7 @@ fn derive_on(
             &mut relays,
             &second_path_relays,
         )?;
+        peer_routes.extend(chain.peer_routes.iter().cloned());
         crate::timed::check_budget(destination, chain.bridges.len() + 1, latency)?;
 
         let mut hops: Vec<DesiredHop> = Vec::with_capacity(chain.bridges.len() + 1);
@@ -882,8 +1000,14 @@ fn derive_on(
         let mut sender_attachments = None;
 
         for bridge in &chain.bridges {
-            let (up_socket, hop, attachments) =
-                plan_hop(&upstream, bridge, latency, branch_nodes, &mut ports, keys)?;
+            let (up_socket, hop, attachments) = plan_hop(
+                &upstream,
+                bridge,
+                latency,
+                branch_nodes,
+                &mut ports,
+                (keys, peers),
+            )?;
             sender_attachments.get_or_insert(attachments.upstream);
             push_egress(&mut sender_egresses, &mut hops, &branch_id, up_socket);
             hops.push(hop);
@@ -911,8 +1035,14 @@ fn derive_on(
                         id,
                         role: HopRole::Bridge,
                     };
-                    let (up_socket, hop, _) =
-                        plan_hop(&upstream, &bridge, latency, nodes, &mut ports, keys)?;
+                    let (up_socket, hop, _) = plan_hop(
+                        &upstream,
+                        &bridge,
+                        latency,
+                        nodes,
+                        &mut ports,
+                        (keys, peers),
+                    )?;
                     push_egress(&mut sender_egresses, &mut hops, &branch_id, up_socket);
                     hops.push(hop);
                 }
@@ -931,8 +1061,14 @@ fn derive_on(
             }
 
             ChainTerminal::Receiver(receiver) => {
-                let (up_socket, mut hop, attachments) =
-                    plan_hop(&upstream, receiver, latency, branch_nodes, &mut ports, keys)?;
+                let (up_socket, mut hop, attachments) = plan_hop(
+                    &upstream,
+                    receiver,
+                    latency,
+                    branch_nodes,
+                    &mut ports,
+                    (keys, peers),
+                )?;
                 push_egress(&mut sender_egresses, &mut hops, &branch_id, up_socket);
                 let socket = match dest.terminal {
                     Terminal::Srt => {
@@ -1076,6 +1212,7 @@ fn derive_on(
             hops,
         },
         single_path,
+        peer_routes,
     })
 }
 
@@ -1083,17 +1220,98 @@ fn derive_on(
 pub fn derive_path(
     stream: &StreamDefinition,
     nodes: &[NodeDescriptor],
-    observed: &[HopStatus],
+    _observed: &[HopStatus],
     committed_ports: &mut PortAllocator,
     keys: &LinkKeys,
 ) -> Result<Path, PlacementError> {
-    derive_stream(stream, nodes, observed, committed_ports, keys).map(|planned| planned.path)
+    derive_stream(
+        stream,
+        nodes,
+        &PeerPlanning::default(),
+        committed_ports,
+        keys,
+    )
+    .map(|planned| planned.path)
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PlannedStream {
     pub path: Path,
     pub single_path: Vec<SinglePath>,
+    pub peer_routes: Vec<PeerRoute>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerRoute {
+    pub destination: String,
+    pub upstream: String,
+    pub downstream: String,
+    pub choice: PeerChoice,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerChoice {
+    Webrtc {
+        media: Option<PeerMedia>,
+        missing_turn: Vec<MissingTurn>,
+    },
+    Relayed {
+        relay: String,
+        because: RelayCause,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerMedia {
+    Direct(String),
+    Relayed,
+    Connected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RelayCause {
+    WebrtcFailed(PeerFailure),
+    RelayRunning,
+}
+
+impl std::fmt::Display for PeerRoute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            destination,
+            upstream,
+            downstream,
+            choice,
+        } = self;
+        write!(f, "destination {destination}: ")?;
+        match choice {
+            PeerChoice::Webrtc {
+                media,
+                missing_turn,
+            } => {
+                write!(f, "webrtc link {upstream} to {downstream}, ")?;
+                match media {
+                    None => f.write_str("connecting")?,
+                    Some(PeerMedia::Direct(remote)) => write!(f, "media direct from {remote}")?,
+                    Some(PeerMedia::Relayed) => f.write_str("media relayed through TURN")?,
+                    Some(PeerMedia::Connected) => f.write_str("connected")?,
+                }
+                if missing_turn.is_empty() {
+                    Ok(())
+                } else {
+                    write!(f, ", {}", crate::peers::joined(missing_turn))
+                }
+            }
+            PeerChoice::Relayed { relay, because } => {
+                write!(f, "relayed through {relay}: ")?;
+                match because {
+                    RelayCause::WebrtcFailed(failure) => {
+                        write!(f, "the webrtc link {upstream} to {downstream} {failure}")
+                    }
+                    RelayCause::RelayRunning => f.write_str("the relay already carries it"),
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1177,6 +1395,7 @@ fn place_second_path(
     }
 
     let mut ports = committed_ports.clone();
+    let peers = relays.peers;
     let branch_id = second_path_branch_id(&first.destination);
     let sender = Station {
         avoid: first.sender_attachments.clone(),
@@ -1191,7 +1410,7 @@ fn place_second_path(
         &mut stations,
         (stream, &branch_id),
         &sender,
-        &receiver,
+        (&receiver, &receiver_hop_id(stream, &branch_id)),
         nodes,
         (&first.relays, &[]),
         &mut ScratchPorts::new(&ports),
@@ -1228,8 +1447,14 @@ fn place_second_path(
         listen_at: SocketAt::egress(&sender_id, &branch_id),
     };
     for bridge in &bridges {
-        let (up_socket, hop, _) =
-            plan_hop(&upstream, bridge, first.latency, nodes, &mut ports, keys)?;
+        let (up_socket, hop, _) = plan_hop(
+            &upstream,
+            bridge,
+            first.latency,
+            nodes,
+            &mut ports,
+            (keys, peers),
+        )?;
         push_egress(&mut sender_egresses, &mut new_hops, &branch_id, up_socket);
         new_hops.push(hop);
         upstream = LinkEnd {
@@ -1251,7 +1476,7 @@ fn place_second_path(
         first.latency,
         nodes,
         &mut ports,
-        keys,
+        (keys, peers),
     )?;
     push_egress(
         &mut sender_egresses,
@@ -1332,27 +1557,21 @@ fn pick_remote_relay(
                 .iter()
                 .any(|attachment| attachment.network == network && attachment.dial)
         })
-        .filter_map(|(node, link)| {
-            let ingress_role = role_for_end(link.listener, Listener::Downstream);
-            node.capabilities
-                .hop_profiles
-                .iter()
-                .any(|profile| {
-                    profile
-                        .ingress
-                        .offers_transport(link.transport, ingress_role)
-                        && profile
-                            .egress
-                            .offers_transport(Transport::Srt, SocketRole::Connect)
-                        && profile.max_egresses.is_none_or(|maximum| maximum >= 1)
-                })
-                .then(|| {
-                    let listeners =
-                        port_listener_at(link, Listener::Downstream, SocketAt::ingress(bridge))
-                            .into_iter()
-                            .collect();
-                    (node, listeners)
-                })
+        .filter(|(node, link)| {
+            node.capabilities.hop_profiles.iter().any(|profile| {
+                link.fits(&profile.ingress, Listener::Downstream)
+                    && profile
+                        .egress
+                        .offers_transport(Transport::Srt, SocketRole::Connect)
+                    && profile.max_egresses.is_none_or(|maximum| maximum >= 1)
+            })
+        })
+        .map(|(node, link)| {
+            let listeners = link
+                .port_listener(Listener::Downstream, SocketAt::ingress(bridge))
+                .into_iter()
+                .collect();
+            (node, listeners)
         });
     match relay_with_ports(candidates, &ScratchPorts::new(ports), &keep, &[]) {
         Some(relay) => relay.map(|(node, _)| node.id.clone()),
@@ -1428,7 +1647,7 @@ fn plan_hop(
     latency: u32,
     nodes: &[NodeDescriptor],
     ports: &mut PortAllocator,
-    keys: &LinkKeys,
+    keys: (&LinkKeys, &PeerPlanning),
 ) -> Result<(SocketSpec, DesiredHop, LinkAttachments), PlacementError> {
     let downstream = LinkEnd {
         station: &hop.station,
@@ -1495,6 +1714,7 @@ struct ChainHop {
 struct Chain<'a> {
     bridges: Vec<ChainHop>,
     terminal: ChainTerminal<'a>,
+    peer_routes: Vec<PeerRoute>,
 }
 
 enum ChainTerminal<'a> {
@@ -1523,17 +1743,19 @@ fn chain_hops<'a>(
 ) -> Result<Chain<'a>, PlacementError> {
     let mut ports = ScratchPorts::new(ports);
     let mut stations: Vec<Station> = Vec::with_capacity(dest.via.len());
+    let mut peer_routes = Vec::new();
     for station in dest.via.iter().map(|id| Station::relay(id)) {
-        relay_before(
+        let via_hop = bridge_hop_id(stream, destination_id, stations.len());
+        peer_routes.extend(relay_before(
             &mut stations,
             (stream, destination_id),
             source,
-            &station,
+            (&station, &via_hop),
             nodes,
             (&[], shun),
             &mut ports,
             relays,
-        )?;
+        )?);
         stations.push(station);
     }
 
@@ -1545,16 +1767,16 @@ fn chain_hops<'a>(
                 network: dest.network.map(str::to_string),
                 avoid: Vec::new(),
             };
-            relay_before(
+            peer_routes.extend(relay_before(
                 &mut stations,
                 (stream, destination_id),
                 source,
-                &station,
+                (&station, &receiver_hop_id(stream, destination_id)),
                 nodes,
                 (&[], shun),
                 &mut ports,
                 relays,
-            )?;
+            )?);
             ChainTerminal::Receiver(ChainHop {
                 station,
                 id: receiver_hop_id(stream, destination_id),
@@ -1573,20 +1795,43 @@ fn chain_hops<'a>(
         })
         .collect();
 
-    Ok(Chain { bridges, terminal })
+    Ok(Chain {
+        bridges,
+        terminal,
+        peer_routes,
+    })
 }
 
-struct RelayCache {
-    reachable: HashMap<Station, Vec<(String, LinkChoice)>>,
+struct RelayCache<'p> {
+    reachable: HashMap<Station, Vec<(String, Listened)>>,
     reports: Arc<HopReports>,
+    peers: &'p PeerPlanning,
 }
 
-impl RelayCache {
-    fn new(reports: Arc<HopReports>) -> Self {
+impl<'p> RelayCache<'p> {
+    fn new(reports: Arc<HopReports>, peers: &'p PeerPlanning) -> Self {
         Self {
             reachable: HashMap::new(),
             reports,
+            peers,
         }
+    }
+
+    fn peer_failure(
+        &self,
+        upstream: &Station,
+        downstream: &Station,
+        nodes: &[NodeDescriptor],
+    ) -> Result<Option<PeerFailure>, PlacementError> {
+        let node = |station: &Station| {
+            find_node(nodes, &station.node_id).ok_or_else(|| PlacementError::NodeNotRegistered {
+                node: station.node_id.clone(),
+            })
+        };
+        Ok(self
+            .peers
+            .failure(node(upstream)?, node(downstream)?)
+            .cloned())
     }
 
     fn running(&self, hop_id: &str) -> &[String] {
@@ -1607,14 +1852,13 @@ impl RelayCache {
         &mut self,
         upstream: &Station,
         nodes: &[NodeDescriptor],
-    ) -> &[(String, LinkChoice)] {
+    ) -> &[(String, Listened)] {
         self.reachable.entry(upstream.clone()).or_insert_with(|| {
             nodes
                 .iter()
                 .filter(|node| node.status != NodeStatus::Offline && node.id != upstream.node_id)
                 .filter_map(|node| {
-                    station_link(upstream, &Station::relay(&node.id), nodes)
-                        .ok()
+                    listened_link(upstream, &Station::relay(&node.id), nodes)
                         .map(|link| (node.id.clone(), link))
                 })
                 .collect()
@@ -1627,29 +1871,86 @@ fn relay_before(
     chain: &mut Vec<Station>,
     (stream, branch): (&str, &str),
     source: &Station,
-    next: &Station,
+    (next, next_hop): (&Station, &str),
     nodes: &[NodeDescriptor],
     (avoid_relays, shun): (&[String], &[String]),
     ports: &mut ScratchPorts,
     relays: &mut RelayCache,
-) -> Result<(), PlacementError> {
-    let upstream = chain.last().unwrap_or(source);
-    if let Err(failure) = station_link(upstream, next, nodes) {
-        let bridge = bridge_hop_id(stream, branch, chain.len());
-        let (relay, claimed) = pick_relay(
+) -> Result<Option<PeerRoute>, PlacementError> {
+    let upstream = chain.last().unwrap_or(source).clone();
+    let failure = match station_link(&upstream, next, nodes) {
+        Ok(LinkChoice::Listened(_)) => return Ok(None),
+        Ok(LinkChoice::Webrtc) => None,
+        Err(failure) => Some(failure),
+    };
+    let bridge = bridge_hop_id(stream, branch, chain.len());
+    let Some(failure) = failure else {
+        let link = PeerLinkId::new(next_hop);
+        let peers = relays.peers;
+        let route = |choice| PeerRoute {
+            destination: branch.to_string(),
+            upstream: upstream.node_id.clone(),
+            downstream: next.node_id.clone(),
+            choice,
+        };
+        let webrtc = |media| {
+            route(PeerChoice::Webrtc {
+                media,
+                missing_turn: peers.missing_turn(&link).to_vec(),
+            })
+        };
+        if let Some(media) = relays.reports.peer_media(&link) {
+            return Ok(Some(webrtc(Some(media))));
+        }
+        let failed = relays.peer_failure(&upstream, next, nodes)?;
+        let relay = pick_relay(
             nodes,
-            upstream,
+            &upstream,
             next,
-            failure,
             (avoid_relays, shun),
             ports,
             relays,
             (&bridge, branch),
-        )?;
-        ports.reserve(relay, claimed);
-        chain.push(Station::relay(&relay.id));
-    }
-    Ok(())
+        );
+        let (relay, because) = match (failed, relay) {
+            (None, Some(Ok(relay))) if relay.kept => (relay, RelayCause::RelayRunning),
+            (None, _) => return Ok(Some(webrtc(None))),
+            (Some(failure), Some(Ok(relay))) => (relay, RelayCause::WebrtcFailed(failure)),
+            (Some(failure), shortfall) => {
+                return Err(PlacementError::WebrtcFailedNoRelay {
+                    upstream: upstream.node_id.clone(),
+                    downstream: next.node_id.clone(),
+                    failure,
+                    relay: shortfall.and_then(Result::err).map(Box::new),
+                });
+            }
+        };
+        ports.reserve(relay.node, relay.claimed);
+        chain.push(Station::relay(&relay.node.id));
+        return Ok(Some(route(PeerChoice::Relayed {
+            relay: relay.node.id.clone(),
+            because,
+        })));
+    };
+    let relay = pick_relay(
+        nodes,
+        &upstream,
+        next,
+        (avoid_relays, shun),
+        ports,
+        relays,
+        (&bridge, branch),
+    )
+    .unwrap_or_else(|| Err(failure.into_error(&upstream.node_id, &next.node_id)))?;
+    ports.reserve(relay.node, relay.claimed);
+    chain.push(Station::relay(&relay.node.id));
+    Ok(None)
+}
+
+struct RelayPick<'n> {
+    node: &'n NodeDescriptor,
+    claimed: Vec<u16>,
+    kept: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1657,12 +1958,11 @@ fn pick_relay<'n>(
     nodes: &'n [NodeDescriptor],
     upstream: &Station,
     downstream: &Station,
-    failure: LinkFailure,
     (avoid, shun): (&[String], &[String]),
     ports: &ScratchPorts,
     relays: &mut RelayCache,
     (bridge, branch): (&str, &str),
-) -> Result<(&'n NodeDescriptor, Vec<u16>), PlacementError> {
+) -> Option<Result<RelayPick<'n>, PlacementError>> {
     let keep = relays.running(bridge).to_vec();
     let candidates = relays
         .reachable_from(upstream, nodes)
@@ -1670,28 +1970,21 @@ fn pick_relay<'n>(
         .filter(|(id, _)| id != &downstream.node_id && !avoid.contains(id))
         .filter_map(|(id, ingress)| {
             let node = find_node(nodes, id)?;
-            let relay = Station::relay(&node.id);
-            let egress = station_link(&relay, downstream, nodes).ok()?;
-            let ingress_role = role_for_end(ingress.listener, Listener::Downstream);
-            let egress_role = role_for_end(egress.listener, Listener::Upstream);
+            let egress = listened_link(&Station::relay(&node.id), downstream, nodes)?;
             node.capabilities
                 .hop_profiles
                 .iter()
                 .any(|profile| {
-                    profile
-                        .ingress
-                        .offers_transport(ingress.transport, ingress_role)
-                        && profile
-                            .egress
-                            .offers_transport(egress.transport, egress_role)
+                    ingress.fits(&profile.ingress, Listener::Downstream)
+                        && egress.fits(&profile.egress, Listener::Upstream)
                         && profile.max_egresses.is_none_or(|max| max >= 1)
                 })
                 .then(|| {
                     let listeners =
-                        port_listener_at(ingress, Listener::Downstream, SocketAt::ingress(bridge))
+                        ingress
+                            .port_listener(Listener::Downstream, SocketAt::ingress(bridge))
                             .into_iter()
-                            .chain(port_listener_at(
-                                &egress,
+                            .chain(egress.port_listener(
                                 Listener::Upstream,
                                 SocketAt::egress(bridge, branch),
                             ))
@@ -1699,26 +1992,13 @@ fn pick_relay<'n>(
                     (node, listeners)
                 })
         });
-    match relay_with_ports(candidates, ports, &keep, shun) {
-        Some(relay) => relay,
-        None => Err(failure.into_error(&upstream.node_id, &downstream.node_id)),
-    }
-}
-
-fn port_listener_at(link: &LinkChoice, end: Listener, at: SocketAt) -> Option<PortListener> {
-    if link.listener != end {
-        return None;
-    }
-    match link.transport {
-        Transport::Srt => Some(PortListener::Srt(link.attachment.clone(), at)),
-        Transport::Rist => link
-            .attachment
-            .listeners
-            .rist
-            .clone()
-            .map(|listener| PortListener::Rist(listener, at)),
-        Transport::Whip | Transport::Whep => None,
-    }
+    relay_with_ports(candidates, ports, &keep, shun).map(|relay| {
+        relay.map(|(node, claimed)| RelayPick {
+            kept: keep.contains(&node.id),
+            node,
+            claimed,
+        })
+    })
 }
 
 enum PortListener {
@@ -1868,12 +2148,39 @@ impl ResolvedEnd<'_> {
     }
 }
 
+enum LinkChoice {
+    Listened(Listened),
+    Webrtc,
+}
+
 #[derive(Clone)]
-struct LinkChoice {
+struct Listened {
     transport: Transport,
     listener: Listener,
     attachment: NetworkAttachment,
     dialer_attachments: Vec<String>,
+}
+
+impl Listened {
+    fn fits(&self, class: &HopEndpointClass, end: Listener) -> bool {
+        class.offers_transport(self.transport, role_for_end(self.listener, end))
+    }
+
+    fn port_listener(&self, end: Listener, at: SocketAt) -> Option<PortListener> {
+        if self.listener != end {
+            return None;
+        }
+        match self.transport {
+            Transport::Srt => Some(PortListener::Srt(self.attachment.clone(), at)),
+            Transport::Rist => self
+                .attachment
+                .listeners
+                .rist
+                .clone()
+                .map(|listener| PortListener::Rist(listener, at)),
+            Transport::Whip | Transport::Whep => None,
+        }
+    }
 }
 
 struct LinkAttachments {
@@ -1922,15 +2229,21 @@ fn link_transport(
                     continue;
                 }
                 if let Some(dialer_attachments) = dialer.dialing_attachments(&attachment.network) {
-                    return Ok(LinkChoice {
+                    return Ok(LinkChoice::Listened(Listened {
                         transport,
                         listener,
                         attachment: attachment.clone(),
                         dialer_attachments,
-                    });
+                    }));
                 }
             }
         }
+    }
+    if upstream.node.id != downstream.node.id
+        && upstream.node.capabilities.offers_webrtc_egress()
+        && downstream.node.capabilities.offers_webrtc_ingress()
+    {
+        return Ok(LinkChoice::Webrtc);
     }
     Err(if complementary {
         LinkFailure::Undialable
@@ -1949,6 +2262,17 @@ fn station_link(
     link_transport(&up, &down)
 }
 
+fn listened_link(
+    upstream: &Station,
+    downstream: &Station,
+    nodes: &[NodeDescriptor],
+) -> Option<Listened> {
+    match station_link(upstream, downstream, nodes) {
+        Ok(LinkChoice::Listened(link)) => Some(link),
+        Ok(LinkChoice::Webrtc) | Err(_) => None,
+    }
+}
+
 fn has_listener(attachment: &NetworkAttachment, transport: Transport) -> bool {
     match transport {
         Transport::Srt => attachment.listeners.srt.is_some(),
@@ -1964,13 +2288,30 @@ fn plan_link(
     latency: u32,
     nodes: &[NodeDescriptor],
     ports: &mut PortAllocator,
-    keys: &LinkKeys,
+    (keys, peers): (&LinkKeys, &PeerPlanning),
 ) -> Result<PlannedLink, PlacementError> {
     let up = resolve_station(upstream.station, nodes)?;
     let down = resolve_station(downstream.station, nodes)?;
-    let choice = link_transport(&up, &down).map_err(|failure| {
+    let choice = match link_transport(&up, &down).map_err(|failure| {
         failure.into_error(&upstream.station.node_id, &downstream.station.node_id)
-    })?;
+    })? {
+        LinkChoice::Listened(choice) => choice,
+        LinkChoice::Webrtc => {
+            let link = PeerLinkId::new(downstream.hop_id);
+            let socket = SocketSpec::Webrtc(keys.peer_socket(PeerAttempt {
+                generation: ports.held.peer_generation(&link, peers, keys),
+                link,
+            }));
+            return Ok(PlannedLink {
+                upstream: socket.clone(),
+                downstream: socket,
+                attachments: LinkAttachments {
+                    upstream: Vec::new(),
+                    downstream: Vec::new(),
+                },
+            });
+        }
+    };
 
     let (host, listen_at) = match choice.listener {
         Listener::Downstream => (&down, &downstream.listen_at),
@@ -2943,6 +3284,7 @@ mod contract_tests {
                 revision: hop.revision(),
                 state: HopState::Provisioned,
                 ingress: SocketStatus {
+                    peer: None,
                     condition: LinkCondition::Flowing,
                     resolved: None,
                     stats: None,
@@ -2954,6 +3296,7 @@ mod contract_tests {
                     .map(|egress| EgressStatus {
                         branch_id: egress.branch_id.clone(),
                         status: SocketStatus {
+                            peer: None,
                             condition: if egress.branch_id == "preview" {
                                 LinkCondition::Connecting
                             } else {
@@ -3765,6 +4108,7 @@ mod tests {
             revision: String::new(),
             state: HopState::Provisioned,
             ingress: SocketStatus {
+                peer: None,
                 condition: LinkCondition::Idle,
                 resolved: Some(ResolvedAddr {
                     host: "172.27.0.10".to_string(),
@@ -3776,6 +4120,7 @@ mod tests {
             egresses: vec![EgressStatus {
                 branch_id: "studio".to_string(),
                 status: SocketStatus {
+                    peer: None,
                     condition: LinkCondition::Idle,
                     resolved: None,
                     stats: None,
@@ -3959,6 +4304,7 @@ mod tests {
                 revision: hop.revision(),
                 state: HopState::Provisioned,
                 ingress: SocketStatus {
+                    peer: None,
                     condition: LinkCondition::Flowing,
                     resolved: None,
                     stats: None,
@@ -3970,6 +4316,7 @@ mod tests {
                     .map(|egress| EgressStatus {
                         branch_id: egress.branch_id.clone(),
                         status: SocketStatus {
+                            peer: None,
                             condition: LinkCondition::Flowing,
                             resolved: None,
                             stats: None,
@@ -4589,7 +4936,7 @@ mod tests {
         derive_stream(
             stream,
             nodes,
-            &[],
+            &PeerPlanning::default(),
             &mut PortAllocator::new(),
             &LinkKeys::for_tests(),
         )

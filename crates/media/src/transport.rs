@@ -307,6 +307,7 @@ impl SocketTask {
             (false, _) => LinkCondition::Connecting,
         };
         SocketStatus {
+            peer: None,
             condition,
             resolved: Some(ResolvedAddr {
                 host: match &self.spec {

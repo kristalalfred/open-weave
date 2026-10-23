@@ -9,5 +9,5 @@ belong to applications. Encoding, transcoding, bonding and merging belong to
 media runtimes.
 
 Not scheduled: additional capture inputs, WebRTC links between Strom nodes,
-mixed-transport fan-out, protocol plugins, port coordination with other
-orchestrators, and automatic format conversion.
+mixed-transport fan-out on Strom nodes, protocol plugins, port coordination
+with other orchestrators, and automatic format conversion.

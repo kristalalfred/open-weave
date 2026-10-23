@@ -228,6 +228,27 @@
                             ]
                           },
                           {
+                            "type": "object",
+                            "properties": {
+                              "transport": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "webrtc"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "transport"
+                            ]
+                          },
+                          {
                             "anyOf": [
                               {
                                 "type": "string",
@@ -240,6 +261,80 @@
                                 "type": "string"
                               }
                             ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "transport": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "srt",
+                                            "whip",
+                                            "whep",
+                                            "rist"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    "roles": {
+                                      "type": "array",
+                                      "items": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "listen",
+                                              "connect"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string"
+                                          }
+                                        ]
+                                      },
+                                      "minItems": 1
+                                    }
+                                  },
+                                  "required": [
+                                    "transport",
+                                    "roles"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "transport": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "webrtc"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "transport"
+                                  ]
+                                },
+                                {
+                                  "type": "object"
+                                }
+                              ]
+                            }
                           }
                         ]
                       },
@@ -289,6 +384,27 @@
                             ]
                           },
                           {
+                            "type": "object",
+                            "properties": {
+                              "transport": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "webrtc"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "transport"
+                            ]
+                          },
+                          {
                             "anyOf": [
                               {
                                 "type": "string",
@@ -301,6 +417,80 @@
                                 "type": "string"
                               }
                             ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "transport": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "srt",
+                                            "whip",
+                                            "whep",
+                                            "rist"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    "roles": {
+                                      "type": "array",
+                                      "items": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "listen",
+                                              "connect"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string"
+                                          }
+                                        ]
+                                      },
+                                      "minItems": 1
+                                    }
+                                  },
+                                  "required": [
+                                    "transport",
+                                    "roles"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "transport": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "webrtc"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "transport"
+                                  ]
+                                },
+                                {
+                                  "type": "object"
+                                }
+                              ]
+                            }
                           }
                         ]
                       },

@@ -32,8 +32,8 @@ capabilities:
 
 | Field | Meaning |
 |---|---|
-| `ingress` | One transport (`srt`, `rist`, `whip`, `whep`) with the socket `roles` it supports, or `input`: one of the node's [inputs](#inputs-and-outputs). |
-| `egress` | One transport, shared by every egress of the hop, or `output`: one of the node's [outputs](#inputs-and-outputs). |
+| `ingress` | One transport (`srt`, `rist`, `whip`, `whep`) with the socket `roles` it supports, `{ transport: webrtc }` with no roles, or `input`: one of the node's [inputs](#inputs-and-outputs). |
+| `egress` | One transport, or a list of two or more that the hop's egresses may mix, or `output`: one of the node's [outputs](#inputs-and-outputs). |
 | `max_egresses` | Optional limit on egresses per hop. |
 | `accepts` | Optional. The media the ingress takes, in the shape of a destination's [`accepts`](streams.md#formats). |
 | `media_behavior` | `preserve` or `unknown` (default). Never inferred from transport or profile id. |
@@ -63,12 +63,13 @@ carries. Absent means unknown, and the hops carry both.
 | Native SRT | `srt-forward`, `srt-timed-origin`, `srt-timed-forward`, `srt-timed-receiver` |
 | Strom | `srt-forward`, `whip-to-srt`, `srt-to-whep`, `whip-to-whep`, `srt-to-rist`, `rist-to-srt` |
 | Browser | `camera-to-whip`, `whep-to-display`, each with one egress |
-| Spaghetti | `app-audio-to-srt` with up to eight egresses, `srt-to-speaker` with one |
+| Spaghetti | `app-audio-out` with up to eight SRT or WebRTC egresses, `srt-to-speaker` and `webrtc-to-speaker` with one |
 
 All native SRT profiles and Strom's `srt-forward` advertise `preserve`, with
 `accepts: {}`. Only the native timed receiver advertises merge support. All other
-Strom profiles, both browser profiles and both spaghetti profiles advertise
-`unknown`. `srt-to-speaker` accepts AAC audio in MPEG-TS. RIST packetization
+Strom profiles, both browser profiles and every spaghetti profile advertise
+`unknown`. `srt-to-speaker` accepts AAC audio in MPEG-TS, and `webrtc-to-speaker`
+Opus audio in RTP. RIST packetization
 and WebRTC gateways do not establish output compatibility. Stored profiles
 without this metadata remain unknown until registration supplies it.
 
@@ -245,13 +246,19 @@ URL and port. RIST comes after SRT, WHIP and WHEP, and only for a stream that
 [allows cleartext links](streams.md#cleartext-links). Only the downstream end of
 a RIST link can listen, so a receiver behind NAT cannot take RIST.
 
+When none of those links is possible between two different nodes and the
+upstream offers a `webrtc` egress and the downstream a `webrtc` ingress, the
+controller plans a WebRTC link, whose ICE uses a direct path or TURN, before it
+considers a relay.
+
 Streams are planned in name order, and a stream's destinations in id order.
 
 ### Relays
 
-When no direct link works, the controller tries one online transit node whose
-profile supports the needed ingress-to-egress shape and whose attachments carry
-both halves. Of those, it takes the lowest id that has a free port for each SRT
+When no direct link works, or a WebRTC link between the same two nodes on the
+same sites failed in the last 120 s, the controller tries one online transit
+node whose profile supports the needed ingress-to-egress shape and whose
+attachments carry both halves with listener links. Of those, it takes the lowest id that has a free port for each SRT
 listener the bridge would host, so a fan-out that fills one relay's port range
 moves on to the next. When every candidate is out of ports, the stream stays
 unplaced and the reason names the lowest-id one. Any node with a fitting

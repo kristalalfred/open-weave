@@ -291,6 +291,7 @@ fn one_destination_stream(name: &str) -> StreamDefinition {
 
 fn flowing() -> SocketStatus {
     SocketStatus {
+        peer: None,
         condition: LinkCondition::Flowing,
         resolved: None,
         stats: None,

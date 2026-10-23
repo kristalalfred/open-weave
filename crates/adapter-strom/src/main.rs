@@ -390,6 +390,7 @@ async fn hop_status(
 
 fn pending_statuses(desired: &[DesiredHop], listener_host: Option<&str>) -> Vec<HopStatus> {
     let idle = |spec: &SocketSpec| SocketStatus {
+        peer: None,
         condition: LinkCondition::Idle,
         resolved: resolved_addr(spec, listener_host),
         stats: None,
@@ -599,6 +600,7 @@ async fn hop_statuses(
             );
             let condition = reading.condition(spec, tracker.advanced(&hop.id, side), stalled);
             SocketStatus {
+                peer: None,
                 condition,
                 resolved: resolved_addr(spec, listener_host),
                 stats: reading.stats,
@@ -674,7 +676,7 @@ impl SocketReading {
                 .map(|stats| Self::sessions(stats.ingress(), |b| b.received))
                 .unwrap_or_default(),
             SocketSpec::Rist(_) => Self::srt_egresses(srt),
-            SocketSpec::Local(_) => Self::default(),
+            SocketSpec::Webrtc(_) | SocketSpec::Local(_) => Self::default(),
         }
     }
 
@@ -690,7 +692,7 @@ impl SocketReading {
                 .map(|stats| Self::sessions(stats.egress_at(index), |b| b.sent))
                 .unwrap_or_default(),
             SocketSpec::Rist(_) => Self::srt_ingress(srt),
-            SocketSpec::Local(_) => Self::default(),
+            SocketSpec::Webrtc(_) | SocketSpec::Local(_) => Self::default(),
         }
     }
 
@@ -747,7 +749,7 @@ impl SocketReading {
             SocketSpec::Rist(socket) => {
                 rist_condition(socket.role(), self.connected, advanced, stalled)
             }
-            SocketSpec::Local(_) => LinkCondition::Idle,
+            SocketSpec::Webrtc(_) | SocketSpec::Local(_) => LinkCondition::Idle,
         }
     }
 }

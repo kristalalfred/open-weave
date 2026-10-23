@@ -1299,6 +1299,27 @@
                                 ]
                               },
                               {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "webrtc"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "transport"
+                                ]
+                              },
+                              {
                                 "anyOf": [
                                   {
                                     "type": "string",
@@ -1311,6 +1332,80 @@
                                     "type": "string"
                                   }
                                 ]
+                              },
+                              {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "transport": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "srt",
+                                                "whip",
+                                                "whep",
+                                                "rist"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string"
+                                            }
+                                          ]
+                                        },
+                                        "roles": {
+                                          "type": "array",
+                                          "items": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "listen",
+                                                  "connect"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string"
+                                              }
+                                            ]
+                                          },
+                                          "minItems": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "transport",
+                                        "roles"
+                                      ]
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "transport": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "webrtc"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "transport"
+                                      ]
+                                    },
+                                    {
+                                      "type": "object"
+                                    }
+                                  ]
+                                }
                               }
                             ]
                           },
@@ -1360,6 +1455,27 @@
                                 ]
                               },
                               {
+                                "type": "object",
+                                "properties": {
+                                  "transport": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "webrtc"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "transport"
+                                ]
+                              },
+                              {
                                 "anyOf": [
                                   {
                                     "type": "string",
@@ -1372,6 +1488,80 @@
                                     "type": "string"
                                   }
                                 ]
+                              },
+                              {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "transport": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "srt",
+                                                "whip",
+                                                "whep",
+                                                "rist"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string"
+                                            }
+                                          ]
+                                        },
+                                        "roles": {
+                                          "type": "array",
+                                          "items": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "listen",
+                                                  "connect"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string"
+                                              }
+                                            ]
+                                          },
+                                          "minItems": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "transport",
+                                        "roles"
+                                      ]
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "transport": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "webrtc"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "transport"
+                                      ]
+                                    },
+                                    {
+                                      "type": "object"
+                                    }
+                                  ]
+                                }
                               }
                             ]
                           },
@@ -5590,6 +5780,7 @@
                             "whip",
                             "whep",
                             "rist",
+                            "webrtc",
                             "input",
                             "output"
                           ]
@@ -5702,6 +5893,54 @@
                           ]
                         }
                       }
+                    },
+                    "link": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "generation": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint32",
+                      "minimum": 0
+                    },
+                    "stun": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "turn": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "address": {
+                            "type": "string"
+                          },
+                          "username": {
+                            "type": "string"
+                          },
+                          "credential": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "address",
+                          "username",
+                          "credential"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -5723,6 +5962,7 @@
                             "whip",
                             "whep",
                             "rist",
+                            "webrtc",
                             "input",
                             "output"
                           ]
@@ -5834,6 +6074,54 @@
                             32
                           ]
                         }
+                      }
+                    },
+                    "link": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "generation": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint32",
+                      "minimum": 0
+                    },
+                    "stun": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "turn": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "address": {
+                            "type": "string"
+                          },
+                          "username": {
+                            "type": "string"
+                          },
+                          "credential": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "address",
+                          "username",
+                          "credential"
+                        ]
                       }
                     }
                   },
@@ -5858,6 +6146,7 @@
                               "whip",
                               "whep",
                               "rist",
+                              "webrtc",
                               "input",
                               "output"
                             ]
@@ -5969,6 +6258,54 @@
                               32
                             ]
                           }
+                        }
+                      },
+                      "link": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "generation": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "format": "uint32",
+                        "minimum": 0
+                      },
+                      "stun": {
+                        "type": [
+                          "array",
+                          "null"
+                        ],
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "turn": {
+                        "type": [
+                          "array",
+                          "null"
+                        ],
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "address": {
+                              "type": "string"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "credential": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "address",
+                            "username",
+                            "credential"
+                          ]
                         }
                       }
                     },

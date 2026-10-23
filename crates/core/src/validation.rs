@@ -212,6 +212,15 @@ pub fn validate_node(node: &DeclaredNode) -> Vec<ValidationIssue> {
                     format!("a hop {end} cannot be an {wrong}"),
                 ));
             }
+            if let HopEndpointClass::AnyOf(classes) = class
+                && classes.len() < 2
+            {
+                issues.push(ValidationIssue::new(
+                    format!("node.capabilities.hop_profiles[{index}].{end}"),
+                    "short_class_list",
+                    "a list of link classes names two or more transports",
+                ));
+            }
         }
     }
     issues.extend(validate_local_io(&node.inputs, &node.outputs, "node."));
@@ -1384,6 +1393,46 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn a_class_list_offers_each_transport_it_names() {
+        let mut node = node_with(Vec::new(), Vec::new());
+        node.capabilities.hop_profiles[0].egress = serde_json::from_value(serde_json::json!([
+            { "transport": "srt", "roles": ["connect"] },
+            { "transport": "webrtc" }
+        ]))
+        .expect("a class list");
+        let egress = &node.capabilities.hop_profiles[0].egress;
+        assert!(codes(&node).is_empty());
+        assert!(egress.matches_socket(&crate::SocketSpec::srt_connect("10.0.0.2", 23000, 200)));
+        assert!(!egress.matches_socket(&crate::SocketSpec::srt_listen(23000, 200)));
+        assert!(egress.offers_webrtc());
+        assert!(node.capabilities.offers_webrtc_egress());
+        assert!(!node.capabilities.offers_webrtc_ingress());
+
+        node.capabilities.hop_profiles[0].egress =
+            serde_json::from_value(serde_json::json!([{ "transport": "webrtc" }]))
+                .expect("a class list");
+        assert_eq!(
+            codes(&node),
+            [(
+                "node.capabilities.hop_profiles[0].egress".to_string(),
+                "short_class_list".to_string()
+            )]
+        );
+        for unparsable in [
+            serde_json::json!([{ "transport": "webrtc" }, "output"]),
+            serde_json::json!([
+                { "transport": "webrtc" },
+                [{ "transport": "srt", "roles": ["connect"] }, { "transport": "webrtc" }]
+            ]),
+        ] {
+            assert!(
+                serde_json::from_value::<crate::HopEndpointClass>(unparsable.clone()).is_err(),
+                "{unparsable}"
+            );
+        }
     }
 
     #[test]

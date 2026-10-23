@@ -182,6 +182,7 @@ const COLORS = {
   converged: "var(--green)", converging: "var(--amber)", starting: "var(--gray)",
   ready: "var(--green)", offline: "var(--red)",
   connecting: "var(--amber)", connected: "var(--blue)", stalled: "var(--red)",
+  unreachable: "var(--red)", lost: "var(--red)",
 };
 const HOLLOW = new Set(["idle", "pending", "connecting", "starting", "unreported"]);
 const INPUT_TRANSPORT = "input";
@@ -394,7 +395,7 @@ function renderStreams(streams) {
 
 function renderLegend() {
   document.getElementById("legend").replaceChildren(
-    ...["idle", "connecting", "connected", "flowing", "stalled"].map(c => pill(c)),
+    ...["idle", "connecting", "connected", "flowing", "stalled", "unreachable", "lost"].map(c => pill(c)),
   );
 }
 

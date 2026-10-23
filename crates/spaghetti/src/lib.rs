@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-pub const IPC_VERSION: u32 = 2;
+pub const IPC_VERSION: u32 = 3;
 pub const DEFAULT_SOCKET: &str = "/tmp/spaghetti.sock";
 
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -21,12 +21,52 @@ pub enum TapMode {
 pub enum SourceSpec {
     Tap { pids: Vec<u32>, mode: TapMode },
     Srt(SrtSocket),
+    WebRtc(WebRtcPeer),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Destination {
     Device { uid: String },
     Srt(SrtSocket),
+    WebRtc(WebRtcPeer),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebRtcPeer {
+    pub link: String,
+    pub generation: u32,
+    pub role: PeerRole,
+    pub stun: Vec<String>,
+    pub turn: Vec<TurnServer>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnServer {
+    pub address: String,
+    pub username: String,
+    pub credential: String,
+}
+
+impl std::fmt::Debug for TurnServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TurnServer")
+            .field("address", &self.address)
+            .field("username", &self.username)
+            .field("credential", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PeerRole {
+    Offer,
+    Answer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PeerRef {
+    Source(u32),
+    Route(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +90,8 @@ pub enum FlowState {
     Connected,
     Flowing,
     Stalled,
+    Unreachable,
+    Lost,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +99,7 @@ pub struct FlowStatus {
     pub state: FlowState,
     pub bytes: u64,
     pub peer: Option<String>,
+    pub relayed: bool,
     pub packets_lost: u64,
     pub packets_retransmitted: u64,
 }
@@ -84,6 +127,7 @@ pub struct SourceInfo {
     pub tag: Option<String>,
     pub label: String,
     pub status: FlowStatus,
+    pub local_description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -93,6 +137,7 @@ pub struct RouteInfo {
     pub destination: Destination,
     pub volume: f32,
     pub status: FlowStatus,
+    pub local_description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -129,6 +174,11 @@ enum Request<'a> {
     },
     ListRoutes,
     ListSystemDevices,
+    SetRemoteDescription {
+        peer: PeerRef,
+        generation: u32,
+        sdp: &'a str,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -299,6 +349,27 @@ impl SpaghettiClient {
         }
     }
 
+    pub async fn set_remote_description(
+        &self,
+        peer: PeerRef,
+        generation: u32,
+        sdp: &str,
+    ) -> Result<()> {
+        match self
+            .call(&Request::SetRemoteDescription {
+                peer,
+                generation,
+                sdp,
+            })
+            .await?
+        {
+            Response::Ok => Ok(()),
+            _ => Err(SpaghettiError::Unexpected {
+                request: "SetRemoteDescription",
+            }),
+        }
+    }
+
     async fn call(&self, request: &Request<'_>) -> Result<Response> {
         tokio::time::timeout(CALL_TIMEOUT, self.exchange(request))
             .await
@@ -394,7 +465,8 @@ mod tests {
                 "spec": { "Tap": { "pids": [731], "mode": "Mirror" } },
                 "tag": "weave:hop",
                 "label": "Music",
-                "status": { "state": "Flowing", "bytes": 64, "peer": null, "packets_lost": 0, "packets_retransmitted": 0 }
+                "status": { "state": "Flowing", "bytes": 64, "peer": null, "relayed": false, "packets_lost": 0, "packets_retransmitted": 0 },
+                "local_description": null
             }] }),
         ])
         .await;
@@ -431,6 +503,149 @@ mod tests {
             } }, "volume": 1.0 } })
         );
         assert_eq!(seen[2], json!("ListSources"));
+    }
+
+    fn golden<T: Serialize + serde::de::DeserializeOwned + std::fmt::Debug + PartialEq>(
+        value: &T,
+        json: &str,
+    ) {
+        assert_eq!(serde_json::to_string(value).unwrap(), json);
+        assert_eq!(&serde_json::from_str::<T>(json).unwrap(), value);
+    }
+
+    fn read<T: serde::de::DeserializeOwned + std::fmt::Debug + PartialEq>(json: &str, value: &T) {
+        assert_eq!(&serde_json::from_str::<T>(json).unwrap(), value);
+    }
+
+    fn answering() -> WebRtcPeer {
+        WebRtcPeer {
+            link: "link-7".into(),
+            generation: 2,
+            role: PeerRole::Answer,
+            stun: vec!["stun.l.google.com:19302".into(), "203.0.113.9:3478".into()],
+            turn: vec![TurnServer {
+                address: "turn.example.net:3478".into(),
+                username: "1767225600:link-7".into(),
+                credential: "c2VjcmV0".into(),
+            }],
+        }
+    }
+
+    fn offering() -> WebRtcPeer {
+        WebRtcPeer {
+            link: "link-7".into(),
+            generation: 3,
+            role: PeerRole::Offer,
+            stun: Vec::new(),
+            turn: Vec::new(),
+        }
+    }
+
+    const ANSWERING: &str = r#"{"link":"link-7","generation":2,"role":"Answer","stun":["stun.l.google.com:19302","203.0.113.9:3478"],"turn":[{"address":"turn.example.net:3478","username":"1767225600:link-7","credential":"c2VjcmV0"}]}"#;
+    const OFFERING: &str = r#"{"link":"link-7","generation":3,"role":"Offer","stun":[],"turn":[]}"#;
+
+    #[test]
+    fn webrtc_specs_match_the_daemons_ipc_3_shapes() {
+        golden(&answering(), ANSWERING);
+        golden(&offering(), OFFERING);
+        golden(
+            &SourceSpec::WebRtc(answering()),
+            &format!(r#"{{"WebRtc":{ANSWERING}}}"#),
+        );
+        golden(
+            &Destination::WebRtc(offering()),
+            &format!(r#"{{"WebRtc":{OFFERING}}}"#),
+        );
+        golden(
+            &answering().turn[0],
+            r#"{"address":"turn.example.net:3478","username":"1767225600:link-7","credential":"c2VjcmV0"}"#,
+        );
+        golden(&PeerRole::Offer, r#""Offer""#);
+        golden(&PeerRole::Answer, r#""Answer""#);
+        golden(&PeerRef::Source(4), r#"{"Source":4}"#);
+        golden(&PeerRef::Route(9), r#"{"Route":9}"#);
+        golden(&FlowState::Unreachable, r#""Unreachable""#);
+        golden(&FlowState::Lost, r#""Lost""#);
+        let debug = format!("{:?}", answering());
+        assert!(debug.contains("1767225600:link-7"), "{debug}");
+        assert!(!debug.contains("c2VjcmV0"), "{debug}");
+    }
+
+    #[test]
+    fn webrtc_requests_match_the_daemons_ipc_3_shapes() {
+        let source = SourceSpec::WebRtc(answering());
+        let destination = Destination::WebRtc(offering());
+        for (request, json) in [
+            (
+                Request::SetRemoteDescription {
+                    peer: PeerRef::Route(9),
+                    generation: 3,
+                    sdp: "v=0\r\no=- 1 2 IN IP4 0.0.0.0\r\n",
+                },
+                r#"{"SetRemoteDescription":{"peer":{"Route":9},"generation":3,"sdp":"v=0\r\no=- 1 2 IN IP4 0.0.0.0\r\n"}}"#.to_string(),
+            ),
+            (
+                Request::CreateSource {
+                    source: &source,
+                    tag: Some("mic"),
+                },
+                format!(r#"{{"CreateSource":{{"source":{{"WebRtc":{ANSWERING}}},"tag":"mic"}}}}"#),
+            ),
+            (
+                Request::CreateRoute {
+                    source_id: 4,
+                    destination: &destination,
+                    volume: 1.0,
+                },
+                format!(r#"{{"CreateRoute":{{"source_id":4,"destination":{{"WebRtc":{OFFERING}}},"volume":1.0}}}}"#),
+            ),
+        ] {
+            assert_eq!(serde_json::to_string(&request).unwrap(), json);
+        }
+    }
+
+    #[test]
+    fn listings_match_the_daemons_ipc_3_shapes() {
+        read(
+            &format!(
+                r#"{{"source_id":4,"spec":{{"WebRtc":{ANSWERING}}},"tag":null,"label":"link-7","status":{{"state":"Connecting","bytes":0,"peer":null,"relayed":false,"packets_lost":0,"packets_retransmitted":0}},"local_description":"v=0\r\n"}}"#
+            ),
+            &SourceInfo {
+                source_id: 4,
+                spec: SourceSpec::WebRtc(answering()),
+                tag: None,
+                label: "link-7".into(),
+                status: FlowStatus {
+                    state: FlowState::Connecting,
+                    bytes: 0,
+                    peer: None,
+                    relayed: false,
+                    packets_lost: 0,
+                    packets_retransmitted: 0,
+                },
+                local_description: Some("v=0\r\n".into()),
+            },
+        );
+        read(
+            &format!(
+                r#"{{"route_id":9,"source_id":4,"destination":{{"WebRtc":{OFFERING}}},"volume":0.5,"status":{{"state":"Flowing","bytes":1200,"peer":"203.0.113.1:3478","relayed":true,"packets_lost":3,"packets_retransmitted":0}},"local_description":null}}"#
+            ),
+            &RouteInfo {
+                route_id: 9,
+                source_id: 4,
+                destination: Destination::WebRtc(offering()),
+                volume: 0.5,
+                status: FlowStatus {
+                    state: FlowState::Flowing,
+                    bytes: 1200,
+                    peer: Some("203.0.113.1:3478".into()),
+                    relayed: true,
+                    packets_lost: 3,
+                    packets_retransmitted: 0,
+                },
+                local_description: None,
+            },
+        );
     }
 
     #[tokio::test]

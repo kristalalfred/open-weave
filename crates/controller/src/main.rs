@@ -7,6 +7,9 @@ mod keys;
 mod outside_peer_tests;
 mod path;
 #[cfg(test)]
+mod peer_link_tests;
+mod peers;
+#[cfg(test)]
 mod port_hold_tests;
 #[cfg(test)]
 mod redundant_paths_tests;
@@ -166,6 +169,7 @@ struct AppState {
     webhooks: Option<Arc<webhook::Emitter>>,
     keys: LinkKeys,
     unsaved: Arc<std::sync::Mutex<Unsaved>>,
+    peers: Arc<std::sync::Mutex<peers::Peers>>,
 }
 
 #[derive(Default)]
@@ -177,6 +181,12 @@ struct Unsaved {
 impl AppState {
     fn unsaved(&self) -> std::sync::MutexGuard<'_, Unsaved> {
         self.unsaved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn peers(&self) -> std::sync::MutexGuard<'_, peers::Peers> {
+        self.peers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -285,6 +295,7 @@ impl AppState {
             webhooks,
             keys,
             unsaved: Arc::default(),
+            peers: Arc::default(),
         })
     }
 
@@ -427,6 +438,10 @@ impl From<&weave_core::SocketSpec> for SocketView {
                 port: Some(socket.port()),
                 ..bare(Transport::Rist.name(), Some(socket.role().name()))
             },
+            SocketSpec::Webrtc(socket) => Self {
+                id: Some(socket.attempt.link.to_string()),
+                ..bare(weave_core::WEBRTC_TRANSPORT, None)
+            },
             SocketSpec::Local(socket) => Self {
                 id: Some(socket.id.clone()),
                 ..bare(socket.end.name(), None)
@@ -458,6 +473,7 @@ async fn main() -> Result<()> {
         );
     }
     let (keys, secret_source) = LinkKeys::from_env()?;
+    let keys = keys.with_ice(keys::Ice::from_env()?);
     if secret_source == SecretSource::Generated {
         tracing::warn!(
             "{} unset: generated a random one, so every SRT link key changes when the controller restarts or another controller takes over",
@@ -875,8 +891,24 @@ async fn reconcile_tick(state: &AppState) {
         .iter()
         .map(|(name, stream)| (name.clone(), stream.source_revision))
         .collect();
-    let mut outcome =
-        reconcile_with_revisions(definitions, &observed, &state.keys, &source_revisions);
+    let now = Instant::now();
+    let planning = {
+        let mut peers = state.peers();
+        peers.observe(&observed.hops, &observed.nodes, now);
+        peers.planning(now, unix_now())
+    };
+    let mut outcome = reconcile_with_revisions(
+        definitions,
+        &observed,
+        &state.keys,
+        &planning,
+        &source_revisions,
+    );
+    state.peers().serve(
+        outcome.desired_by_node.values().flatten(),
+        &observed.nodes,
+        now,
+    );
     for status in &mut outcome.streams {
         let stored = streams
             .get(&status.name)
@@ -977,6 +1009,10 @@ fn now_rfc3339() -> String {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default()
+}
+
+fn unix_now() -> u64 {
+    u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp()).unwrap_or_default()
 }
 
 fn stamp_condition_transition_times(
@@ -1204,6 +1240,10 @@ fn router(state: AppState, north: Guard, south: NodeGuard) -> Router {
         .route(ROUTE_NODE_REGISTER, post(register_node))
         .route(ROUTE_NODE_HEARTBEAT, post(node_heartbeat))
         .route(ROUTE_NODE_DESIRED, get(get_desired))
+        .route(
+            weave_core::ROUTE_NODE_SIGNALLING,
+            post(exchange_descriptions),
+        )
         .route(ROUTE_ENDPOINTS, get(list_endpoints))
         .route(ROUTE_STATE, get(get_state))
         .layer(axum::middleware::from_fn_with_state(
@@ -1939,10 +1979,12 @@ async fn plan_stream(
     let nodes = state.nodes.read().await;
     let observed = observed_state(&nodes);
     drop(nodes);
+    let planning = state.peers().planning(Instant::now(), unix_now());
     let mut outcome = reconcile_with_revisions(
         streams.into_values().collect(),
         &observed,
         &state.keys,
+        &planning,
         &source_revisions,
     );
     let endpoints = outcome.endpoints.remove(&stream.name);
@@ -1955,7 +1997,7 @@ async fn plan_stream(
         .hops_by_stream
         .remove(&stream.name)
         .unwrap_or_default();
-    withhold_passphrases(&mut hops);
+    withhold_secrets(&mut hops);
     let status = if !stream.enabled {
         PlanStatus::Disabled
     } else if hops.is_empty() {
@@ -1986,10 +2028,12 @@ async fn plan_stream(
     .into_response()
 }
 
-fn withhold_passphrases(hops: &mut [DesiredHop]) {
+fn withhold_secrets(hops: &mut [DesiredHop]) {
     for socket in hops.iter_mut().flat_map(DesiredHop::sockets_mut) {
-        if let weave_core::SocketSpec::Srt(socket) = socket {
-            socket.params_mut().passphrase = None;
+        match socket {
+            weave_core::SocketSpec::Srt(socket) => socket.params_mut().passphrase = None,
+            weave_core::SocketSpec::Webrtc(socket) => socket.turn.clear(),
+            _ => {}
         }
     }
 }
@@ -2439,6 +2483,33 @@ async fn get_desired(
     }
 }
 
+async fn exchange_descriptions(
+    State(state): State<AppState>,
+    Extension(caller): Extension<NodeCaller>,
+    Path(node_id): Path<String>,
+    payload: Result<Json<weave_core::SignallingExchange>, JsonRejection>,
+) -> Response {
+    if let Some(response) = refuse_other_node(&caller, &node_id) {
+        return response;
+    }
+    if let Err(reason) = validate_resource_id(&node_id) {
+        return invalid_request(
+            "node id is invalid",
+            vec![resource_id_issue("node_id", "node id", reason)],
+        );
+    }
+    let Json(exchange) = match payload {
+        Ok(payload) => payload,
+        Err(rejection) => return invalid_json(rejection.body_text()),
+    };
+    Json(
+        state
+            .peers()
+            .exchange(&node_id, exchange.local, Instant::now()),
+    )
+    .into_response()
+}
+
 fn error(status: StatusCode, code: ApiErrorCode, message: &str) -> Response {
     ApiError::new(code, message).response(status)
 }
@@ -2641,11 +2712,17 @@ fn single_path_detail<'a>(shortfalls: impl IntoIterator<Item = &'a SinglePath>) 
     (!details.is_empty()).then(|| details.join("; "))
 }
 
+fn peer_route_detail<'a>(routes: impl IntoIterator<Item = &'a path::PeerRoute>) -> Option<String> {
+    let details: Vec<String> = routes.into_iter().map(ToString::to_string).collect();
+    (!details.is_empty()).then(|| details.join("; "))
+}
+
 fn placed_conditions(
     format: StreamCondition,
     path_status: PathStatus,
     offline_node: Option<&str>,
     single_path: Option<&str>,
+    peer_routes: Option<&str>,
 ) -> Vec<StreamCondition> {
     let nodes = match offline_node {
         Some(node) => stream_condition(
@@ -2681,18 +2758,22 @@ fn placed_conditions(
             "every desired hop is provisioned",
         ),
     };
+    let with_routes = |detail: &str| match peer_routes {
+        Some(routes) => format!("{detail}; {routes}"),
+        None => detail.to_string(),
+    };
     let placement = match single_path {
         Some(detail) => stream_condition(
             StreamConditionType::PlacementReady,
             StreamConditionStatus::True,
             StreamConditionReason::SinglePath,
-            detail,
+            with_routes(detail),
         ),
         None => stream_condition(
             StreamConditionType::PlacementReady,
             StreamConditionStatus::True,
             StreamConditionReason::Placed,
-            "the stream has a complete path",
+            with_routes("the stream has a complete path"),
         ),
     };
     vec![
@@ -2731,13 +2812,20 @@ fn reconcile(
     observed: &ObservedState,
     keys: &LinkKeys,
 ) -> ReconcileOutcome {
-    reconcile_with_revisions(streams, observed, keys, &BTreeMap::new())
+    reconcile_with_revisions(
+        streams,
+        observed,
+        keys,
+        &peers::PeerPlanning::default(),
+        &BTreeMap::new(),
+    )
 }
 
 fn reconcile_with_revisions(
     mut streams: Vec<StreamDefinition>,
     observed: &ObservedState,
     keys: &LinkKeys,
+    peers: &peers::PeerPlanning,
     source_revisions: &BTreeMap<String, u64>,
 ) -> ReconcileOutcome {
     streams.sort_by(|a, b| a.name.cmp(&b.name));
@@ -2798,21 +2886,15 @@ fn reconcile_with_revisions(
         enabled += 1;
 
         let mut stream_ports = ports.clone();
-        let placed = derive_stream(
-            stream,
-            &observed.nodes,
-            &observed.hops,
-            &mut stream_ports,
-            keys,
-        )
-        .and_then(|mut planned| {
-            timed::bind(
-                &mut planned.path.hops,
-                stream,
-                source_revisions.get(&stream.name).copied().unwrap_or(0),
-            );
-            hop_ids.claim(&planned.path).map(|()| planned)
-        });
+        let placed = derive_stream(stream, &observed.nodes, peers, &mut stream_ports, keys)
+            .and_then(|mut planned| {
+                timed::bind(
+                    &mut planned.path.hops,
+                    stream,
+                    source_revisions.get(&stream.name).copied().unwrap_or(0),
+                );
+                hop_ids.claim(&planned.path).map(|()| planned)
+            });
         let status = match placed {
             Ok(planned) => {
                 ports = stream_ports;
@@ -2900,6 +2982,13 @@ fn reconcile_with_revisions(
                             branch_status,
                             offline_node.as_deref(),
                             single_path.as_deref(),
+                            peer_route_detail(
+                                planned
+                                    .peer_routes
+                                    .iter()
+                                    .filter(|route| route.destination == destination.id),
+                            )
+                            .as_deref(),
                         );
                         let status = if destination.delivery.is_some() {
                             conditions
@@ -2942,6 +3031,7 @@ fn reconcile_with_revisions(
                     path_status,
                     offline_node.as_deref(),
                     single_path_detail(&planned.single_path).as_deref(),
+                    peer_route_detail(&planned.peer_routes).as_deref(),
                 );
                 conditions.extend(timed::aggregate(&destination_statuses));
                 stream_statuses.push(StreamStatus {
@@ -3070,6 +3160,7 @@ mod tests {
             webhooks: None,
             keys: LinkKeys::for_tests(),
             unsaved: Arc::default(),
+            peers: Arc::default(),
         };
         (state, mem)
     }
@@ -4147,6 +4238,7 @@ mod tests {
             revision,
             state: weave_core::HopState::Provisioned,
             ingress: weave_core::SocketStatus {
+                peer: None,
                 condition: weave_core::LinkCondition::Flowing,
                 resolved: None,
                 stats: Some(weave_core::LinkStats {
@@ -4159,6 +4251,7 @@ mod tests {
                 weave_core::EgressStatus {
                     branch_id: "preview".to_string(),
                     status: weave_core::SocketStatus {
+                        peer: None,
                         condition: weave_core::LinkCondition::Flowing,
                         resolved: None,
                         stats: Some(weave_core::LinkStats {
@@ -4170,6 +4263,7 @@ mod tests {
                 weave_core::EgressStatus {
                     branch_id: "studio".to_string(),
                     status: weave_core::SocketStatus {
+                        peer: None,
                         condition: weave_core::LinkCondition::Connecting,
                         resolved: Some(weave_core::ResolvedAddr {
                             host: "172.27.0.10".to_string(),
@@ -4245,6 +4339,7 @@ mod tests {
         let egress = |condition| weave_core::EgressStatus {
             branch_id: "studio".to_string(),
             status: weave_core::SocketStatus {
+                peer: None,
                 condition,
                 resolved: None,
                 stats: None,
@@ -4263,6 +4358,7 @@ mod tests {
             revision,
             state: weave_core::HopState::Provisioned,
             ingress: weave_core::SocketStatus {
+                peer: None,
                 condition: weave_core::LinkCondition::Flowing,
                 resolved: None,
                 stats: None,
@@ -4778,6 +4874,7 @@ mod tests {
                 revision: hop.revision(),
                 state: weave_core::HopState::Provisioned,
                 ingress: weave_core::SocketStatus {
+                    peer: None,
                     condition: weave_core::LinkCondition::Flowing,
                     resolved: None,
                     stats: None,
@@ -4789,6 +4886,7 @@ mod tests {
                     .map(|egress| weave_core::EgressStatus {
                         branch_id: egress.branch_id.clone(),
                         status: weave_core::SocketStatus {
+                            peer: None,
                             condition: weave_core::LinkCondition::Flowing,
                             resolved: None,
                             stats: None,
@@ -4866,6 +4964,7 @@ mod tests {
             revision: String::new(),
             state: weave_core::HopState::Provisioned,
             ingress: weave_core::SocketStatus {
+                peer: None,
                 condition: weave_core::LinkCondition::Flowing,
                 resolved: None,
                 stats: None,
@@ -4986,6 +5085,7 @@ mod tests {
         assert_eq!(mem.upsert_node_calls(), 1);
 
         let socket = |condition, rate_mbps| weave_core::SocketStatus {
+            peer: None,
             condition,
             resolved: None,
             stats: Some(weave_core::LinkStats {
@@ -5170,6 +5270,7 @@ mod tests {
             revision: String::new(),
             state: weave_core::HopState::Provisioned,
             ingress: weave_core::SocketStatus {
+                peer: None,
                 condition: weave_core::LinkCondition::Flowing,
                 resolved: None,
                 stats: None,
@@ -5878,6 +5979,75 @@ mod tests {
         assert_a_restart_serves_the_stored_hops(store).await;
     }
 
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn postgres_hydration_keeps_a_webrtc_report_and_drops_a_protocol_10_registration() {
+        let url = store::tests::fresh_database().await;
+        let store = store::tests::leading_pg_store(&url).await;
+        let node = |id: &str, profile: Value| {
+            json!({
+                "id": id,
+                "endpoint": format!("http://{id}:8092"),
+                "status": "ready",
+                "capabilities": { "hop_profiles": [profile] },
+                "topology": { "attachments": [] },
+                "inputs": [{ "id": "music", "label": "Music", "tracks": ["audio"] }]
+            })
+        };
+        let current: NodeRegistration = serde_json::from_value(json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "node": node("alfreds-mac", json!({
+                "id": "app-audio-out",
+                "ingress": "input",
+                "egress": [{ "transport": "srt", "roles": ["listen", "connect"] }, { "transport": "webrtc" }],
+                "max_egresses": 8
+            })),
+            "hop_status": [{
+                "id": "weave-music-sender", "node_id": "alfreds-mac", "revision": "r",
+                "state": "provisioned", "ingress": { "condition": "flowing" },
+                "egresses": [{
+                    "branch_id": "filip", "condition": "unreachable",
+                    "resolved": { "host": "198.51.100.4", "port": 62000 },
+                    "peer": { "link": "weave-music-receiver-filip", "generation": 1_761_300_000_u32, "relayed": true }
+                }]
+            }]
+        }))
+        .unwrap();
+        store.upsert_node(&current).await.unwrap();
+        let earlier = json!({
+            "protocol_version": PROTOCOL_VERSION - 1,
+            "node": node("filips-mac", json!({
+                "id": "app-audio-to-srt",
+                "ingress": "input",
+                "egress": { "transport": "srt", "roles": ["listen", "connect"] },
+                "max_egresses": 8
+            })),
+            "hop_status": [{
+                "id": "weave-music-sender", "node_id": "filips-mac", "revision": "r",
+                "state": "provisioned", "ingress": { "condition": "flowing" },
+                "egresses": [{ "branch_id": "anna", "condition": "flowing" }]
+            }]
+        });
+        store::tests::run_sql(
+            &url,
+            &format!("INSERT INTO nodes (id, registration) VALUES ('filips-mac', '{earlier}')"),
+        )
+        .await;
+
+        let state = AppState::hydrate(
+            Arc::new(store),
+            Duration::from_secs(15),
+            Duration::from_secs(300),
+            None,
+            LinkKeys::for_tests(),
+        )
+        .await
+        .expect("hydration survives an earlier protocol's row");
+        let nodes = state.nodes.read().await;
+        assert_eq!(nodes.keys().collect::<Vec<_>>(), ["alfreds-mac"]);
+        assert_eq!(nodes["alfreds-mac"], current);
+    }
+
     async fn get_ok(app: &Router, uri: &str) -> Value {
         let (status, body) = send(app, "GET", uri, None).await;
         assert_eq!(status, StatusCode::OK, "{uri}: {body}");
@@ -5912,6 +6082,7 @@ mod tests {
             ("POST", "/nodes/register"),
             ("POST", "/nodes/strom-node-1/heartbeat"),
             ("GET", "/nodes/strom-node-1/desired"),
+            ("POST", "/nodes/strom-node-1/signalling"),
             ("GET", "/endpoints"),
             ("GET", "/state"),
             ("GET", "/view"),
@@ -5985,6 +6156,7 @@ mod tests {
 
     fn flowing_reports(hops: &[DesiredHop]) -> Vec<HopStatus> {
         let flowing = || weave_core::SocketStatus {
+            peer: None,
             condition: weave_core::LinkCondition::Flowing,
             resolved: None,
             stats: None,
@@ -6896,6 +7068,7 @@ mod tests {
                         revision: hop.revision(),
                         state: weave_core::HopState::Provisioned,
                         ingress: weave_core::SocketStatus {
+                            peer: None,
                             condition: weave_core::LinkCondition::Connecting,
                             resolved: None,
                             stats: None,
@@ -6907,6 +7080,7 @@ mod tests {
                             .map(|egress| weave_core::EgressStatus {
                                 branch_id: egress.branch_id.clone(),
                                 status: weave_core::SocketStatus {
+                                    peer: None,
                                     condition: weave_core::LinkCondition::Connecting,
                                     resolved: None,
                                     stats: None,

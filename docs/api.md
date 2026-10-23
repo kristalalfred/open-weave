@@ -211,7 +211,8 @@ current nodes and the hops they report running, and returns `placed`,
 `unplaced` or `disabled` with the resolved nodes, desired hops, endpoints and
 any placement reason. It includes `format_policy`, stream conditions and
 per-destination results. Strict format failures return `unplaced` with no
-executable hops or endpoints. Passphrases are removed from the returned hops.
+executable hops or endpoints. Passphrases and TURN credentials are removed from
+the returned hops.
 `weave plan -f FILE` calls it.
 
 ## Status and endpoints
@@ -226,7 +227,7 @@ and `converged` otherwise, including streams awaiting input.
 |---|---|
 | `idle` | The stream is disabled (`enabled: false`). |
 | `pending` | The stream is not placed, for example because a node it names has not registered. |
-| `failed` | A hop failed to provision. |
+| `failed` | A hop failed to provision, or a WebRTC link reports `unreachable` or `lost`. |
 | `pending` | A hop is still provisioning or has not reported. |
 | `degraded` | A socket that carried media is stalled. |
 | `awaiting_input` | Every hop is provisioned and no media enters at the source. |
@@ -278,7 +279,7 @@ registration declares.
 `weave_core::PROTOCOL_VERSION`:
 
 ```json
-{ "protocol_version": 10, "node": { "id": "strom-node-1", "...": "..." } }
+{ "protocol_version": 11, "node": { "id": "strom-node-1", "...": "..." } }
 ```
 
 The controller accepts only the version it speaks. Any other value, including an
@@ -299,7 +300,7 @@ before its body is checked, and shipped nodes then register again.
   "details": [{
     "field": "protocol_version",
     "code": "unsupported",
-    "message": "reported 9; supported 10"
+    "message": "reported 10; supported 11"
   }]
 }
 ```

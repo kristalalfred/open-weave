@@ -16,6 +16,11 @@ in [Webhooks](webhooks.md).
 | `WEAVE_NODE_TTL_SECS` | controller | `15` | Seconds without a heartbeat before a node reads `offline`. |
 | `WEAVE_NODE_FORGET_SECS` | controller | `300` | Seconds without a heartbeat before an offline node is removed. |
 | `WEAVE_LEASE_TTL_SECS` | controller | `10` | Seconds the lease lasts without a renewal. |
+| `WEAVE_STUN_SERVERS` | controller | `stun.cloudflare.com:3478,stun.l.google.com:19302` | Comma-separated `host:port` STUN servers put in every WebRTC link. |
+| `WEAVE_TURN_SERVERS` | controller | unset | Comma-separated `host:port` UDP TURN servers put in every WebRTC link. Needs `WEAVE_TURN_SECRET`, or `WEAVE_TURN_USERNAME` and `WEAVE_TURN_CREDENTIAL`, and not both. |
+| `WEAVE_TURN_SECRET` | controller | unset | The TURN server's shared secret. Each link gets its own time-limited login. |
+| `WEAVE_TURN_CREDENTIAL_TTL_SECS` | controller | `86400` | Lifetime of a login minted from `WEAVE_TURN_SECRET`, above 600. |
+| `WEAVE_TURN_USERNAME`, `WEAVE_TURN_CREDENTIAL` | controller | unset | One static TURN login given to every link. It never expires. |
 | `WEAVE_NODE_CONFIG` | Strom adapter | none | Node config path, or `--config`. The adapter does not start without one. |
 | `WEAVE_NODE_CONFIG` | native SRT node | none | Native node config path, or `--config`. |
 | `WEAVE_NORTHBOUND_URL` | `weave` | `http://127.0.0.1:9080` | Northbound base URL, or `--url`. |
@@ -53,11 +58,12 @@ others stand by. Without `DATABASE_URL` there is no lease and one controller.
 - On SIGTERM or SIGINT the leader gives up the lease, and a standby takes over
   on its next try. A leader that crashes holds the lease until it runs out, so a
   lone controller restarting after a crash answers `503 not_leader` until then.
-- Every controller needs the same `WEAVE_SRT_KEY_SECRET`, `WEAVE_SOUTHBOUND_KEY`
-  and `WEAVE_SOUTHBOUND_MIN_EPOCHS`. With another SRT key secret, a new leader
-  rekeys every link and adapters recreate their flows. With another southbound
-  key, it refuses every node's token. With other minimum epochs, it accepts
-  tokens the old leader refused, or the reverse.
+- Every controller needs the same `WEAVE_SRT_KEY_SECRET`, `WEAVE_SOUTHBOUND_KEY`,
+  `WEAVE_SOUTHBOUND_MIN_EPOCHS` and STUN and TURN settings. With another SRT key
+  secret, a new leader rekeys every link and adapters recreate their flows. With
+  another southbound key, it refuses every node's token. With other minimum
+  epochs, it accepts tokens the old leader refused, or the reverse. With other
+  STUN or TURN settings, adapters rebuild every WebRTC link.
 - Postgres is one instance. While no controller can reach it, none leads.
 
 ### What survives a takeover

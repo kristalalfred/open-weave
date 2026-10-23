@@ -16,7 +16,8 @@ use weave_core::auth::{self, NodeCaller, NodeGuard, refuse_other_node, require_n
 use weave_core::upstream::{Answer, CONTROLLER_URL_VAR, Controllers, DEFAULT_CONTROLLER_URL};
 use weave_core::{
     ApiError, ApiErrorCode, Health, ROUTE_ENDPOINTS, ROUTE_NODE_DESIRED, ROUTE_NODE_HEARTBEAT,
-    ROUTE_NODE_REGISTER, ROUTE_NODES, ROUTE_STATE, resource_id_issue, validate_resource_id,
+    ROUTE_NODE_REGISTER, ROUTE_NODE_SIGNALLING, ROUTE_NODES, ROUTE_STATE, resource_id_issue,
+    validate_resource_id,
 };
 
 const CORS_ORIGIN_VAR: &str = "WEAVE_SOUTHBOUND_CORS_ORIGIN";
@@ -121,6 +122,7 @@ fn router(state: AppState, guard: NodeGuard, cors: Option<CorsLayer>) -> Router 
         .route(ROUTE_NODE_REGISTER, post(register_node))
         .route(ROUTE_NODE_HEARTBEAT, post(node_heartbeat))
         .route(ROUTE_NODE_DESIRED, get(get_desired))
+        .route(ROUTE_NODE_SIGNALLING, post(exchange_descriptions))
         .route(ROUTE_ENDPOINTS, get(list_endpoints))
         .route(ROUTE_STATE, get(get_state))
         .fallback(api_route_not_found)
@@ -224,6 +226,29 @@ async fn node_heartbeat(
         &headers,
         reqwest::Method::POST,
         &format!("/nodes/{node_id}/heartbeat"),
+        Some(body),
+    )
+    .await
+}
+
+async fn exchange_descriptions(
+    State(state): State<AppState>,
+    Extension(caller): Extension<NodeCaller>,
+    Path(node_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if let Err(error) = validate_resource_id(&node_id) {
+        return invalid_node_id(error);
+    }
+    if let Some(response) = refuse_other_node(&caller, &node_id) {
+        return response;
+    }
+    proxy(
+        &state,
+        &headers,
+        reqwest::Method::POST,
+        &format!("/nodes/{node_id}/signalling"),
         Some(body),
     )
     .await
@@ -634,6 +659,38 @@ mod tests {
         assert_eq!(seen.path, "/nodes/strom-node-1/heartbeat");
     }
 
+    #[tokio::test]
+    async fn a_node_exchanges_its_descriptions_as_itself() {
+        let (url, captured) = stub_controller(StatusCode::OK).await;
+        let exchange = json!({
+            "local": [{ "link": "weave-music-receiver-filip", "generation": 7, "description": "v=0" }]
+        });
+        let response = guarded_app(url)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/nodes/strom-node-1/signalling")
+                    .header("authorization", bearer("strom-node-1"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(exchange.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let seen = captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("controller saw a request");
+        assert_eq!(seen.method, "POST");
+        assert_eq!(seen.path, "/nodes/strom-node-1/signalling");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&seen.body).unwrap(),
+            exchange
+        );
+    }
+
     async fn standby_controller() -> String {
         let app = Router::new().fallback(|| async {
             ApiError::new(ApiErrorCode::NotLeader, "standby")
@@ -969,11 +1026,13 @@ mod tests {
         let app = guarded_app(url);
         let registration = json!({ "node": { "id": "strom-node-2" } }).to_string();
         let heartbeat = json!({ "node_id": "strom-node-2" }).to_string();
+        let exchange = json!({ "local": [] }).to_string();
 
         for (method, uri, body) in [
             ("POST", "/nodes/register", registration),
             ("POST", "/nodes/strom-node-2/heartbeat", heartbeat),
             ("GET", "/nodes/strom-node-2/desired", String::new()),
+            ("POST", "/nodes/strom-node-2/signalling", exchange),
         ] {
             let response = app
                 .clone()

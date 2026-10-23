@@ -12,6 +12,7 @@ use crate::path::{
     PlacementError, PlannedStream, PortAllocator, SinglePath, derive_path, derive_stream,
     destination_nodes, destination_path_status, shared_hop_id,
 };
+use crate::peers::PeerPlanning;
 use crate::reconcile;
 
 fn class(transport: Transport, roles: RoleSet) -> HopEndpointClass {
@@ -161,7 +162,7 @@ fn plan(definition: &StreamDefinition, nodes: &[NodeDescriptor]) -> PlannedStrea
     derive_stream(
         definition,
         nodes,
-        &[],
+        &PeerPlanning::default(),
         &mut PortAllocator::new(),
         &LinkKeys::for_tests(),
     )
@@ -351,7 +352,8 @@ fn a_second_path_that_fails_claims_no_port() {
 
     let mut ports = PortAllocator::new();
     let keys = LinkKeys::for_tests();
-    let planned = derive_stream(&feed, &nodes, &[], &mut ports, &keys).unwrap();
+    let planned =
+        derive_stream(&feed, &nodes, &PeerPlanning::default(), &mut ports, &keys).unwrap();
     assert!(matches!(
         planned.single_path[0].reason,
         PlacementError::NoHopProfile { .. }
@@ -361,6 +363,7 @@ fn a_second_path_that_fails_claims_no_port() {
 
 fn reported(hops: &[DesiredHop], degraded_branch: Option<&str>) -> Vec<HopStatus> {
     let socket = |condition| SocketStatus {
+        peer: None,
         condition,
         resolved: None,
         stats: None,

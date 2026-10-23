@@ -286,7 +286,10 @@ fn hop_endpoint_ids(hop: &DesiredHop) -> Vec<String> {
     hop_sockets(hop)
         .filter_map(|spec| match spec {
             SocketSpec::Whip(socket) | SocketSpec::Whep(socket) => Some(socket.endpoint_id.clone()),
-            SocketSpec::Srt(_) | SocketSpec::Rist(_) | SocketSpec::Local(_) => None,
+            SocketSpec::Srt(_)
+            | SocketSpec::Rist(_)
+            | SocketSpec::Webrtc(_)
+            | SocketSpec::Local(_) => None,
         })
         .collect()
 }
@@ -365,7 +368,12 @@ pub fn resolved_addr(spec: &SocketSpec, listener_host: Option<&str>) -> Option<R
         SocketSpec::Rist(RistSocket::Listen { port }) => {
             (listener_host.unwrap_or("0.0.0.0").to_string(), *port)
         }
-        SocketSpec::Whip(_) | SocketSpec::Whep(_) | SocketSpec::Local(_) => return None,
+        SocketSpec::Whip(_)
+        | SocketSpec::Whep(_)
+        | SocketSpec::Webrtc(_)
+        | SocketSpec::Local(_) => {
+            return None;
+        }
     };
     Some(ResolvedAddr { host, port })
 }

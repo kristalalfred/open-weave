@@ -143,6 +143,7 @@ fn run(streams: &[StreamDefinition], nodes: &[NodeDescriptor], hops: Vec<HopStat
 
 fn reported(planned: &Hops, nodes: &[NodeDescriptor], failed: &[&str]) -> Vec<HopStatus> {
     let status = |socket: &SocketSpec, own_host: &str| SocketStatus {
+        peer: None,
         condition: LinkCondition::Flowing,
         resolved: match socket {
             SocketSpec::Srt(SrtSocket::Listen { port, .. }) => Some(ResolvedAddr {

@@ -82,8 +82,12 @@ topology:
 ";
 
     fn installed_config(relay_network: &str) -> NodeConfig {
+        installed_config_for("http://192.168.1.10:29081", relay_network)
+    }
+
+    fn installed_config_for(southbound_url: &str, relay_network: &str) -> NodeConfig {
         let script = include_str!("../install.sh")
-            .replace("__SOUTHBOUND_URL__", "http://192.168.1.10:29081")
+            .replace("__SOUTHBOUND_URL__", southbound_url)
             .replace("__RELAY_NETWORK__", relay_network);
         let script = script
             .strip_suffix("main \"$@\"\n")
@@ -122,6 +126,12 @@ topology:
             listeners: NetworkListeners::default(),
         });
         assert_eq!(installed_config("bench-lan"), expected);
+    }
+
+    #[test]
+    fn an_installer_for_a_public_southbound_points_the_node_at_it() {
+        let url = "https://weave-southbound.example.com:8443";
+        assert_eq!(installed_config_for(url, "").southbound_url, url);
     }
 
     #[test]

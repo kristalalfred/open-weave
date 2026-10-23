@@ -15,15 +15,16 @@ use weave_core::auth::{self, Token};
 use weave_core::logging::ErrorChain;
 use weave_core::{
     AdapterDescriptor, AdapterKind, AudioCodec, AudioConstraint, Container, DeclaredNode,
-    DesiredHop, FormatConstraint, HopEndpointClass, HopProfile, HopStatus, LocalEnd, MediaBehavior,
-    NodeCapabilities, NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus,
-    PROTOCOL_VERSION, RoleSet, Transport, TransportClass,
+    DesiredHop, FormatConstraint, HopEndpointClass, HopProfile, HopStatus, LinkClass,
+    LinkDescription, LocalEnd, MediaBehavior, NodeCapabilities, NodeDescriptor, NodeHeartbeat,
+    NodeRegistration, NodeStatus, PROTOCOL_VERSION, RoleSet, SessionDescription,
+    SignallingExchange, SignallingReply, Transport, TransportClass,
 };
 use weave_reach::{Reach, STUN_SERVERS};
 use weave_spaghetti::{SpaghettiClient, SpaghettiError};
 
 use config::AdapterConfig;
-use hops::{Action, Plan, Rates, Retries};
+use hops::{Action, Plan, Rates, Refusals, Retries};
 use inventory::Inventory;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -152,6 +153,26 @@ impl Southbound {
         Ok(Some(hops))
     }
 
+    async fn exchange(
+        &self,
+        node_id: &str,
+        exchange: &SignallingExchange,
+    ) -> Result<SignallingReply> {
+        self.request(
+            self.http
+                .post(format!("{}/nodes/{node_id}/signalling", self.url)),
+        )
+        .json(exchange)
+        .send()
+        .await
+        .context("exchanging peer descriptions")?
+        .error_for_status()
+        .context("exchanging peer descriptions")?
+        .json()
+        .await
+        .context("decoding peer descriptions")
+    }
+
     async fn heartbeat(&self, heartbeat: &NodeHeartbeat) -> Result<bool> {
         let response = self
             .request(self.http.post(format!(
@@ -196,15 +217,18 @@ async fn health() -> Json<weave_core::Health> {
 }
 
 fn profiles() -> Vec<HopProfile> {
-    let srt = HopEndpointClass::Transport(TransportClass {
+    let srt = TransportClass {
         transport: Transport::Srt,
         roles: RoleSet::both(),
-    });
+    };
     vec![
         HopProfile {
             id: hops::SENDER_PROFILE.into(),
             ingress: HopEndpointClass::Local(LocalEnd::Input),
-            egress: srt.clone(),
+            egress: HopEndpointClass::AnyOf(vec![
+                LinkClass::Transport(srt.clone()),
+                LinkClass::WEBRTC,
+            ]),
             max_egresses: Some(hops::MAX_SENDER_EGRESSES),
             media_behavior: MediaBehavior::Unknown,
             merge: false,
@@ -212,8 +236,26 @@ fn profiles() -> Vec<HopProfile> {
             timed_delivery: None,
         },
         HopProfile {
+            id: hops::WEBRTC_RECEIVER_PROFILE.into(),
+            ingress: HopEndpointClass::WEBRTC,
+            egress: HopEndpointClass::Local(LocalEnd::Output),
+            max_egresses: Some(1),
+            media_behavior: MediaBehavior::Unknown,
+            merge: false,
+            accepts: Some(FormatConstraint {
+                container: Some(vec![Container::Rtp]),
+                video: None,
+                audio: Some(AudioConstraint {
+                    codec: Some(vec![AudioCodec::Opus]),
+                    sample_rate: None,
+                    channels: None,
+                }),
+            }),
+            timed_delivery: None,
+        },
+        HopProfile {
             id: hops::RECEIVER_PROFILE.into(),
-            ingress: srt,
+            ingress: HopEndpointClass::Transport(srt),
             egress: HopEndpointClass::Local(LocalEnd::Output),
             max_egresses: Some(1),
             media_behavior: MediaBehavior::Unknown,
@@ -273,6 +315,8 @@ struct Node {
     desired: Vec<DesiredHop>,
     retries: Retries,
     rates: Rates,
+    refusals: Refusals,
+    exchange_failing: bool,
     statuses: Vec<HopStatus>,
 }
 
@@ -290,6 +334,8 @@ async fn sync_loop(
         desired: Vec::new(),
         retries: Retries::default(),
         rates: Rates::default(),
+        refusals: Refusals::default(),
+        exchange_failing: false,
         statuses: Vec::new(),
     };
     loop {
@@ -410,6 +456,28 @@ async fn sync_once(
         }
         None => None,
     };
+    node.refusals.retain(&node.desired);
+    if let Some((sources, routes)) = &built {
+        let peers = hops::built_peers(&config.node.id, sources, routes);
+        if !peers.is_empty() {
+            let exchanged = signal(
+                southbound,
+                spaghetti,
+                &config.node.id,
+                &peers,
+                &mut node.refusals,
+            )
+            .await;
+            match (&exchanged, node.exchange_failing) {
+                (Err(error), false) => {
+                    tracing::warn!(error = %ErrorChain(error.as_ref()), "cannot exchange webrtc descriptions; retrying every poll");
+                }
+                (Ok(()), true) => tracing::info!("exchanging webrtc descriptions again"),
+                _ => {}
+            }
+            node.exchange_failing = exchanged.is_err();
+        }
+    }
     let now = Instant::now();
     let (applied, _) = match &built {
         Some((sources, routes)) => hops::applied(&config.node.id, sources, routes),
@@ -429,7 +497,15 @@ async fn sync_once(
             let failing = plan
                 .as_ref()
                 .is_ok_and(|plan| node.retries.failing(&hop.id, plan));
-            hops::hop_status(hop, plan, built, failing, &mut node.rates, now)
+            hops::hop_status(
+                hop,
+                plan,
+                built,
+                failing,
+                &mut node.rates,
+                &node.refusals,
+                now,
+            )
         })
         .collect();
     let hop_ids: Vec<&str> = node.desired.iter().map(|hop| hop.id.as_str()).collect();
@@ -446,6 +522,56 @@ async fn sync_once(
     };
     if !southbound.heartbeat(&heartbeat).await? {
         node.registered = false;
+    }
+    Ok(())
+}
+
+async fn signal(
+    southbound: &Southbound,
+    spaghetti: &SpaghettiClient,
+    node_id: &str,
+    peers: &[hops::BuiltPeer],
+    refusals: &mut Refusals,
+) -> Result<()> {
+    let local = peers
+        .iter()
+        .filter_map(|peer| {
+            Some(LinkDescription {
+                link: peer.attempt.link.clone(),
+                generation: peer.attempt.generation,
+                description: SessionDescription::new(peer.local_description.clone()?),
+            })
+        })
+        .collect();
+    let reply = southbound
+        .exchange(node_id, &SignallingExchange { local })
+        .await?;
+    for attempt in reply.refused {
+        let (link, generation) = (attempt.link.clone(), attempt.generation);
+        if refusals.refuse(attempt) {
+            tracing::warn!(%link, generation, "the controller refused this node's description; reporting the link lost");
+        }
+    }
+    for remote in reply.remote {
+        let Some(peer) = peers.iter().find(|peer| {
+            peer.attempt.link == remote.link && peer.attempt.generation == remote.generation
+        }) else {
+            continue;
+        };
+        match spaghetti
+            .set_remote_description(peer.at, remote.generation, remote.description.expose())
+            .await
+        {
+            Ok(()) => {}
+            Err(SpaghettiError::Refused(message)) => {
+                if refusals.refuse(peer.attempt.clone()) {
+                    tracing::warn!(link = %remote.link, generation = remote.generation, message, "spaghetti refused the other end's description; reporting the link lost");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(link = %remote.link, generation = remote.generation, error = %error, "cannot apply the other end's description");
+            }
+        }
     }
     Ok(())
 }
