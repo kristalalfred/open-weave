@@ -491,11 +491,20 @@ page port="8000" seat="guest-1":
 node-token id epoch="0":
     @WEAVE_SOUTHBOUND_KEY={{sb_key}} cargo run --quiet -p weave-cli -- node-token {{id}} --epoch {{epoch}}
 
-[doc("Serve the spaghetti node installer to the LAN; each Mac that runs it joins as a node named after its user.")]
+[doc("Serve the spaghetti node installer to the LAN; each Mac that runs it joins as a node named after its user and also dials <relay_network> when set.")]
 [group("spaghetti")]
-spaghetti-installer port="29097":
+spaghetti-installer port="29097" relay_network="":
     #!/usr/bin/env bash
     set -euo pipefail
+    relay="{{relay_network}}"
+    if [ -n "$relay" ]; then
+        [[ "$relay" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] \
+            || { echo "relay_network $relay is not 1 to 63 lowercase letters, digits and inner hyphens" >&2; exit 1; }
+        case "$relay" in
+            site-*) echo "relay_network $relay starts with site-, which the controller reserves for sites" >&2; exit 1 ;;
+            internet|docker-host) echo "relay_network $relay is refused: the bench Strom nodes listen on it at container addresses no Mac can reach" >&2; exit 1 ;;
+        esac
+    fi
     iface="$(route -n get default | awk '/interface:/ { print $2 }')"
     lan="$(ipconfig getifaddr "$iface" || true)"
     [ -n "$lan" ] || { echo "no LAN address on $iface" >&2; exit 1; }
@@ -513,6 +522,7 @@ spaghetti-installer port="29097":
     sed -e "s#__BUNDLE_URL__#http://$lan:{{port}}/node.tar.gz#" \
         -e "s#__SOUTHBOUND_URL__#${sb_plain/localhost/$lan}#" \
         -e "s#__SOUTHBOUND_KEY__#{{sb_key}}#" \
+        -e "s#__RELAY_NETWORK__#$relay#" \
         {{source_directory()}}/../crates/adapter-spaghetti/install.sh >"$dir/install.sh"
     echo "on any Mac, run:"
     echo "  curl -fsSL http://$lan:{{port}}/install.sh | bash"

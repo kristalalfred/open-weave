@@ -4,6 +4,7 @@ set -euo pipefail
 bundle_url="__BUNDLE_URL__"
 southbound_url="__SOUTHBOUND_URL__"
 southbound_key="__SOUTHBOUND_KEY__"
+relay_network="__RELAY_NETWORK__"
 bin="$HOME/.local/bin"
 support="$HOME/Library/Application Support/open-weave"
 logs="$HOME/Library/Logs/open-weave"
@@ -93,6 +94,9 @@ node_config() {
     printf '  listen: 127.0.0.1:8092\n  topology:\n'
     printf '    site:\n      id: lan\n'
     printf '      listeners:\n        srt:\n          port_range: { start: 23000, end: 23099 }\n'
+    if [ -n "$relay_network" ]; then
+        printf '    attachments:\n      - { id: relay, network: %s, dial: true }\n' "$relay_network"
+    fi
 }
 
 write_config() {

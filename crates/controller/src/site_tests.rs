@@ -429,8 +429,16 @@ async fn node_tokens_read_nodes_without_sites() {
     assert!(!page.to_string().contains("203.0.113.7"), "{page}");
 }
 
-fn spaghetti_mac(id: &str, address: &str, public: &str) -> Value {
+const OFFICE: &str = "203.0.113.7";
+const HOME: &str = "198.51.100.4";
+const RELAY_HOST: &str = "192.168.1.10";
+
+fn spaghetti_mac(id: &str, address: &str, public: &str, relay_network: Option<&str>) -> Value {
     let mut mac = registration(id, Some(observation(address, public, 61_000)));
+    if let Some(network) = relay_network {
+        mac["node"]["topology"]["attachments"] =
+            json!([{ "id": "relay", "network": network, "dial": true }]);
+    }
     mac["node"]["capabilities"]["hop_profiles"] = json!([
         {
             "id": "app-audio-to-srt",
@@ -451,16 +459,16 @@ fn spaghetti_mac(id: &str, address: &str, public: &str) -> Value {
     mac
 }
 
-fn strom_relay() -> Value {
+fn forwarding_node(id: &str, adapter: Value, attachment: Value) -> Value {
     let srt = json!({ "transport": "srt", "roles": ["listen", "connect"] });
     json!({
         "protocol_version": PROTOCOL_VERSION,
         "node": {
-            "id": "strom-node-1",
-            "endpoint": "http://10.97.26.11:8091",
+            "id": id,
+            "endpoint": format!("http://{id}:8091"),
             "status": "ready",
             "capabilities": {
-                "adapters": [{ "name": "strom", "kind": "strom" }],
+                "adapters": [adapter],
                 "hop_profiles": [{
                     "id": "srt-forward",
                     "ingress": srt,
@@ -469,30 +477,55 @@ fn strom_relay() -> Value {
                     "accepts": {}
                 }]
             },
-            "topology": {
-                "attachments": [{
-                    "id": "a-routed",
-                    "network": "internet",
-                    "dial": true,
-                    "listeners": {
-                        "srt": { "host": "10.97.26.10", "port_range": { "start": 20000, "end": 20999 } }
-                    }
-                }]
-            }
+            "topology": { "attachments": [attachment] }
         },
         "endpoints": [],
         "hop_status": []
     })
 }
 
-async fn music_to_filip(public_a: &str, public_b: &str) -> (AppState, Router) {
+fn strom_relay() -> Value {
+    forwarding_node(
+        "strom-node-1",
+        json!({ "name": "strom", "kind": "strom" }),
+        json!({
+            "id": "a-routed",
+            "network": "internet",
+            "dial": true,
+            "listeners": {
+                "srt": { "host": "10.97.26.10", "port_range": { "start": 20000, "end": 20999 } }
+            }
+        }),
+    )
+}
+
+fn bench_lan_relay() -> Value {
+    forwarding_node(
+        "weave-relay",
+        json!({ "name": "native-srt", "kind": "native_srt" }),
+        json!({
+            "id": "lan",
+            "network": "bench-lan",
+            "dial": true,
+            "listeners": {
+                "srt": { "host": RELAY_HOST, "port_range": { "start": 24000, "end": 24099 } }
+            }
+        }),
+    )
+}
+
+async fn music_to_filip(
+    filips_public: &str,
+    relay_network: Option<&str>,
+    relays: impl IntoIterator<Item = Value>,
+) -> (AppState, Router) {
     let state = hydrated(Arc::new(MemStore::new()), None).await;
     let app = open(&state);
-    for node in [
-        spaghetti_mac("alfreds-mac", "192.168.1.20", public_a),
-        spaghetti_mac("filips-mac", "192.168.1.31", public_b),
-        strom_relay(),
-    ] {
+    let macs = [
+        spaghetti_mac("alfreds-mac", "192.168.1.20", OFFICE, relay_network),
+        spaghetti_mac("filips-mac", "192.168.1.31", filips_public, relay_network),
+    ];
+    for node in macs.into_iter().chain(relays) {
         accepted(&app, "/nodes/register", node).await;
     }
     accepted(
@@ -530,31 +563,92 @@ async fn desired(app: &Router, node: &str) -> Value {
     hops
 }
 
-#[tokio::test]
-async fn sites_behind_different_public_addresses_are_not_bridged_through_a_relay() {
-    let (_state, app) = music_to_filip("203.0.113.7", "198.51.100.4").await;
-
-    let placement = placement(&app).await;
+async fn assert_unplaced(app: &Router) {
+    let placement = placement(app).await;
     assert_eq!(placement["status"], "false", "{placement}");
     assert_eq!(placement["reason"], "placement_failed", "{placement}");
     for node in ["alfreds-mac", "filips-mac", "strom-node-1"] {
-        assert_eq!(desired(&app, node).await, json!([]), "{node}");
+        assert_eq!(desired(app, node).await, json!([]), "{node}");
     }
+}
+
+fn port(socket: &Value) -> u64 {
+    socket["port"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("a port in {socket}"))
+}
+
+#[tokio::test]
+async fn sites_that_dial_no_relay_network_are_not_bridged_through_a_relay() {
+    let (_state, app) = music_to_filip(HOME, None, [strom_relay(), bench_lan_relay()]).await;
+
+    assert_unplaced(&app).await;
+    assert_eq!(desired(&app, "weave-relay").await, json!([]));
+}
+
+#[tokio::test]
+async fn sites_that_dial_a_relay_network_are_bridged_through_its_listener() {
+    let (_state, app) =
+        music_to_filip(HOME, Some("bench-lan"), [strom_relay(), bench_lan_relay()]).await;
+
+    let placement = placement(&app).await;
+    assert_eq!(placement["status"], "true", "{placement}");
+    let bridges = desired(&app, "weave-relay").await;
+    assert_eq!(bridges.as_array().unwrap().len(), 1, "{bridges}");
+    let bridge = &bridges[0];
+    assert_eq!(bridge["role"], "bridge", "{bridge}");
+    let (bridge_in, bridge_out) = (&bridge["ingress"], &bridge["egresses"][0]);
+    assert_eq!(bridge_in["role"], "listen", "{bridge}");
+    assert_eq!(bridge_out["role"], "listen", "{bridge}");
+    for listening in [bridge_in, bridge_out] {
+        assert!((24000..=24099).contains(&port(listening)), "{bridge}");
+    }
+
+    let sender = desired(&app, "alfreds-mac").await;
+    let sent = &sender[0]["egresses"][0];
+    assert_eq!(sent["role"], "connect", "{sender}");
+    assert_eq!(sent["host"], RELAY_HOST, "{sender}");
+    assert_eq!(port(sent), port(bridge_in), "{sender}");
+
+    let receiver = desired(&app, "filips-mac").await;
+    let received = &receiver[0]["ingress"];
+    assert_eq!(received["role"], "connect", "{receiver}");
+    assert_eq!(received["host"], RELAY_HOST, "{receiver}");
+    assert_eq!(port(received), port(bridge_out), "{receiver}");
+    assert_eq!(receiver[0]["egresses"][0]["transport"], "output");
+
+    assert_eq!(desired(&app, "strom-node-1").await, json!([]));
+}
+
+#[tokio::test]
+async fn sites_that_dial_only_the_relay_network_are_never_bridged_through_internet() {
+    let (_state, app) = music_to_filip(HOME, Some("bench-lan"), [strom_relay()]).await;
+
+    assert_unplaced(&app).await;
 }
 
 #[tokio::test]
 async fn sites_behind_one_public_address_are_linked_directly() {
-    let (_state, app) = music_to_filip("203.0.113.7", "203.0.113.7").await;
+    for relay_network in [None, Some("bench-lan")] {
+        let (_state, app) =
+            music_to_filip(OFFICE, relay_network, [strom_relay(), bench_lan_relay()]).await;
 
-    let placement = placement(&app).await;
-    assert_eq!(placement["status"], "true", "{placement}");
-    let sender = desired(&app, "alfreds-mac").await;
-    let egress = &sender[0]["egresses"][0];
-    assert_eq!(egress["role"], "connect", "{sender}");
-    assert_eq!(egress["host"], "192.168.1.31", "{sender}");
-    assert_eq!(
-        desired(&app, "filips-mac").await[0]["egresses"][0]["transport"],
-        "output"
-    );
-    assert_eq!(desired(&app, "strom-node-1").await, json!([]));
+        let placement = placement(&app).await;
+        assert_eq!(placement["status"], "true", "{placement}");
+        let sender = desired(&app, "alfreds-mac").await;
+        let egress = &sender[0]["egresses"][0];
+        assert_eq!(egress["role"], "connect", "{sender}");
+        assert_eq!(egress["host"], "192.168.1.31", "{sender}");
+        assert_eq!(
+            desired(&app, "filips-mac").await[0]["egresses"][0]["transport"],
+            "output"
+        );
+        for relay in ["weave-relay", "strom-node-1"] {
+            assert_eq!(
+                desired(&app, relay).await,
+                json!([]),
+                "{relay_network:?}: {relay}"
+            );
+        }
+    }
 }

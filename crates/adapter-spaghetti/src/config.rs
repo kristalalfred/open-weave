@@ -53,6 +53,7 @@ impl AdapterConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use weave_core::{NetworkAttachment, NetworkListeners};
 
     const MINIMAL: &str = r"
 node:
@@ -67,14 +68,30 @@ node:
           port_range: { start: 23000, end: 23099 }
 ";
 
-    fn installed_config(node: &str, token: &str) -> String {
+    const INSTALLED: &str = r"
+id: alfreds-mac
+southbound_url: http://192.168.1.10:29081
+southbound_token: alfreds-mac.0.c0ffee
+listen: 127.0.0.1:8092
+topology:
+  site:
+    id: lan
+    listeners:
+      srt:
+        port_range: { start: 23000, end: 23099 }
+";
+
+    fn installed_config(relay_network: &str) -> NodeConfig {
         let script = include_str!("../install.sh")
+            .replace("__SOUTHBOUND_URL__", "http://192.168.1.10:29081")
+            .replace("__RELAY_NETWORK__", relay_network);
+        let script = script
             .strip_suffix("main \"$@\"\n")
             .expect("install.sh ends by running main");
         let output = std::process::Command::new("bash")
             .arg("-c")
             .arg(format!("{script}node_config \"$@\"\n"))
-            .args(["install.sh", node, token])
+            .args(["install.sh", "alfreds-mac", "alfreds-mac.0.c0ffee"])
             .output()
             .expect("running bash");
         assert!(
@@ -82,29 +99,29 @@ node:
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        String::from_utf8(output.stdout).expect("UTF-8 config")
+        let text = String::from_utf8(output.stdout).expect("UTF-8 config");
+        let config: AdapterConfig =
+            serde_norway::from_str(&text).unwrap_or_else(|error| panic!("{error}\n{text}"));
+        assert_eq!(config.node.validate(), Ok(()), "{text}");
+        config.node
     }
 
     #[test]
-    fn the_installer_declares_only_a_site_with_no_network_or_address() {
-        let config: AdapterConfig =
-            serde_norway::from_str(&installed_config("alfreds-mac", "alfreds-mac.0.c0ffee"))
-                .unwrap();
-        assert_eq!(config.node.validate(), Ok(()));
-        assert_eq!(config.node.id, "alfreds-mac");
-        assert_eq!(
-            config.node.southbound_token.as_deref(),
-            Some("alfreds-mac.0.c0ffee")
-        );
-        assert!(config.node.topology.attachments.is_empty());
-        let site = config.node.topology.site.expect("a site attachment");
-        assert_eq!(site.id, "lan");
-        assert_eq!(
-            site.listeners
-                .srt
-                .map(|srt| (srt.port_range.start, srt.port_range.end)),
-            Some((23000, 23099))
-        );
+    fn without_a_relay_network_the_installer_declares_only_a_site() {
+        let expected: NodeConfig = serde_norway::from_str(INSTALLED).unwrap();
+        assert_eq!(installed_config(""), expected);
+    }
+
+    #[test]
+    fn a_relay_network_adds_a_dialing_attachment_next_to_the_site() {
+        let mut expected: NodeConfig = serde_norway::from_str(INSTALLED).unwrap();
+        expected.topology.attachments.push(NetworkAttachment {
+            id: "relay".to_string(),
+            network: "bench-lan".to_string(),
+            dial: true,
+            listeners: NetworkListeners::default(),
+        });
+        assert_eq!(installed_config("bench-lan"), expected);
     }
 
     #[test]
