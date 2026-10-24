@@ -70,10 +70,6 @@ Strom profiles and both browser profiles advertise `unknown`. RIST packetization
 and WebRTC gateways do not establish output compatibility. Stored profiles
 without this metadata remain unknown until registration supplies it.
 
-The spaghetti adapter lives in
-[weave-adapter-spaghetti](https://github.com/kristalalfred/weave-adapter-spaghetti),
-which lists its profiles.
-
 A stream from one page to another is relayed through a Strom node's
 `whip-to-whep`. Strom's `whip-to-srt` and `whip-to-whep` accept H264 video and
 Opus audio. Strom has no profile that fans out over mixed transports, and none
@@ -175,7 +171,7 @@ optional and takes only a `port_range`. A site takes no `network`, `host` or
 `dial`. The controller derives them from what the node observes.
 
 A node that declares a site sends an `observation` with its registration and
-every heartbeat. The spaghetti adapter is the only such node.
+every heartbeat:
 
 | Field | Meaning |
 |---|---|
