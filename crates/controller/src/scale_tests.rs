@@ -147,7 +147,7 @@ async fn post(app: &Router, uri: &str, body: &impl Serialize, create: bool) -> S
 async fn fresh_state() -> AppState {
     AppState::hydrate(
         Arc::new(MemStore::new()),
-        Duration::from_secs(15),
+        Duration::from_secs(3600),
         Duration::from_secs(300),
         None,
         LinkKeys::for_tests(),
