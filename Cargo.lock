@@ -3009,25 +3009,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "weave-adapter-spaghetti"
-version = "0.1.0-rc.1"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "reqwest",
- "serde",
- "serde_json",
- "serde_norway",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "weave-core",
- "weave-reach",
- "weave-spaghetti",
-]
-
-[[package]]
 name = "weave-adapter-strom"
 version = "0.1.0-rc.1"
 dependencies = [
@@ -3191,16 +3172,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "weave-core",
-]
-
-[[package]]
-name = "weave-spaghetti"
-version = "0.1.0-rc.1"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
 ]
 
 [[package]]

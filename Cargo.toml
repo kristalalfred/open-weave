@@ -10,8 +10,6 @@ members = [
     "crates/strom",
     "crates/bench",
     "crates/media",
-    "crates/spaghetti",
-    "crates/adapter-spaghetti",
     "crates/reach",
 ]
 
@@ -26,7 +24,6 @@ repository = "https://github.com/KristalAlfred/open-weave"
 [workspace.dependencies]
 weave-core = { path = "crates/core" }
 weave-strom = { path = "crates/strom" }
-weave-spaghetti = { path = "crates/spaghetti" }
 weave-reach = { path = "crates/reach" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }

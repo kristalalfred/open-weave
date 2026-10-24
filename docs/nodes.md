@@ -63,15 +63,16 @@ carries. Absent means unknown, and the hops carry both.
 | Native SRT | `srt-forward`, `srt-timed-origin`, `srt-timed-forward`, `srt-timed-receiver` |
 | Strom | `srt-forward`, `whip-to-srt`, `srt-to-whep`, `whip-to-whep`, `srt-to-rist`, `rist-to-srt` |
 | Browser | `camera-to-whip`, `whep-to-display`, each with one egress |
-| Spaghetti | `app-audio-out` with up to eight SRT or WebRTC egresses, `srt-to-speaker` and `webrtc-to-speaker` with one |
 
 All native SRT profiles and Strom's `srt-forward` advertise `preserve`, with
 `accepts: {}`. Only the native timed receiver advertises merge support. All other
-Strom profiles, both browser profiles and every spaghetti profile advertise
-`unknown`. `srt-to-speaker` accepts AAC audio in MPEG-TS, and `webrtc-to-speaker`
-Opus audio in RTP. RIST packetization
+Strom profiles and both browser profiles advertise `unknown`. RIST packetization
 and WebRTC gateways do not establish output compatibility. Stored profiles
 without this metadata remain unknown until registration supplies it.
+
+The spaghetti adapter lives in
+[weave-adapter-spaghetti](https://github.com/kristalalfred/weave-adapter-spaghetti),
+which lists its profiles.
 
 A stream from one page to another is relayed through a Strom node's
 `whip-to-whep`. Strom's `whip-to-srt` and `whip-to-whep` accept H264 video and
@@ -117,10 +118,7 @@ removes the stream's hops from desired state. When it returns, the stream is
 placed again.
 
 The browser node declares the input `camera` and the output `player`. The
-spaghetti adapter declares each running app under `/Applications`,
-`/System/Applications` or `~/Applications` as an audio input, and each output
-device as an output, with ids made from their names. The native SRT node and
-the Strom adapter declare none.
+native SRT node and the Strom adapter declare none.
 
 ## Topology
 
@@ -176,8 +174,8 @@ topology:
 optional and takes only a `port_range`. A site takes no `network`, `host` or
 `dial`. The controller derives them from what the node observes.
 
-The spaghetti adapter is the only node that declares a site. It sends an
-`observation` with its registration and every heartbeat:
+A node that declares a site sends an `observation` with its registration and
+every heartbeat. The spaghetti adapter is the only such node.
 
 | Field | Meaning |
 |---|---|
@@ -186,16 +184,17 @@ The spaghetti adapter is the only node that declares a site. It sends an
 | `uplink.gateway` | Optional. The default gateway's hardware address. |
 | `uplink.reflexive` | Up to eight `{ server, mapped }` pairs: a STUN server and the address and port it saw. |
 
-The adapter reads the uplink every 2 s and asks `stun.cloudflare.com:3478` and
-`stun.l.google.com:19302` when the uplink changes, every 60 s, and on every read
-while it holds no answer, allowing each server 1.5 s including its DNS lookup:
+[`weave-reach`](../crates/reach) builds the observation. It reads the uplink
+every 2 s and asks `stun.cloudflare.com:3478` and `stun.l.google.com:19302` when
+the uplink changes, every 60 s, and on every read while it holds no answer,
+allowing each server 1.5 s including its DNS lookup:
 
 - A server that does not answer keeps its last answer while the uplink holds.
   When another server answers in the same round, a kept answer older than
   5 minutes is dropped; when no server answers, every kept answer stays.
 - A read that finds the same interface, address and prefix but no gateway
   hardware address keeps the last known one.
-- When the uplink cannot be read, the adapter reports the previous observation
+- When the uplink cannot be read, `weave-reach` reports the previous observation
   for ten more reads (about 20 s), then an observation without `uplink`. It
   then reads the uplink every 250 ms, and when the same uplink returns it
   reports the previous observation again on that read.

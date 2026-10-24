@@ -44,9 +44,6 @@ run-strom-adapter *ARGS:
 run-node *ARGS:
     cargo run -p weave-media --bin weave-node -- {{ARGS}}
 
-run-spaghetti-adapter *ARGS:
-    cargo run -p weave-adapter-spaghetti -- {{ARGS}}
-
 timed-demo ACTION="run" *ARGS: build
     cargo run -p weave-bench --bin weave-timed-demo -- {{ACTION}} {{ARGS}}
 

@@ -22,7 +22,8 @@ committed OpenAPI and JSON Schema artifacts for drift.
   stateless proxies. Media runs in the nodes, outside the control plane.
 - Keep planning side-effect free. Plan against the full candidate stream set.
 - Southbound protocol changes require updating `PROTOCOL_VERSION` and every
-  adapter, including `nodes/browser/`.
+  adapter, including `nodes/browser/` and the spaghetti adapter in
+  [weave-adapter-spaghetti](https://github.com/kristalalfred/weave-adapter-spaghetti).
 - Formats are declarations. Report mismatches without inferring or converting
   media.
 
