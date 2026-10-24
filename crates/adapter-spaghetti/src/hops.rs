@@ -231,14 +231,24 @@ pub struct Applied<'a> {
 }
 
 impl Applied<'_> {
-    #[must_use]
-    pub fn matches(&self, plan: &Plan) -> bool {
-        self.source.spec == plan.source
-            && self.routes.len() == plan.routes.len()
-            && plan
-                .routes
-                .iter()
-                .all(|(_, destination)| self.route(destination).is_some())
+    fn source_settled(&self, plan: &Plan) -> bool {
+        self.source.spec == plan.source && self.unwanted_routes(plan).next().is_none()
+    }
+
+    fn unwanted_routes(&self, plan: &Plan) -> impl Iterator<Item = &RouteInfo> {
+        self.routes
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, route)| {
+                let planned = plan
+                    .routes
+                    .iter()
+                    .any(|(_, destination)| destination == &route.destination);
+                let repeated = self.routes[..index]
+                    .iter()
+                    .any(|earlier| earlier.destination == route.destination);
+                (!planned || repeated).then_some(*route)
+            })
     }
 
     fn route(&self, destination: &Destination) -> Option<&RouteInfo> {
@@ -289,37 +299,23 @@ pub enum Action {
     Destroy {
         source_id: u32,
     },
-    RemoveRoute {
+    Source {
         hop_id: String,
-        route_id: u32,
-    },
-    Retap {
-        hop_id: String,
-        source_id: u32,
-        pids: Vec<u32>,
+        change: SourceChange,
     },
     AddRoute {
         hop_id: String,
         source_id: u32,
+        branch_id: String,
         destination: Destination,
-    },
-    Build {
-        hop_id: String,
-        plan: Plan,
     },
 }
 
-impl Action {
-    #[must_use]
-    pub fn hop_id(&self) -> Option<&str> {
-        match self {
-            Self::Destroy { .. } => None,
-            Self::RemoveRoute { hop_id, .. }
-            | Self::Retap { hop_id, .. }
-            | Self::AddRoute { hop_id, .. }
-            | Self::Build { hop_id, .. } => Some(hop_id),
-        }
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub enum SourceChange {
+    Build(SourceSpec),
+    Retap { source_id: u32, pids: Vec<u32> },
+    RemoveRoute { route_id: u32 },
 }
 
 fn reusable(built: &SourceSpec, wanted: &SourceSpec) -> bool {
@@ -358,25 +354,28 @@ pub fn actions(
             (&built.source.spec, &plan.source)
             && tapped != pids
         {
-            updates.push(Action::Retap {
+            updates.push(Action::Source {
                 hop_id: (*hop_id).to_string(),
-                source_id,
-                pids: pids.clone(),
+                change: SourceChange::Retap {
+                    source_id,
+                    pids: pids.clone(),
+                },
             });
         }
-        for route in &built.routes {
-            if !plan.routes.iter().any(|(_, d)| d == &route.destination) {
-                actions.push(Action::RemoveRoute {
-                    hop_id: (*hop_id).to_string(),
+        for route in built.unwanted_routes(plan) {
+            actions.push(Action::Source {
+                hop_id: (*hop_id).to_string(),
+                change: SourceChange::RemoveRoute {
                     route_id: route.route_id,
-                });
-            }
+                },
+            });
         }
-        for (_, destination) in &plan.routes {
+        for (branch_id, destination) in &plan.routes {
             if built.route(destination).is_none() {
                 updates.push(Action::AddRoute {
                     hop_id: (*hop_id).to_string(),
                     source_id,
+                    branch_id: branch_id.clone(),
                     destination: destination.clone(),
                 });
             }
@@ -389,9 +388,9 @@ pub fn actions(
             .get(hop_id.as_str())
             .is_some_and(|built| reusable(&built.source.spec, &plan.source));
         if !kept {
-            actions.push(Action::Build {
+            actions.push(Action::Source {
                 hop_id: hop_id.clone(),
-                plan: plan.clone(),
+                change: SourceChange::Build(plan.source.clone()),
             });
         }
     }
@@ -399,51 +398,114 @@ pub fn actions(
 }
 
 #[derive(Debug)]
-struct Retry {
-    plan: Plan,
+struct Retry<T> {
+    wanted: T,
     at: Instant,
     delay: Duration,
 }
 
+impl<T: PartialEq + Clone> Retry<T> {
+    fn due(retry: Option<&Self>, wanted: &T, now: Instant) -> bool {
+        retry.is_none_or(|retry| &retry.wanted != wanted || now >= retry.at)
+    }
+
+    fn failing(retry: Option<&Self>, wanted: &T) -> bool {
+        retry.is_some_and(|retry| &retry.wanted == wanted)
+    }
+
+    fn after(retry: Option<&Self>, wanted: &T, now: Instant) -> Self {
+        let delay = match retry {
+            Some(retry) if &retry.wanted == wanted => (retry.delay * 2).min(LAST_RETRY),
+            _ => FIRST_RETRY,
+        };
+        Self {
+            wanted: wanted.clone(),
+            at: now + delay,
+            delay,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
-pub struct Retries(BTreeMap<String, Retry>);
+pub struct Retries {
+    sources: BTreeMap<String, Retry<Plan>>,
+    routes: BTreeMap<String, BTreeMap<String, Retry<Destination>>>,
+}
 
 impl Retries {
     #[must_use]
-    pub fn due(&self, hop_id: &str, plan: &Plan, now: Instant) -> bool {
-        self.0
-            .get(hop_id)
-            .is_none_or(|retry| &retry.plan != plan || now >= retry.at)
+    pub fn source_due(&self, hop_id: &str, plan: &Plan, now: Instant) -> bool {
+        Retry::due(self.sources.get(hop_id), plan, now)
     }
 
     #[must_use]
-    pub fn failing(&self, hop_id: &str, plan: &Plan) -> bool {
-        self.0.get(hop_id).is_some_and(|retry| &retry.plan == plan)
+    pub fn source_failing(&self, hop_id: &str, plan: &Plan) -> bool {
+        Retry::failing(self.sources.get(hop_id), plan)
     }
 
-    pub fn failed(&mut self, hop_id: &str, plan: &Plan, now: Instant) {
-        let delay = match self.0.get(hop_id) {
-            Some(retry) if &retry.plan == plan => (retry.delay * 2).min(LAST_RETRY),
-            _ => FIRST_RETRY,
-        };
-        self.0.insert(
-            hop_id.to_string(),
-            Retry {
-                plan: plan.clone(),
-                at: now + delay,
-                delay,
-            },
-        );
+    pub fn source_failed(&mut self, hop_id: &str, plan: &Plan, now: Instant) {
+        let retry = Retry::after(self.sources.get(hop_id), plan, now);
+        self.sources.insert(hop_id.to_string(), retry);
     }
 
-    pub fn succeeded(&mut self, hop_id: &str) {
-        self.0.remove(hop_id);
+    fn route(&self, hop_id: &str, branch_id: &str) -> Option<&Retry<Destination>> {
+        self.routes.get(hop_id)?.get(branch_id)
+    }
+
+    #[must_use]
+    pub fn route_due(
+        &self,
+        hop_id: &str,
+        branch_id: &str,
+        destination: &Destination,
+        now: Instant,
+    ) -> bool {
+        Retry::due(self.route(hop_id, branch_id), destination, now)
+    }
+
+    #[must_use]
+    pub fn route_failing(&self, hop_id: &str, branch_id: &str, destination: &Destination) -> bool {
+        Retry::failing(self.route(hop_id, branch_id), destination)
+    }
+
+    pub fn route_failed(
+        &mut self,
+        hop_id: &str,
+        branch_id: &str,
+        destination: &Destination,
+        now: Instant,
+    ) {
+        let retry = Retry::after(self.route(hop_id, branch_id), destination, now);
+        self.routes
+            .entry(hop_id.to_string())
+            .or_default()
+            .insert(branch_id.to_string(), retry);
+    }
+
+    pub fn settle(&mut self, hop_id: &str, plan: &Plan, built: &Applied) {
+        if built.source_settled(plan) {
+            self.sources.remove(hop_id);
+        }
+        if let Some(routes) = self.routes.get_mut(hop_id) {
+            routes.retain(|_, retry| built.route(&retry.wanted).is_none());
+        }
     }
 
     pub fn retain(&mut self, plans: &BTreeMap<String, Result<Plan, String>>) {
-        self.0.retain(
-            |hop_id, retry| matches!(plans.get(hop_id), Some(Ok(plan)) if plan == &retry.plan),
+        self.sources.retain(
+            |hop_id, retry| matches!(plans.get(hop_id), Some(Ok(plan)) if plan == &retry.wanted),
         );
+        self.routes.retain(|hop_id, routes| {
+            let Some(Ok(plan)) = plans.get(hop_id) else {
+                return false;
+            };
+            routes.retain(|branch_id, retry| {
+                plan.routes.iter().any(|(branch, destination)| {
+                    branch == branch_id && destination == &retry.wanted
+                })
+            });
+            !routes.is_empty()
+        });
     }
 }
 
@@ -484,23 +546,30 @@ pub fn hop_status(
     hop: &DesiredHop,
     plan: &Result<Plan, String>,
     built: Option<&Applied>,
-    failed: bool,
+    retries: &Retries,
     rates: &mut Rates,
     refusals: &Refusals,
     now: Instant,
 ) -> HopStatus {
-    let applied = match (plan, built) {
-        (Ok(plan), Some(built)) if built.matches(plan) => Some((plan, built)),
+    let running = match (plan, built) {
+        (Ok(plan), Some(built)) if built.source.spec == plan.source => Some((plan, built)),
         _ => None,
     };
-    let state = if plan.is_err() || failed {
-        HopState::Failed
-    } else if applied.is_some() {
-        HopState::Provisioned
-    } else {
-        HopState::Pending
+    let state = match (plan, running) {
+        (Err(_), _) => HopState::Failed,
+        (Ok(plan), _) if retries.source_failing(&hop.id, plan) => HopState::Failed,
+        (Ok(_), Some((plan, built)))
+            if built.source_settled(plan)
+                && plan.routes.iter().all(|(branch_id, destination)| {
+                    built.route(destination).is_some()
+                        || retries.route_failing(&hop.id, branch_id, destination)
+                }) =>
+        {
+            HopState::Provisioned
+        }
+        (Ok(_), _) => HopState::Pending,
     };
-    let ingress = match applied {
+    let ingress = match running {
         Some((_, built)) => socket_status(
             &built.source.status,
             &hop.ingress,
@@ -518,26 +587,31 @@ pub fn hop_status(
         .egresses
         .iter()
         .map(|egress| {
-            let route = applied.and_then(|(plan, built)| {
-                plan.routes
-                    .iter()
-                    .find(|(branch, _)| branch == &egress.branch_id)
-                    .and_then(|(_, destination)| built.route(destination))
-            });
-            let status = match route {
-                Some(route) => socket_status(
-                    &route.status,
-                    &egress.socket,
-                    rates.sample(
-                        format!("{}/egress/{}", hop.id, egress.branch_id),
-                        route.status.bytes,
-                        now,
-                    ),
-                    Direction::Sending,
-                    refusals,
-                ),
-                None => idle(&egress.socket),
-            };
+            let status = running
+                .and_then(|(plan, built)| {
+                    let (_, destination) = plan
+                        .routes
+                        .iter()
+                        .find(|(branch, _)| branch == &egress.branch_id)?;
+                    Some(match built.route(destination) {
+                        Some(route) => socket_status(
+                            &route.status,
+                            &egress.socket,
+                            rates.sample(
+                                format!("{}/egress/{}", hop.id, egress.branch_id),
+                                route.status.bytes,
+                                now,
+                            ),
+                            Direction::Sending,
+                            refusals,
+                        ),
+                        None if retries.route_failing(&hop.id, &egress.branch_id, destination) => {
+                            failed_route(&egress.socket)
+                        }
+                        None => idle(&egress.socket),
+                    })
+                })
+                .unwrap_or_else(|| idle(&egress.socket));
             EgressStatus {
                 branch_id: egress.branch_id.clone(),
                 status,
@@ -580,6 +654,22 @@ fn idle(socket: &SocketSpec) -> SocketStatus {
     SocketStatus {
         peer: None,
         condition: LinkCondition::Idle,
+        resolved: resolved(socket),
+        stats: None,
+    }
+}
+
+fn failed_route(socket: &SocketSpec) -> SocketStatus {
+    SocketStatus {
+        peer: match socket {
+            SocketSpec::Webrtc(peer) => Some(PeerReport {
+                link: peer.attempt.link.clone(),
+                generation: peer.attempt.generation,
+                relayed: false,
+            }),
+            _ => None,
+        },
+        condition: LinkCondition::Lost,
         resolved: resolved(socket),
         stats: None,
     }
@@ -819,7 +909,7 @@ mod tests {
                 &hop,
                 &Ok(wanted.clone()),
                 current.get(hop.id.as_str()),
-                false,
+                &Retries::default(),
                 &mut Rates::default(),
                 refusals,
                 Instant::now(),
@@ -1001,11 +1091,11 @@ mod tests {
         assert_eq!(
             sorted(actions(&hop.node_id, &plans, &sources, &current_routes)),
             [
-                Action::Build {
-                    hop_id: missing.id.clone(),
-                    plan: wanted
-                },
                 Action::Destroy { source_id: 3 },
+                Action::Source {
+                    hop_id: missing.id.clone(),
+                    change: SourceChange::Build(wanted.source)
+                },
             ]
         );
     }
@@ -1042,18 +1132,40 @@ mod tests {
                 Action::AddRoute {
                     hop_id: hop.id.clone(),
                     source_id: 1,
+                    branch_id: "new".into(),
                     destination: added
                 },
-                Action::RemoveRoute {
+                Action::Source {
                     hop_id: hop.id.clone(),
-                    route_id: 11
+                    change: SourceChange::RemoveRoute { route_id: 11 }
                 },
-                Action::Retap {
+                Action::Source {
                     hop_id: hop.id.clone(),
-                    source_id: 1,
-                    pids: vec![731]
+                    change: SourceChange::Retap {
+                        source_id: 1,
+                        pids: vec![731]
+                    }
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn a_route_built_twice_keeps_its_first_copy() {
+        let hop = sender();
+        let wanted = plan(&hop, &inventory()).unwrap();
+        let (source, mut routes) = built(&hop, &wanted, 1, 0);
+        routes.push(RouteInfo {
+            route_id: 99,
+            ..routes[0].clone()
+        });
+        let plans = BTreeMap::from([(hop.id.clone(), Ok(wanted))]);
+        assert_eq!(
+            actions(&hop.node_id, &plans, &[source], &routes),
+            [Action::Source {
+                hop_id: hop.id.clone(),
+                change: SourceChange::RemoveRoute { route_id: 99 }
+            }]
         );
     }
 
@@ -1073,36 +1185,114 @@ mod tests {
         assert_eq!(
             sorted(actions(&hop.node_id, &plans, &[source], &routes)),
             [
-                Action::Build {
-                    hop_id: hop.id.clone(),
-                    plan: wanted
-                },
                 Action::Destroy { source_id: 7 },
+                Action::Source {
+                    hop_id: hop.id.clone(),
+                    change: SourceChange::Build(wanted.source)
+                },
             ]
         );
     }
 
     #[test]
-    fn a_failing_hop_backs_off_until_its_plan_changes() {
+    fn a_failing_source_backs_off_until_its_plan_changes_or_it_settles() {
         let hop = sender();
         let plan = plan(&hop, &inventory()).unwrap();
         let mut retries = Retries::default();
         let start = Instant::now();
-        assert!(retries.due(&hop.id, &plan, start));
-        retries.failed(&hop.id, &plan, start);
-        assert!(retries.failing(&hop.id, &plan));
-        assert!(!retries.due(&hop.id, &plan, start + Duration::from_millis(500)));
-        assert!(retries.due(&hop.id, &plan, start + FIRST_RETRY));
-        retries.failed(&hop.id, &plan, start + FIRST_RETRY);
-        assert!(!retries.due(&hop.id, &plan, start + FIRST_RETRY * 2));
-        assert!(retries.due(&hop.id, &plan, start + FIRST_RETRY * 3));
+        assert!(retries.source_due(&hop.id, &plan, start));
+        retries.source_failed(&hop.id, &plan, start);
+        assert!(retries.source_failing(&hop.id, &plan));
+        assert!(!retries.source_due(&hop.id, &plan, start + Duration::from_millis(500)));
+        assert!(retries.source_due(&hop.id, &plan, start + FIRST_RETRY));
+        retries.source_failed(&hop.id, &plan, start + FIRST_RETRY);
+        assert!(!retries.source_due(&hop.id, &plan, start + FIRST_RETRY * 2));
+        assert!(retries.source_due(&hop.id, &plan, start + FIRST_RETRY * 3));
 
         let mut changed = plan.clone();
         changed.routes.clear();
-        assert!(retries.due(&hop.id, &changed, start));
-        assert!(!retries.failing(&hop.id, &changed));
-        retries.succeeded(&hop.id);
-        assert!(!retries.failing(&hop.id, &plan));
+        assert!(retries.source_due(&hop.id, &changed, start));
+        assert!(!retries.source_failing(&hop.id, &changed));
+
+        let (source, routes) = built(&hop, &plan, 1, 0);
+        let (current, _) = applied(&hop.node_id, std::slice::from_ref(&source), &routes);
+        retries.settle(&hop.id, &plan, &current[hop.id.as_str()]);
+        assert!(!retries.source_failing(&hop.id, &plan));
+    }
+
+    #[test]
+    fn a_failing_route_backs_off_alone_until_it_is_built() {
+        let mut hop = sender();
+        hop.egresses.push(DesiredEgress {
+            branch_id: "anna".into(),
+            socket: webrtc_socket(7),
+        });
+        let wanted = plan(&hop, &inventory()).unwrap();
+        let (srt, webrtc) = (&wanted.routes[0], &wanted.routes[1]);
+        let mut retries = Retries::default();
+        let start = Instant::now();
+        retries.route_failed(&hop.id, &webrtc.0, &webrtc.1, start);
+        assert!(retries.route_failing(&hop.id, &webrtc.0, &webrtc.1));
+        assert!(!retries.route_due(&hop.id, &webrtc.0, &webrtc.1, start));
+        assert!(retries.route_due(&hop.id, &srt.0, &srt.1, start));
+        assert!(retries.source_due(&hop.id, &wanted, start));
+        assert!(!retries.source_failing(&hop.id, &wanted));
+
+        let regenerated = Destination::WebRtc(webrtc_peer(8, PeerRole::Offer));
+        assert!(retries.route_due(&hop.id, &webrtc.0, &regenerated, start));
+
+        let (source, routes) = built(&hop, &wanted, 1, 0);
+        let (current, _) = applied(&hop.node_id, std::slice::from_ref(&source), &routes);
+        retries.settle(&hop.id, &wanted, &current[hop.id.as_str()]);
+        assert!(!retries.route_failing(&hop.id, &webrtc.0, &webrtc.1));
+    }
+
+    #[test]
+    fn a_refused_route_reports_lost_while_the_other_branches_keep_their_condition() {
+        let mut hop = sender();
+        hop.egresses.push(DesiredEgress {
+            branch_id: "anna".into(),
+            socket: webrtc_socket(7),
+        });
+        let wanted = plan(&hop, &inventory()).unwrap();
+        let (source, mut routes) = built(&hop, &wanted, 1, 1_000);
+        routes.truncate(1);
+        let (current, _) = applied(&hop.node_id, std::slice::from_ref(&source), &routes);
+        let status = |retries: &Retries| {
+            hop_status(
+                &hop,
+                &Ok(wanted.clone()),
+                current.get(hop.id.as_str()),
+                retries,
+                &mut Rates::default(),
+                &Refusals::default(),
+                Instant::now(),
+            )
+        };
+
+        let adding = status(&Retries::default());
+        assert_eq!(adding.state, HopState::Pending);
+        assert_eq!(adding.egresses[0].status.condition, LinkCondition::Flowing);
+        assert_eq!(adding.egresses[1].status.condition, LinkCondition::Idle);
+
+        let mut retries = Retries::default();
+        let (branch_id, destination) = &wanted.routes[1];
+        retries.route_failed(&hop.id, branch_id, destination, Instant::now());
+        let refused = status(&retries);
+        assert_eq!(refused.state, HopState::Provisioned);
+        assert_eq!(refused.ingress.condition, LinkCondition::Flowing);
+        assert_eq!(refused.egresses[0].branch_id, "filip");
+        assert_eq!(refused.egresses[0].status.condition, LinkCondition::Flowing);
+        assert_eq!(refused.egresses[1].branch_id, "anna");
+        assert_eq!(refused.egresses[1].status.condition, LinkCondition::Lost);
+        assert_eq!(
+            refused.egresses[1].status.peer,
+            Some(PeerReport {
+                link: PeerLinkId::new("weave-music-receiver-filip"),
+                generation: 7,
+                relayed: false,
+            })
+        );
     }
 
     #[test]
@@ -1131,7 +1321,7 @@ mod tests {
             &hop,
             &Ok(wanted.clone()),
             current.get(hop.id.as_str()),
-            false,
+            &Retries::default(),
             &mut rates,
             &Refusals::default(),
             start,
@@ -1160,7 +1350,7 @@ mod tests {
             &hop,
             &Ok(wanted),
             current.get(hop.id.as_str()),
-            false,
+            &Retries::default(),
             &mut rates,
             &Refusals::default(),
             later,
@@ -1177,7 +1367,7 @@ mod tests {
             &hop,
             &plan(&hop, &inventory()),
             None,
-            false,
+            &Retries::default(),
             &mut rates,
             &Refusals::default(),
             Instant::now(),
@@ -1196,7 +1386,7 @@ mod tests {
             &hop,
             &Err("no".into()),
             None,
-            false,
+            &Retries::default(),
             &mut rates,
             &Refusals::default(),
             Instant::now(),

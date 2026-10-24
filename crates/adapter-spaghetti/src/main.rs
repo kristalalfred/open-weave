@@ -21,10 +21,10 @@ use weave_core::{
     SignallingExchange, SignallingReply, Transport, TransportClass,
 };
 use weave_reach::{Reach, STUN_SERVERS};
-use weave_spaghetti::{SpaghettiClient, SpaghettiError};
+use weave_spaghetti::{Destination, SpaghettiClient, SpaghettiError};
 
 use config::AdapterConfig;
-use hops::{Action, Plan, Rates, Refusals, Retries};
+use hops::{Action, Plan, Rates, Refusals, Retries, SourceChange};
 use inventory::Inventory;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -428,30 +428,21 @@ async fn sync_once(
     node.retries.retain(&plans);
     let built = match observation {
         Some(observation) => {
-            let now = Instant::now();
             let actions = hops::actions(
                 &config.node.id,
                 &plans,
                 &observation.sources,
                 &observation.routes,
             );
-            let mut failed = BTreeSet::new();
-            for action in actions {
-                let hop_id = action.hop_id().map(str::to_string);
-                let plan = hop_id.as_ref().and_then(|id| plans.get(id)?.as_ref().ok());
-                if let (Some(hop_id), Some(plan)) = (&hop_id, plan) {
-                    if failed.contains(hop_id) || !node.retries.due(hop_id, plan, now) {
-                        continue;
-                    }
-                    if let Err(error) = apply(spaghetti, &config.node.id, action).await {
-                        tracing::warn!(hop_id, error = %error, "cannot apply hop");
-                        node.retries.failed(hop_id, plan, now);
-                        failed.insert(hop_id.clone());
-                    }
-                } else if let Err(error) = apply(spaghetti, &config.node.id, action).await {
-                    tracing::warn!(error = %error, "cannot remove a spaghetti source");
-                }
-            }
+            apply(
+                spaghetti,
+                &config.node.id,
+                actions,
+                &plans,
+                &mut node.retries,
+                Instant::now(),
+            )
+            .await;
             Some((spaghetti.sources().await?, spaghetti.routes().await?))
         }
         None => None,
@@ -489,19 +480,14 @@ async fn sync_once(
         .map(|hop| {
             let plan = &plans[&hop.id];
             let built = applied.get(hop.id.as_str());
-            if let (Ok(plan), Some(built)) = (plan, built)
-                && built.matches(plan)
-            {
-                node.retries.succeeded(&hop.id);
+            if let (Ok(plan), Some(built)) = (plan, built) {
+                node.retries.settle(&hop.id, plan, built);
             }
-            let failing = plan
-                .as_ref()
-                .is_ok_and(|plan| node.retries.failing(&hop.id, plan));
             hops::hop_status(
                 hop,
                 plan,
                 built,
-                failing,
+                &node.retries,
                 &mut node.rates,
                 &node.refusals,
                 now,
@@ -579,57 +565,209 @@ async fn signal(
 async fn apply(
     spaghetti: &SpaghettiClient,
     node_id: &str,
-    action: Action,
-) -> Result<(), SpaghettiError> {
-    match action {
-        Action::Destroy { source_id } => {
-            spaghetti.destroy_source(source_id).await?;
-            tracing::info!(source_id, "removed spaghetti source");
-        }
-        Action::RemoveRoute { hop_id, route_id } => {
-            spaghetti.destroy_route(route_id).await?;
-            tracing::info!(hop_id, route_id, "removed route");
-        }
-        Action::Retap {
-            hop_id,
-            source_id,
-            pids,
-        } => {
-            spaghetti.set_tap_processes(source_id, &pids).await?;
-            tracing::info!(hop_id, ?pids, "retapped input");
-        }
-        Action::AddRoute {
-            hop_id,
-            source_id,
-            destination,
-        } => {
-            let route_id = spaghetti.create_route(source_id, &destination, 1.0).await?;
-            tracing::info!(hop_id, route_id, "added route");
-        }
-        Action::Build { hop_id, plan } => {
-            let source_id = build(spaghetti, &hops::tag(node_id, &hop_id), &plan).await?;
-            tracing::info!(hop_id, source_id, routes = plan.routes.len(), "built hop");
+    actions: Vec<Action>,
+    plans: &BTreeMap<String, Result<Plan, String>>,
+    retries: &mut Retries,
+    now: Instant,
+) {
+    let mut failed = BTreeSet::new();
+    for action in actions {
+        match action {
+            Action::Destroy { source_id } => match spaghetti.destroy_source(source_id).await {
+                Ok(()) => tracing::info!(source_id, "removed spaghetti source"),
+                Err(error) => {
+                    tracing::warn!(source_id, error = %error, "cannot remove a spaghetti source");
+                }
+            },
+            Action::AddRoute {
+                hop_id,
+                source_id,
+                branch_id,
+                destination,
+            } => {
+                add_route(
+                    spaghetti,
+                    retries,
+                    (&hop_id, source_id),
+                    (&branch_id, &destination),
+                    now,
+                )
+                .await;
+            }
+            Action::Source { hop_id, change } => {
+                let Some(Ok(plan)) = plans.get(&hop_id) else {
+                    continue;
+                };
+                if failed.contains(&hop_id) || !retries.source_due(&hop_id, plan, now) {
+                    continue;
+                }
+                match change_source(spaghetti, node_id, &hop_id, change).await {
+                    Ok(Some(source_id)) => {
+                        for (branch_id, destination) in &plan.routes {
+                            add_route(
+                                spaghetti,
+                                retries,
+                                (&hop_id, source_id),
+                                (branch_id, destination),
+                                now,
+                            )
+                            .await;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!(hop_id, error = %error, "cannot apply hop");
+                        retries.source_failed(&hop_id, plan, now);
+                        failed.insert(hop_id);
+                    }
+                }
+            }
         }
     }
-    Ok(())
 }
 
-async fn build(spaghetti: &SpaghettiClient, tag: &str, plan: &Plan) -> Result<u32, SpaghettiError> {
-    let source_id = spaghetti.create_source(&plan.source, tag).await?;
-    for (_, destination) in &plan.routes {
-        if let Err(error) = spaghetti.create_route(source_id, destination, 1.0).await {
-            let _ = spaghetti.destroy_source(source_id).await;
-            return Err(error);
+async fn change_source(
+    spaghetti: &SpaghettiClient,
+    node_id: &str,
+    hop_id: &str,
+    change: SourceChange,
+) -> Result<Option<u32>, SpaghettiError> {
+    match change {
+        SourceChange::Build(source) => {
+            let source_id = spaghetti
+                .create_source(&source, &hops::tag(node_id, hop_id))
+                .await?;
+            tracing::info!(hop_id, source_id, "built hop");
+            Ok(Some(source_id))
+        }
+        SourceChange::Retap { source_id, pids } => {
+            spaghetti.set_tap_processes(source_id, &pids).await?;
+            tracing::info!(hop_id, ?pids, "retapped input");
+            Ok(None)
+        }
+        SourceChange::RemoveRoute { route_id } => {
+            spaghetti.destroy_route(route_id).await?;
+            tracing::info!(hop_id, route_id, "removed route");
+            Ok(None)
         }
     }
-    Ok(source_id)
+}
+
+async fn add_route(
+    spaghetti: &SpaghettiClient,
+    retries: &mut Retries,
+    (hop_id, source_id): (&str, u32),
+    (branch_id, destination): (&str, &Destination),
+    now: Instant,
+) {
+    if !retries.route_due(hop_id, branch_id, destination, now) {
+        return;
+    }
+    match spaghetti.create_route(source_id, destination, 1.0).await {
+        Ok(route_id) => tracing::info!(hop_id, branch_id, route_id, "added route"),
+        Err(error) => {
+            tracing::warn!(hop_id, branch_id, error = %error, "cannot add route");
+            retries.route_failed(hop_id, branch_id, destination, now);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use clap::CommandFactory;
+    use serde_json::Value;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use weave_spaghetti::{PeerRole, SourceSpec, SrtMode, SrtSocket, TapMode, WebRtcPeer};
 
     use super::*;
+
+    fn daemon(replies: &'static [&'static str]) -> (SpaghettiClient, JoinHandle<Vec<Value>>) {
+        let dir = std::env::temp_dir().join(format!("weave-adapter-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("daemon.sock");
+        let _ = std::fs::remove_file(&path);
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let client = SpaghettiClient::new(&path);
+        let task = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for reply in replies {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut len = [0; 4];
+                stream.read_exact(&mut len).await.unwrap();
+                let mut body = vec![0; u32::from_be_bytes(len) as usize];
+                stream.read_exact(&mut body).await.unwrap();
+                requests.push(serde_json::from_slice(&body).unwrap());
+                let len = u32::try_from(reply.len()).unwrap().to_be_bytes();
+                stream.write_all(&len).await.unwrap();
+                stream.write_all(reply.as_bytes()).await.unwrap();
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+            requests
+        });
+        (client, task)
+    }
+
+    #[tokio::test]
+    async fn a_refused_route_neither_tears_down_its_source_nor_holds_back_the_next() {
+        let webrtc = Destination::WebRtc(WebRtcPeer {
+            link: "weave-music-receiver-anna".into(),
+            generation: 7,
+            role: PeerRole::Offer,
+            stun: Vec::new(),
+            turn: Vec::new(),
+        });
+        let srt = Destination::Srt(SrtSocket {
+            mode: SrtMode::Call {
+                host: "192.168.1.30".into(),
+                port: 23000,
+            },
+            latency_ms: 120,
+            passphrase: None,
+            key_size: None,
+        });
+        let plan = Plan {
+            source: SourceSpec::Tap {
+                pids: vec![731],
+                mode: TapMode::Mirror,
+            },
+            routes: vec![
+                ("anna".into(), webrtc.clone()),
+                ("filip".into(), srt.clone()),
+            ],
+        };
+        let hop_id = "weave-music-sender";
+        let plans = BTreeMap::from([(hop_id.to_string(), Ok(plan.clone()))]);
+        let (spaghetti, daemon) = daemon(&[
+            r#"{"SourceCreated":{"source_id":4}}"#,
+            r#"{"Error":{"message":"the network is changing"}}"#,
+            r#"{"RouteCreated":{"route_id":41}}"#,
+        ]);
+        let mut retries = Retries::default();
+        let build = Action::Source {
+            hop_id: hop_id.into(),
+            change: SourceChange::Build(plan.source.clone()),
+        };
+        apply(
+            &spaghetti,
+            "alfreds-mac",
+            vec![build],
+            &plans,
+            &mut retries,
+            Instant::now(),
+        )
+        .await;
+
+        let requests = tokio::time::timeout(Duration::from_secs(5), daemon)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(requests[0]["CreateSource"].is_object());
+        assert!(requests[1]["CreateRoute"]["destination"]["WebRtc"].is_object());
+        assert!(requests[2]["CreateRoute"]["destination"]["Srt"].is_object());
+        assert!(!retries.source_failing(hop_id, &plan));
+        assert!(retries.route_failing(hop_id, "anna", &webrtc));
+        assert!(!retries.route_failing(hop_id, "filip", &srt));
+    }
 
     #[test]
     fn help_hides_every_env_value() {

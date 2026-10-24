@@ -227,7 +227,7 @@ and `converged` otherwise, including streams awaiting input.
 |---|---|
 | `idle` | The stream is disabled (`enabled: false`). |
 | `pending` | The stream is not placed, for example because a node it names has not registered. |
-| `failed` | A hop failed to provision, or a WebRTC link reports `unreachable` or `lost`. |
+| `failed` | A hop failed to provision, or a link reports `unreachable` or `lost`. |
 | `pending` | A hop is still provisioning or has not reported. |
 | `degraded` | A socket that carried media is stalled. |
 | `awaiting_input` | Every hop is provisioned and no media enters at the source. |
