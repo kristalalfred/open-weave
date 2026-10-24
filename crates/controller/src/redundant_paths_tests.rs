@@ -300,6 +300,45 @@ fn a_receiver_that_cannot_merge_gets_one_path() {
     assert_eq!(planned.path.hops[0].egresses.len(), 1);
 }
 
+fn webrtc_pair() -> Vec<NodeDescriptor> {
+    let mut source = nat_node("source", &["home"]);
+    source.capabilities.hop_profiles.push(HopProfile {
+        egress: HopEndpointClass::WEBRTC,
+        ..profile("srt-to-webrtc", Transport::Srt, false)
+    });
+    let mut studio = nat_node("studio-node", &["office"]);
+    studio.capabilities.hop_profiles.push(HopProfile {
+        ingress: HopEndpointClass::WEBRTC,
+        ..profile("webrtc-merge", Transport::Srt, true)
+    });
+    vec![source, studio]
+}
+
+#[test]
+fn a_second_path_is_refused_where_the_link_would_be_webrtc() {
+    let definition = stream("feed", vec![destination("studio", "studio-node", 2)]);
+    let planned = plan(&definition, &webrtc_pair());
+    assert_eq!(
+        planned.single_path,
+        [SinglePath {
+            destination: "studio".to_string(),
+            reason: PlacementError::WebrtcSecondPath {
+                upstream: "source".to_string(),
+                downstream: "studio-node".to_string(),
+            },
+        }]
+    );
+    let sender = hop(&planned, "weave-feed-sender");
+    assert!(
+        matches!(sender.egresses.as_slice(), [egress] if matches!(egress.socket, SocketSpec::Webrtc(_)))
+    );
+    assert!(
+        hop(&planned, "weave-feed-receiver-studio")
+            .merge_ingress
+            .is_none()
+    );
+}
+
 #[test]
 fn asking_for_a_second_path_leaves_the_first_as_it_was() {
     for mut nodes in [dual_homed(), nat_pair()] {

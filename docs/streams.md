@@ -102,8 +102,10 @@ one node leave over different networks.
 
 A second path is placed only when the receiver has a hop profile with
 `merge: true` (see [Nodes](nodes.md#hop-profiles)). The native SRT node advertises a timed merger for destinations with an explicit
-[`delivery` policy](timed-delivery.md). Strom and browser nodes do not merge;
-the Strom adapter refuses a hop with a `merge_ingress`.
+[`delivery` policy](timed-delivery.md). Strom, spaghetti and browser nodes do
+not merge; the Strom and spaghetti adapters refuse a hop with a `merge_ingress`.
+A second path never runs over a WebRTC link: WebRTC picks its own route, so the
+second path cannot be kept apart from the first.
 
 When the second path cannot be placed, the stream is placed with one.
 `placement_ready` on the stream and on the destination stays `true` with reason

@@ -119,6 +119,13 @@ pub enum PlacementError {
     SourceVia,
     #[error("node {node} has no hop profile that merges a second path")]
     NoMergeProfile { node: String },
+    #[error(
+        "no second path from {upstream} to {downstream}: their link is webrtc, which picks its own route and cannot be kept apart from the first path"
+    )]
+    WebrtcSecondPath {
+        upstream: String,
+        downstream: String,
+    },
     #[error("a remote destination has no receiver to merge a second path")]
     NoMergeReceiver,
     #[error("a {kind} endpoint cannot be {end}")]
@@ -1406,7 +1413,12 @@ fn place_second_path(
         ..first.receiver.clone()
     };
     let mut stations = Vec::new();
-    relay_before(
+    if let Some(PeerRoute {
+        upstream,
+        downstream,
+        choice: PeerChoice::Webrtc { .. },
+        ..
+    }) = relay_before(
         &mut stations,
         (stream, &branch_id),
         &sender,
@@ -1415,7 +1427,12 @@ fn place_second_path(
         (&first.relays, &[]),
         &mut ScratchPorts::new(&ports),
         relays,
-    )?;
+    )? {
+        return Err(PlacementError::WebrtcSecondPath {
+            upstream,
+            downstream,
+        });
+    }
     let bridges: Vec<ChainHop> = stations
         .into_iter()
         .enumerate()
