@@ -726,7 +726,7 @@ mod tests {
                     "id": "alfreds-mac",
                     "endpoint": "http://127.0.0.1:8092",
                     "status": "ready",
-                    "capabilities": { "adapters": [], "hop_profiles": [] },
+                    "capabilities": { "hop_profiles": [] },
                     "topology": { "attachments": [] },
                     "inputs": [],
                     "outputs": []

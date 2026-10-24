@@ -39,7 +39,6 @@ fn registration(id: &str, observation: Option<Value>) -> Value {
             "endpoint": format!("http://{id}:8092"),
             "status": "ready",
             "capabilities": {
-                "adapters": [],
                 "hop_profiles": [{
                     "id": "srt-forward",
                     "ingress": { "transport": "srt", "roles": ["listen", "connect"] },
@@ -459,7 +458,7 @@ fn spaghetti_mac(id: &str, address: &str, public: &str, relay_network: Option<&s
     mac
 }
 
-fn forwarding_node(id: &str, adapter: Value, attachment: Value) -> Value {
+fn forwarding_node(id: &str, attachment: Value) -> Value {
     let srt = json!({ "transport": "srt", "roles": ["listen", "connect"] });
     json!({
         "protocol_version": PROTOCOL_VERSION,
@@ -468,7 +467,6 @@ fn forwarding_node(id: &str, adapter: Value, attachment: Value) -> Value {
             "endpoint": format!("http://{id}:8091"),
             "status": "ready",
             "capabilities": {
-                "adapters": [adapter],
                 "hop_profiles": [{
                     "id": "srt-forward",
                     "ingress": srt,
@@ -487,7 +485,6 @@ fn forwarding_node(id: &str, adapter: Value, attachment: Value) -> Value {
 fn strom_relay() -> Value {
     forwarding_node(
         "strom-node-1",
-        json!({ "name": "strom", "kind": "strom" }),
         json!({
             "id": "a-routed",
             "network": "internet",
@@ -502,7 +499,6 @@ fn strom_relay() -> Value {
 fn bench_lan_relay() -> Value {
     forwarding_node(
         "weave-relay",
-        json!({ "name": "native-srt", "kind": "native_srt" }),
         json!({
             "id": "lan",
             "network": "bench-lan",

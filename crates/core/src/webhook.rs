@@ -173,7 +173,6 @@ mod tests {
             endpoint: "http://guest-1:8080".to_string(),
             status: NodeStatus::Ready,
             capabilities: NodeCapabilities {
-                adapters: Vec::new(),
                 hop_profiles: vec![HopProfile {
                     timed_delivery: None,
                     id: "camera-to-whip".to_string(),

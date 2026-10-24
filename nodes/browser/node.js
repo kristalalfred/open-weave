@@ -1,6 +1,6 @@
 "use strict";
 
-const PROTOCOL_VERSION = 11;
+const PROTOCOL_VERSION = 12;
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 2000;
 const STALL_POLLS = 3;
@@ -95,7 +95,6 @@ function registration() {
       endpoint: `browser://${nodeId}`,
       status: "ready",
       capabilities: {
-        adapters: [],
         hop_profiles: [
           {
             id: "camera-to-whip",

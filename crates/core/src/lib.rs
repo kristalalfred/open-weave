@@ -61,7 +61,7 @@ pub const ROUTE_STREAM_SET: &str = "/stream-sets/{owner}";
 pub const ROUTE_STREAM_SETS: &str = "/stream-sets";
 pub const ROUTE_STREAMS: &str = "/streams";
 
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 
 #[must_use]
 pub fn protocol_compatible(version: u32) -> bool {
@@ -1639,8 +1639,6 @@ impl<T> NodeDescriptor<T> {
 #[serde(deny_unknown_fields)]
 pub struct NodeCapabilities {
     #[serde(default)]
-    pub adapters: Vec<AdapterDescriptor>,
-    #[serde(default)]
     pub hop_profiles: Vec<HopProfile>,
 }
 
@@ -2252,27 +2250,6 @@ pub enum ConfigError {
     InvalidPortRange { start: u16, end: u16 },
     #[error("rist port_range {start}..={end} holds no even port with the port after it")]
     NoRistPortPair { start: u16, end: u16 },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct AdapterDescriptor {
-    pub name: String,
-    pub kind: AdapterKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AdapterKind {
-    NativeSrt,
-    Strom,
-    Spaghetti,
-    Nmos,
-    MxlDomain,
-    MxlK8s,
-    Mcm,
-    Vendor,
-    Custom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

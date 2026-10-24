@@ -17,7 +17,6 @@ A registration carries capabilities in this shape:
 
 ```yaml
 capabilities:
-  adapters: []
   hop_profiles:
     - id: srt-forward
       ingress: { transport: srt, roles: [listen, connect] }

@@ -279,7 +279,7 @@ registration declares.
 `weave_core::PROTOCOL_VERSION`:
 
 ```json
-{ "protocol_version": 11, "node": { "id": "strom-node-1", "...": "..." } }
+{ "protocol_version": 12, "node": { "id": "strom-node-1", "...": "..." } }
 ```
 
 The controller accepts only the version it speaks. Any other value, including an

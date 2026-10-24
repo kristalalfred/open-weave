@@ -33,37 +33,6 @@
         "capabilities": {
           "type": "object",
           "properties": {
-            "adapters": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "native_srt",
-                      "strom",
-                      "spaghetti",
-                      "nmos",
-                      "mxl_domain",
-                      "mxl_k8s",
-                      "mcm",
-                      "vendor",
-                      "custom"
-                    ]
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "name",
-                  "kind"
-                ]
-              },
-              "default": []
-            },
             "hop_profiles": {
               "type": "array",
               "items": {
@@ -538,7 +507,6 @@
           },
           "additionalProperties": false,
           "default": {
-            "adapters": [],
             "hop_profiles": []
           }
         },

@@ -13,11 +13,11 @@ use tokio::task::JoinHandle;
 use weave_core::auth::{self, Token};
 use weave_core::logging::{ErrorChain, excerpt};
 use weave_core::{
-    AdapterDescriptor, AdapterKind, AudioCodec, AudioConstraint, DesiredHop, EgressStatus,
-    EndpointDescriptor, EndpointKind, FormatConstraint, HopEndpointClass, HopProfile, HopState,
-    HopStatus, LinkCondition, LinkStats, NodeCapabilities, NodeDescriptor, NodeHeartbeat,
-    NodeRegistration, NodeStatus, PROTOCOL_VERSION, RoleSet, SocketRole, SocketSpec, SocketStatus,
-    SrtSocket, Transport, TransportClass, VideoCodec, VideoConstraint,
+    AudioCodec, AudioConstraint, DesiredHop, EgressStatus, EndpointDescriptor, EndpointKind,
+    FormatConstraint, HopEndpointClass, HopProfile, HopState, HopStatus, LinkCondition, LinkStats,
+    NodeCapabilities, NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus,
+    PROTOCOL_VERSION, RoleSet, SocketRole, SocketSpec, SocketStatus, SrtSocket, Transport,
+    TransportClass, VideoCodec, VideoConstraint,
 };
 use weave_strom::{
     ElementStats, FlowSpec, FlowStats, SessionBytes, SessionStats, StromClient, StromError,
@@ -797,10 +797,6 @@ fn registration(
             endpoint: public_endpoint.to_string(),
             status,
             capabilities: NodeCapabilities {
-                adapters: vec![AdapterDescriptor {
-                    name: "strom".to_string(),
-                    kind: AdapterKind::Strom,
-                }],
                 hop_profiles: strom_hop_profiles(),
             },
             topology: config.node.topology.clone(),

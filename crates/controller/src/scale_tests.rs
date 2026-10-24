@@ -61,7 +61,6 @@ fn registration(id: &str, attachments: Vec<NetworkAttachment>) -> NodeRegistrati
             endpoint: format!("http://{id}:8080"),
             status: NodeStatus::Ready,
             capabilities: NodeCapabilities {
-                adapters: Vec::new(),
                 hop_profiles: vec![HopProfile {
                     timed_delivery: None,
                     id: "srt-forward".to_string(),

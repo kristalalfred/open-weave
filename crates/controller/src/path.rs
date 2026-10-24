@@ -2952,7 +2952,6 @@ mod contract_tests {
             endpoint: format!("http://{id}"),
             status: NodeStatus::Ready,
             capabilities: NodeCapabilities {
-                adapters: Vec::new(),
                 hop_profiles: vec![srt_profile("srt-forward")],
             },
             topology: NodeTopology { attachments },
@@ -3082,7 +3081,6 @@ mod contract_tests {
             endpoint: "browser://browser".to_string(),
             status: NodeStatus::Ready,
             capabilities: NodeCapabilities {
-                adapters: Vec::new(),
                 hop_profiles: vec![HopProfile {
                     timed_delivery: None,
                     id: "camera-to-whip".to_string(),
@@ -3725,7 +3723,6 @@ mod tests {
             endpoint: format!("http://{id}:8080"),
             status: NodeStatus::Ready,
             capabilities: NodeCapabilities {
-                adapters: Vec::new(),
                 hop_profiles: vec![srt_forward()],
             },
             topology: NodeTopology { attachments },
@@ -5181,7 +5178,6 @@ mod tests {
             endpoint: format!("browser://{id}"),
             status: NodeStatus::Ready,
             capabilities: NodeCapabilities {
-                adapters: Vec::new(),
                 hop_profiles: vec![
                     profile(
                         "camera-to-whip",

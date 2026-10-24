@@ -3192,7 +3192,6 @@ mod tests {
                 endpoint: format!("http://{id}:8080"),
                 status: NodeStatus::Ready,
                 capabilities: NodeCapabilities {
-                    adapters: Vec::new(),
                     hop_profiles: vec![srt_forward()],
                 },
                 topology: DeclaredTopology {
@@ -7448,7 +7447,7 @@ mod node_auth_tests {
                 "id": node_id,
                 "endpoint": format!("http://{node_id}:8091"),
                 "status": "ready",
-                "capabilities": { "adapters": [], "hop_profiles": [] },
+                "capabilities": { "hop_profiles": [] },
                 "topology": {
                     "attachments": [{ "id": "wan", "network": "internet", "dial": true, "listeners": {} }]
                 }
@@ -7979,10 +7978,7 @@ mod key_exposure_tests {
                 id: id.to_string(),
                 endpoint: format!("http://{id}"),
                 status: NodeStatus::Ready,
-                capabilities: NodeCapabilities {
-                    adapters: Vec::new(),
-                    hop_profiles,
-                },
+                capabilities: NodeCapabilities { hop_profiles },
                 topology: DeclaredTopology {
                     site: None,
                     attachments: vec![attachment("net-a", hosts[0]), attachment("net-b", hosts[1])],

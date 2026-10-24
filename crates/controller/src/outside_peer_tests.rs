@@ -70,7 +70,6 @@ fn strom(id: &str, host: &str, lan_port: u16) -> NodeDescriptor {
         endpoint: format!("http://{id}"),
         status: NodeStatus::Ready,
         capabilities: NodeCapabilities {
-            adapters: Vec::new(),
             hop_profiles: vec![
                 profile(
                     "srt-forward",

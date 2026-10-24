@@ -1253,7 +1253,6 @@ mod tests {
             endpoint: "http://strom-node-1:8091".to_string(),
             status: crate::NodeStatus::Ready,
             capabilities: crate::NodeCapabilities {
-                adapters: Vec::new(),
                 hop_profiles: vec![crate::HopProfile {
                     timed_delivery: None,
                     id: "srt-forward".to_string(),
@@ -1291,7 +1290,7 @@ mod tests {
                 "id": "alfreds-mac",
                 "endpoint": "spaghetti://alfreds-mac",
                 "status": "ready",
-                "capabilities": { "adapters": [], "hop_profiles": [
+                "capabilities": { "hop_profiles": [
                     {
                         "id": "app-audio-to-srt",
                         "ingress": "input",

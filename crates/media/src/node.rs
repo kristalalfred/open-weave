@@ -10,10 +10,9 @@ use serde::Deserialize;
 use serde_json::json;
 use weave_core::auth::Token;
 use weave_core::{
-    AdapterDescriptor, AdapterKind, DeliveryCapability, DeliveryRole, DesiredHop, FormatConstraint,
-    HopEndpointClass, HopProfile, HopStatus, MediaBehavior, NodeCapabilities, NodeConfig,
-    NodeDescriptor, NodeHeartbeat, NodeRegistration, NodeStatus, PROTOCOL_VERSION, RoleSet,
-    Transport, TransportClass,
+    DeliveryCapability, DeliveryRole, DesiredHop, FormatConstraint, HopEndpointClass, HopProfile,
+    HopStatus, MediaBehavior, NodeCapabilities, NodeConfig, NodeDescriptor, NodeHeartbeat,
+    NodeRegistration, NodeStatus, PROTOCOL_VERSION, RoleSet, Transport, TransportClass,
 };
 
 use crate::clock::{Clock, ClockConfig};
@@ -255,10 +254,6 @@ pub async fn run(config: Config) -> Result<()> {
         endpoint: config.node.public_endpoint(),
         status: NodeStatus::Ready,
         capabilities: NodeCapabilities {
-            adapters: vec![AdapterDescriptor {
-                name: "native-srt".into(),
-                kind: AdapterKind::NativeSrt,
-            }],
             hop_profiles: profiles(
                 &clock.domain(),
                 epoch,

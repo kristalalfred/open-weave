@@ -1437,7 +1437,7 @@ streams:
                 "id": "strom-node-1",
                 "endpoint": "http://strom-node-1:8091",
                 "status": "offline",
-                "capabilities": { "adapters": [], "hop_profiles": [] },
+                "capabilities": { "hop_profiles": [] },
                 "topology": { "attachments": [] },
                 "inputs": [],
                 "outputs": []
@@ -1467,7 +1467,7 @@ streams:
                     "id": id,
                     "endpoint": format!("http://{id}"),
                     "status": "ready",
-                    "capabilities": { "adapters": [], "hop_profiles": [] },
+                    "capabilities": { "hop_profiles": [] },
                     "topology": { "attachments": attachments },
                     "inputs": [],
                     "outputs": []
@@ -1547,7 +1547,7 @@ streams:
                 "id": id,
                 "endpoint": format!("spaghetti://{id}"),
                 "status": "ready",
-                "capabilities": { "adapters": [], "hop_profiles": [] },
+                "capabilities": { "hop_profiles": [] },
                 "topology": { "attachments": [] },
                 "inputs": inputs,
                 "outputs": outputs

@@ -38,7 +38,6 @@ fn node(id: &str, attachments: Vec<NetworkAttachment>) -> NodeDescriptor {
         endpoint: format!("http://{id}"),
         status: NodeStatus::Ready,
         capabilities: NodeCapabilities {
-            adapters: Vec::new(),
             hop_profiles: vec![
                 profile("srt-forward", srt(), srt()),
                 profile(

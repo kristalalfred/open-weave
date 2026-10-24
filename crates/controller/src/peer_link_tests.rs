@@ -109,7 +109,6 @@ fn registration(mac: &Mac) -> Value {
             "endpoint": format!("http://{}:8092", mac.id),
             "status": "ready",
             "capabilities": {
-                "adapters": [{ "name": "spaghetti", "kind": "spaghetti" }],
                 "hop_profiles": [
                     {
                         "id": "app-audio-out",
@@ -158,7 +157,6 @@ fn relay() -> Value {
             "endpoint": "http://weave-relay:8091",
             "status": "ready",
             "capabilities": {
-                "adapters": [{ "name": "native-srt", "kind": "native_srt" }],
                 "hop_profiles": [{
                     "id": "srt-forward",
                     "ingress": srt,

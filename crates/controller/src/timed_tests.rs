@@ -46,7 +46,6 @@ fn node(id: &str, epoch: u64) -> NodeDescriptor {
         origin_epoch: epoch,
     });
     node.capabilities = NodeCapabilities {
-        adapters: vec![],
         hop_profiles: vec![plain, timed],
     };
     node

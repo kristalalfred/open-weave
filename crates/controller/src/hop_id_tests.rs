@@ -25,7 +25,6 @@ fn node(id: &str, network: &str) -> NodeDescriptor {
         endpoint: format!("http://{id}"),
         status: NodeStatus::Ready,
         capabilities: NodeCapabilities {
-            adapters: Vec::new(),
             hop_profiles: vec![HopProfile {
                 timed_delivery: None,
                 id: "srt-forward".to_string(),
