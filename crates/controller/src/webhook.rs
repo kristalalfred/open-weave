@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use weave_core::auth::Token;
@@ -14,7 +14,7 @@ pub struct Config {
 
     pub token: Option<String>,
 
-    pub events: Vec<String>,
+    pub events: Vec<EventType>,
 
     pub queue_capacity: usize,
 
@@ -55,7 +55,11 @@ impl Emitter {
             .map(str::trim)
             .filter(|url| !url.is_empty())?
             .to_string();
-        let allowed = resolve_events(&config.events);
+        let allowed = if config.events.is_empty() {
+            EventType::ALL.to_vec()
+        } else {
+            config.events
+        };
         let client = match Client::builder().timeout(config.timeout).build() {
             Ok(client) => client,
             Err(err) => {
@@ -152,21 +156,24 @@ fn first_sequence() -> u64 {
         })
 }
 
-fn resolve_events(configured: &[String]) -> Vec<EventType> {
-    if configured.iter().all(|name| name.trim().is_empty()) {
-        return EventType::ALL.to_vec();
-    }
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("unknown webhook event type `{0}`; known types are {known}", known = known_events())]
+pub struct UnknownEventType(String);
+
+fn known_events() -> String {
+    EventType::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub fn parse_events(configured: &[String]) -> Result<Vec<EventType>, UnknownEventType> {
     configured
         .iter()
         .map(|name| name.trim())
         .filter(|name| !name.is_empty())
-        .filter_map(|name| match EventType::parse(name) {
-            Some(kind) => Some(kind),
-            None => {
-                tracing::warn!(%name, "ignoring unknown webhook event type");
-                None
-            }
-        })
+        .map(|name| EventType::parse(name).ok_or_else(|| UnknownEventType(name.to_string())))
         .collect()
 }
 
@@ -214,7 +221,7 @@ async fn deliver(
                 return;
             }
 
-            Ok(response) if response.status().is_client_error() => {
+            Ok(response) if is_permanent(response.status()) => {
                 tracing::warn!(
                     event_id = %event.event_id,
                     status = %response.status(),
@@ -247,6 +254,14 @@ async fn deliver(
         max_attempts,
         "giving up on webhook delivery"
     );
+}
+
+fn is_permanent(status: StatusCode) -> bool {
+    status.is_client_error()
+        && !matches!(
+            status,
+            StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
+        )
 }
 
 #[cfg(test)]
@@ -459,6 +474,21 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn retries_a_throttled_or_timed_out_delivery() {
+        for status in [StatusCode::TOO_MANY_REQUESTS, StatusCode::REQUEST_TIMEOUT] {
+            let mut sink = sink(status).await;
+            let emitter = Emitter::new(config(&sink.url)).unwrap();
+
+            emitter.emit(EventType::NodeRegistered, node("guest-1"));
+
+            for _ in 0..3 {
+                sink.next().await;
+            }
+            sink.expect_idle().await;
+        }
+    }
+
+    #[tokio::test]
     async fn does_not_retry_a_rejected_event() {
         let mut sink = sink(StatusCode::BAD_REQUEST).await;
         let emitter = Emitter::new(config(&sink.url)).unwrap();
@@ -493,7 +523,7 @@ pub(crate) mod tests {
     async fn an_allowlist_filters_deliveries() {
         let mut sink = sink(StatusCode::OK).await;
         let emitter = Emitter::new(Config {
-            events: vec!["node.offline".to_string()],
+            events: vec![EventType::NodeOffline],
             ..config(&sink.url)
         })
         .unwrap();
@@ -510,7 +540,7 @@ pub(crate) mod tests {
     async fn an_allowlist_can_name_the_stream_event() {
         let mut sink = sink(StatusCode::OK).await;
         let emitter = Emitter::new(Config {
-            events: vec!["stream.changed".to_string()],
+            events: vec![EventType::StreamChanged],
             ..config(&sink.url)
         })
         .unwrap();
@@ -554,20 +584,35 @@ pub(crate) mod tests {
         assert!(queued.is_ok(), "emit must not wait on the receiver");
     }
 
-    #[test]
-    fn no_configured_events_means_every_event() {
-        assert_eq!(resolve_events(&[]), EventType::ALL.to_vec());
+    #[tokio::test]
+    async fn no_configured_events_means_every_event() {
+        assert_eq!(parse_events(&[]), Ok(Vec::new()));
         assert_eq!(
-            resolve_events(&[String::new()]),
-            EventType::ALL.to_vec(),
+            parse_events(&[String::new()]),
+            Ok(Vec::new()),
             "an env var set to the empty string reads as unset"
+        );
+        let emitter = Emitter::new(config("http://127.0.0.1:1/hook")).unwrap();
+        assert_eq!(emitter.allowed, EventType::ALL.to_vec());
+    }
+
+    #[test]
+    fn configured_event_names_are_trimmed() {
+        assert_eq!(
+            parse_events(&[" node.offline".to_string(), "stream.changed ".to_string()]),
+            Ok(vec![EventType::NodeOffline, EventType::StreamChanged])
         );
     }
 
     #[test]
-    fn unknown_event_names_are_dropped_from_the_allowlist() {
-        let allowed = resolve_events(&["node.offline".to_string(), "node.exploded".to_string()]);
-        assert_eq!(allowed, vec![EventType::NodeOffline]);
+    fn an_unknown_event_name_is_an_error_that_lists_the_known_ones() {
+        let error =
+            parse_events(&["node.offline".to_string(), "node.exploded".to_string()]).unwrap_err();
+        assert_eq!(error, UnknownEventType("node.exploded".to_string()));
+        assert_eq!(
+            error.to_string(),
+            "unknown webhook event type `node.exploded`; known types are node.registered, node.online, node.offline, node.forgotten, stream.changed"
+        );
     }
 
     #[test]

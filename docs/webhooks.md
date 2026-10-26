@@ -39,7 +39,8 @@ and conditions.
 ## Delivery
 
 Events use a bounded in-memory queue. One worker delivers them in order, with
-up to four attempts. HTTP 4xx responses are not retried. Queue overflow,
+up to four attempts. HTTP 4xx responses other than 408 and 429 are not
+retried. Queue overflow,
 restart and exhausted retries can lose events; retries can deliver duplicates.
 Retries preserve `event_id`, but IDs are timestamp-based and are not guaranteed
 unique across controller runs. A former leader continues delivering queued

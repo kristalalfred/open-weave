@@ -484,7 +484,7 @@ async fn main() -> Result<()> {
     let webhooks = webhook::Emitter::new(webhook::Config {
         url: args.webhook_url.clone(),
         token: args.webhook_token.clone(),
-        events: args.webhook_events.clone(),
+        events: webhook::parse_events(&args.webhook_events)?,
         ..webhook::Config::default()
     })
     .map(Arc::new);
@@ -7220,7 +7220,7 @@ mod tests {
         let (mut state, mem) = mem_state();
         state.webhooks = webhook::Emitter::new(webhook::Config {
             url: Some(sink.url.clone()),
-            events: vec!["node.offline".to_string(), "node.forgotten".to_string()],
+            events: vec![EventType::NodeOffline, EventType::NodeForgotten],
             ..webhook::Config::default()
         })
         .map(Arc::new);
