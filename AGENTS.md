@@ -18,6 +18,10 @@ committed OpenAPI and JSON Schema artifacts for drift.
 
 ## Boundaries
 
+- open-weave stands on its own. Add a capability only when it is general and
+  designed the way it would be without any particular consumer. Do not shape
+  APIs, defaults or protocols around one consumer, and do not reference
+  closed-source consumers anywhere in this repository.
 - The controller owns state and plans routes. Northbound and southbound are
   stateless proxies. Media runs in the nodes, outside the control plane.
 - Keep planning side-effect free. Plan against the full candidate stream set.
