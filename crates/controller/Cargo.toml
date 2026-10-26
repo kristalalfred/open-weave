@@ -38,6 +38,7 @@ tower = { workspace = true }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
+tokio = { workspace = true, features = ["io-util"] }
 
 [lints]
 workspace = true

@@ -783,16 +783,21 @@ async fn wait_for_lease(pg: &PgStore, holder: &str, timing: LeaseTiming) -> (Lea
     let mut held_elsewhere = false;
     loop {
         let asked = Instant::now();
-        match pg.acquire_lease(holder, timing.ttl).await {
-            Ok(Some(term)) => return (term, asked),
-            Ok(None) if !held_elsewhere => {
+        let deadline = asked + timing.hold_for;
+        match tokio::time::timeout_at(deadline.into(), pg.acquire_lease(holder, timing.ttl)).await {
+            Ok(Ok(Some(term))) => return (term, asked),
+            Ok(Ok(None)) if !held_elsewhere => {
                 tracing::info!("another controller holds the lease");
                 held_elsewhere = true;
             }
-            Ok(None) => {}
-            Err(err) => {
+            Ok(Ok(None)) => {}
+            Ok(Err(err)) => {
                 tracing::warn!(error = %ErrorChain(&err), "taking the controller lease failed; retrying")
             }
+            Err(_) => tracing::warn!(
+                timeout_secs = timing.hold_for.as_secs_f64(),
+                "taking the controller lease timed out; retrying"
+            ),
         }
         tokio::time::sleep(timing.retry_every).await;
     }
@@ -6801,6 +6806,87 @@ mod tests {
             holder != "other" && epoch >= 3,
             "it took the lease again once the other one lapsed: {holder} {epoch}"
         );
+    }
+
+    type StallSwitch = Arc<std::sync::atomic::AtomicBool>;
+
+    struct StallingProxy {
+        url: String,
+        connections: Arc<std::sync::Mutex<Vec<StallSwitch>>>,
+    }
+
+    impl StallingProxy {
+        async fn start(url: &str) -> Self {
+            let (credentials, rest) = url.rsplit_once('@').expect("DATABASE_URL names a host");
+            let (target, database) = rest.split_once('/').expect("DATABASE_URL names a database");
+            let target = target.to_string();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let proxied = listener.local_addr().unwrap();
+            let connections: Arc<std::sync::Mutex<Vec<StallSwitch>>> = Arc::default();
+            let accepted = connections.clone();
+            tokio::spawn(async move {
+                while let Ok((client, _)) = listener.accept().await {
+                    let server = tokio::net::TcpStream::connect(&target).await.unwrap();
+                    let stalled = StallSwitch::default();
+                    accepted.lock().unwrap().push(stalled.clone());
+                    let (client_read, client_write) = client.into_split();
+                    let (server_read, server_write) = server.into_split();
+                    tokio::spawn(Self::forward(client_read, server_write, stalled.clone()));
+                    tokio::spawn(Self::forward(server_read, client_write, stalled));
+                }
+            });
+            Self {
+                url: format!("{credentials}@{proxied}/{database}"),
+                connections,
+            }
+        }
+
+        async fn forward(
+            mut from: tokio::net::tcp::OwnedReadHalf,
+            mut to: tokio::net::tcp::OwnedWriteHalf,
+            stalled: StallSwitch,
+        ) {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut buffer = vec![0; 8192];
+            loop {
+                let read = match from.read(&mut buffer).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => read,
+                };
+                if stalled.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::future::pending::<()>().await;
+                }
+                if to.write_all(&buffer[..read]).await.is_err() {
+                    return;
+                }
+            }
+        }
+
+        fn stall_open_connections(&self) {
+            for stalled in self.connections.lock().unwrap().iter() {
+                stalled.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running Postgres via DATABASE_URL"]
+    async fn a_standby_whose_lease_query_stalls_asks_again_and_takes_over() {
+        let url = store::tests::fresh_database().await;
+        store::tests::leading_pg_store(&url).await;
+        store::tests::run_sql(
+            &url,
+            "UPDATE controller_lease SET holder = 'other', expires_at = now() + interval '4 seconds'",
+        )
+        .await;
+        let proxy = StallingProxy::start(&url).await;
+        let timing = LeaseTiming::new(Duration::from_secs(3));
+        let (_pg, leadership, _stop, _run) = start_controller(&proxy.url, timing).await;
+        tokio::time::sleep(timing.retry_every / 2).await;
+        assert!(leadership.router().is_none(), "the other holder leads");
+
+        proxy.stall_open_connections();
+        until_leading(&leadership, Duration::from_secs(15)).await;
     }
 
     #[tokio::test]
