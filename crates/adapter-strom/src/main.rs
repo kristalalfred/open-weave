@@ -273,7 +273,7 @@ async fn sync_once(
         return Ok(true);
     }
 
-    let hop_status = hop_status(
+    let (status, hop_status) = match hop_status(
         southbound,
         strom,
         node_id,
@@ -282,7 +282,14 @@ async fn sync_once(
         tracker,
         last_desired,
     )
-    .await;
+    .await
+    {
+        Some(hop_status) => (status, hop_status),
+        None => (
+            NodeStatus::Degraded,
+            pending_statuses(last_desired, listener_host),
+        ),
+    };
 
     let registration = registration(
         config,
@@ -357,33 +364,30 @@ async fn hop_status(
     listener_host: Option<&str>,
     tracker: &mut StallTracker,
     last_desired: &mut Vec<DesiredHop>,
-) -> Vec<HopStatus> {
-    let Some(flows) = flows else {
-        return pending_statuses(last_desired, listener_host);
-    };
-    match provision(
-        southbound,
-        strom,
-        node_id,
-        flows,
-        listener_host,
-        tracker,
-        last_desired,
-    )
-    .await
-    {
-        Ok(hop_status) => hop_status,
+) -> Option<Vec<HopStatus>> {
+    let flows = flows?;
+    match fetch_desired(southbound, node_id).await {
+        Ok(desired) => *last_desired = desired,
         Err(error) => {
             tracing::warn!(error = %ErrorChain(error.as_ref()), "provisioning desired hops failed; reporting the last desired hops");
-            hop_statuses(
-                strom,
-                last_desired,
-                flows,
-                listener_host,
-                &std::collections::HashSet::new(),
-                tracker,
-            )
-            .await
+            return Some(
+                hop_statuses(
+                    strom,
+                    last_desired,
+                    flows,
+                    listener_host,
+                    &std::collections::HashSet::new(),
+                    tracker,
+                )
+                .await,
+            );
+        }
+    }
+    match reconcile(strom, last_desired, flows, listener_host, tracker).await {
+        Ok(hop_status) => Some(hop_status),
+        Err(error) => {
+            tracing::warn!(error = %ErrorChain(&error), "Strom observation after provisioning failed");
+            None
         }
     }
 }
@@ -443,28 +447,13 @@ async fn desired_before_registering(
     Ok(())
 }
 
-async fn provision(
-    southbound: &Southbound,
-    strom: &dyn FlowApi,
-    node_id: &str,
-    flows: &[StromFlow],
-    listener_host: Option<&str>,
-    tracker: &mut StallTracker,
-    last_desired: &mut Vec<DesiredHop>,
-) -> Result<Vec<HopStatus>> {
-    let desired = fetch_desired(southbound, node_id).await?;
-    let hop_status = reconcile(strom, &desired, flows, listener_host, tracker).await;
-    *last_desired = desired;
-    Ok(hop_status)
-}
-
 async fn reconcile(
     flow_api: &dyn FlowApi,
     desired: &[DesiredHop],
     flows: &[StromFlow],
     listener_host: Option<&str>,
     tracker: &mut StallTracker,
-) -> Vec<HopStatus> {
+) -> Result<Vec<HopStatus>, StromError> {
     let plan = diff_hops(desired, flows);
 
     for flow_id in &plan.delete {
@@ -496,7 +485,7 @@ async fn reconcile(
     let current: &[StromFlow] = if plan.is_empty() {
         flows
     } else {
-        refreshed = flow_api.list_flows().await.unwrap_or_default();
+        refreshed = flow_api.list_flows().await?;
         &refreshed
     };
 
@@ -505,7 +494,7 @@ async fn reconcile(
     tracker.retain(&desired_ids);
     let statuses = hop_statuses(flow_api, desired, current, listener_host, &failed, tracker).await;
     redial_unconnected_callers(flow_api, desired, current, tracker).await;
-    statuses
+    Ok(statuses)
 }
 
 async fn redial_unconnected_callers(
@@ -1094,6 +1083,8 @@ mod tests {
         flows_after: Vec<(String, String)>,
         stats: Value,
         webrtc: Value,
+        successful_listings: Option<usize>,
+        listings: Mutex<usize>,
     }
 
     impl RecordingFlowApi {
@@ -1117,6 +1108,11 @@ mod tests {
             self
         }
 
+        fn failing_listings_after(mut self, successful: usize) -> Self {
+            self.successful_listings = Some(successful);
+            self
+        }
+
         fn ops(&self) -> Vec<Op> {
             self.ops.lock().expect("ops lock").clone()
         }
@@ -1129,6 +1125,18 @@ mod tests {
     #[async_trait::async_trait]
     impl FlowApi for RecordingFlowApi {
         async fn list_flows(&self) -> Result<Vec<StromFlow>, StromError> {
+            let mut listings = self.listings.lock().expect("listings lock");
+            *listings += 1;
+            if self
+                .successful_listings
+                .is_some_and(|successful| *listings > successful)
+            {
+                return Err(StromError::Status {
+                    status: StatusCode::BAD_GATEWAY,
+                    url: "http://strom/api/flows".to_string(),
+                    body: "injected listing failure".to_string(),
+                });
+            }
             Ok(self
                 .flows_after
                 .iter()
@@ -1328,19 +1336,20 @@ mod tests {
         );
     }
 
-    async fn provision_against(southbound: &Southbound, flows: &[StromFlow]) -> (bool, Vec<Op>) {
+    async fn provision_against(southbound: &Southbound, flows: &[StromFlow]) -> Vec<Op> {
         let strom = RecordingFlowApi::default();
-        let result = provision(
+        hop_status(
             southbound,
             &strom,
             "strom-node-1",
-            flows,
+            Some(flows),
             None,
             &mut StallTracker::default(),
             &mut Vec::new(),
         )
-        .await;
-        (result.is_ok(), strom.ops())
+        .await
+        .expect("Strom stays listed");
+        strom.ops()
     }
 
     #[tokio::test]
@@ -1355,16 +1364,13 @@ mod tests {
             let southbound = southbound_answering(status, not_reconciled.clone()).await;
             assert_eq!(
                 provision_against(&southbound, &flows).await,
-                (false, Vec::new()),
+                Vec::new(),
                 "{status}"
             );
         }
 
         let unreachable = Southbound::new("http://127.0.0.1:1".to_string(), None);
-        assert_eq!(
-            provision_against(&unreachable, &flows).await,
-            (false, Vec::new())
-        );
+        assert_eq!(provision_against(&unreachable, &flows).await, Vec::new());
     }
 
     #[tokio::test]
@@ -1376,7 +1382,7 @@ mod tests {
         let southbound = southbound_answering(StatusCode::OK, json!([])).await;
         assert_eq!(
             provision_against(&southbound, &flows).await,
-            (true, vec![Op::Delete("id-managed".to_string())])
+            vec![Op::Delete("id-managed".to_string())]
         );
     }
 
@@ -1554,7 +1560,8 @@ mod tests {
                 None,
                 &mut tracker,
             )
-            .await;
+            .await
+            .unwrap();
             assert_eq!(statuses.len(), 1);
             assert_eq!(statuses[0].id, desired.id);
             states.push(statuses[0].state);
@@ -2030,7 +2037,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_missed_desired_fetch_or_strom_listing_still_reports_the_last_desired_hops() {
+    async fn a_missed_desired_fetch_still_reports_the_hops_strom_runs() {
         let desired = hop("weave-feed-bridge-studio-0", 7001);
         let fetched = southbound_answering(StatusCode::OK, json!([desired])).await;
         let missed = southbound_answering(
@@ -2068,7 +2075,8 @@ mod tests {
             &mut tracker,
             &mut last_desired,
         )
-        .await;
+        .await
+        .expect("Strom is listed");
         assert!(
             first.is_empty(),
             "before any desired fetch there is nothing to report"
@@ -2096,7 +2104,8 @@ mod tests {
             &mut tracker,
             &mut last_desired,
         )
-        .await;
+        .await
+        .expect("Strom is listed");
         assert_eq!(strom.ops().len(), ops, "a missed fetch touches no flow");
         assert_eq!(
             states(&reported),
@@ -2118,19 +2127,104 @@ mod tests {
             &mut last_desired,
         )
         .await;
-        assert_eq!(
-            states(&unlisted),
-            [(
-                desired.id.clone(),
-                HopState::Pending,
-                vec!["studio".to_string()]
-            )],
-            "with Strom unlisted, the last desired hops are reported pending"
+        assert!(
+            unlisted.is_none(),
+            "with Strom unlisted, no hop status is observed"
         );
+    }
+
+    #[tokio::test]
+    async fn a_strom_that_cannot_be_listed_reports_the_node_degraded_and_its_hops_pending() {
+        let running = hop("weave-feed-bridge-studio-0", 7001);
+        let added = hop("weave-feed-bridge-studio-1", 7003);
+        let heartbeats = std::sync::Arc::new(Mutex::new(Vec::<NodeHeartbeat>::new()));
+        let seen = heartbeats.clone();
+        let answer = json!([running, added]);
+        let app = Router::new()
+            .route(
+                "/nodes/{node_id}/desired",
+                get(move || async move { Json(answer) }),
+            )
+            .route(
+                "/nodes/{node_id}/heartbeat",
+                axum::routing::post(move |Json(body): Json<NodeHeartbeat>| async move {
+                    seen.lock().unwrap().push(body);
+                    StatusCode::OK
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        let southbound = Southbound::new(format!("http://{addr}"), None);
+        let config: AdapterConfig = serde_norway::from_str(&format!(
+            "node:\n  id: strom-node-1\n  southbound_url: http://{addr}\n  listen: 127.0.0.1:0\n  topology: {{ attachments: [] }}\nstrom:\n  url: http://127.0.0.1:1\n"
+        ))
+        .unwrap();
+        let refresh_fails =
+            RecordingFlowApi::listing(&[(&running.id, "id-running")]).failing_listings_after(1);
+        let unlisted = RecordingFlowApi::default().failing_listings_after(0);
+        let mut last_desired = Vec::new();
+        let logs = LogCapture::default();
+        let _logging = tracing::subscriber::set_default(logs.clone());
+
+        for strom in [&refresh_fails, &unlisted] {
+            sync_once(
+                &southbound,
+                strom,
+                &config,
+                "http://strom-node-1",
+                true,
+                &mut StallTracker::default(),
+                &mut last_desired,
+            )
+            .await
+            .expect("heartbeat sent");
+        }
+
+        assert!(
+            refresh_fails.ops().contains(&Op::Create(added.id.clone())),
+            "{:?}",
+            refresh_fails.ops()
+        );
+        assert!(unlisted.ops().is_empty(), "{:?}", unlisted.ops());
+        let error = logs
+            .error_of("Strom observation after provisioning failed")
+            .expect("the failed refresh is logged");
+        assert!(error.contains("injected listing failure"), "{error}");
+        let pending = vec![
+            (running.id.clone(), HopState::Pending, Some(7001)),
+            (added.id.clone(), HopState::Pending, Some(7003)),
+        ];
+        let reported: Vec<_> = heartbeats
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|heartbeat| {
+                (
+                    heartbeat.status,
+                    heartbeat
+                        .hop_status
+                        .iter()
+                        .map(|status| {
+                            (
+                                status.id.clone(),
+                                status.state,
+                                status.ingress.resolved.as_ref().map(|addr| addr.port),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
         assert_eq!(
-            unlisted[0].ingress.resolved.as_ref().map(|addr| addr.port),
-            Some(7001),
-            "with Strom unlisted, a hop keeps the listener port it holds"
+            reported,
+            [
+                (NodeStatus::Degraded, pending.clone()),
+                (NodeStatus::Degraded, pending)
+            ],
+            "a failed refresh after provisioning reads like a failed listing"
         );
     }
 
