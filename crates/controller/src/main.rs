@@ -715,9 +715,6 @@ async fn run_with_lease(
         );
         leadership.taking(asked + timing.hold_for);
         let mut hold = tokio::spawn(hold_lease(pg.clone(), leadership.clone(), asked, timing));
-        if let Some(emitter) = &controller.webhooks {
-            emitter.count_from(term.started_micros);
-        }
         let led = tokio::select! {
             led = controller.lead(Arc::new(pg.for_term(term.epoch))) => led,
             lost = &mut hold => {

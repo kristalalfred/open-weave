@@ -162,8 +162,6 @@ fn decode_registrations(rows: Vec<(String, serde_json::Value)>) -> Vec<NodeRegis
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LeaseTerm {
     pub epoch: u64,
-
-    pub started_micros: u64,
 }
 
 pub struct PgStore {
@@ -383,7 +381,7 @@ impl PgStore {
                epoch = controller_lease.epoch + 1,
                expires_at = EXCLUDED.expires_at
              WHERE controller_lease.expires_at <= now()
-             RETURNING epoch, (extract(epoch FROM now()) * 1000000)::BIGINT AS started_micros",
+             RETURNING epoch",
         )
         .bind(holder)
         .bind(ttl.as_secs_f64())
@@ -397,11 +395,6 @@ impl PgStore {
             epoch: positive_counter(
                 row.try_get::<i64, _>("epoch").map_err(StoreError::Decode)?,
                 "lease epoch",
-            )?,
-            started_micros: positive_counter(
-                row.try_get::<i64, _>("started_micros")
-                    .map_err(StoreError::Decode)?,
-                "lease start",
             )?,
         };
         self.epoch.store(term.epoch, Ordering::SeqCst);
@@ -2183,7 +2176,6 @@ pub(crate) mod tests {
         tokio::time::sleep(Duration::from_millis(3300)).await;
         let takeover = second.acquire_lease("second", ttl).await.unwrap().unwrap();
         assert_eq!(takeover.epoch, taken.epoch + 1);
-        assert!(takeover.started_micros > taken.started_micros);
         assert!(
             !first.renew_lease(ttl).await.unwrap(),
             "an expired lease is not renewed once another store took it"

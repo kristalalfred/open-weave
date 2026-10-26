@@ -40,11 +40,10 @@ and conditions.
 
 Events use a bounded in-memory queue. One worker delivers them in order, with
 up to four attempts. HTTP 4xx responses other than 408 and 429 are not
-retried. Queue overflow,
-restart and exhausted retries can lose events; retries can deliver duplicates.
-Retries preserve `event_id`, but IDs are timestamp-based and are not guaranteed
-unique across controller runs. A former leader continues delivering queued
-events, so deliveries from different controllers can interleave.
+retried. Queue overflow, restart and exhausted retries can lose events; retries
+can deliver duplicates. Each event has a random `event_id` that its retries
+preserve. A former leader continues delivering queued events, so deliveries
+from different controllers can interleave.
 
 Read `GET /nodes` and `/status` to reconcile state. Delivery has no maximum delay.
 The optional bearer token authenticates the sender. Body signatures are not

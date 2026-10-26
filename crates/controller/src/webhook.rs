@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
 use tokio::sync::mpsc;
@@ -42,7 +42,6 @@ impl Default for Config {
 pub struct Emitter {
     tx: mpsc::Sender<Event>,
     allowed: Vec<EventType>,
-    seq: AtomicU64,
     dropped: AtomicU64,
     dropping: AtomicBool,
 }
@@ -88,7 +87,6 @@ impl Emitter {
         Some(Self {
             tx,
             allowed,
-            seq: AtomicU64::new(first_sequence()),
             dropped: AtomicU64::new(0),
             dropping: AtomicBool::new(false),
         })
@@ -98,16 +96,11 @@ impl Emitter {
         if !self.allowed.contains(&event_type) {
             return;
         }
-        let subject = subject.into();
         let event = Event {
-            event_id: format!(
-                "{}-{}",
-                subject.id(),
-                self.seq.fetch_add(1, Ordering::Relaxed)
-            ),
+            event_id: event_id(),
             event_type,
             occurred_at: now_rfc3339(),
-            subject,
+            subject: subject.into(),
         };
 
         match self.tx.try_send(event) {
@@ -138,22 +131,16 @@ impl Emitter {
         }
     }
 
-    pub fn count_from(&self, first: u64) {
-        self.seq.store(first, Ordering::Relaxed);
-    }
-
     #[cfg(test)]
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
     }
 }
 
-fn first_sequence() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| {
-            u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX)
-        })
+fn event_id() -> String {
+    let mut id = [0u8; 16];
+    getrandom::fill(&mut id).expect("generating a webhook event id");
+    id.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -395,54 +382,31 @@ pub(crate) mod tests {
         assert_eq!(delivery.auth.as_deref(), Some("Bearer hook-token"));
         assert_eq!(delivery.event.event_type, EventType::NodeRegistered);
         assert_eq!(delivery.event.subject.id(), "guest-1");
-        assert!(delivery.event.event_id.starts_with("guest-1-"));
+        assert_eq!(delivery.event.event_id.len(), 32);
+        assert!(
+            delivery
+                .event
+                .event_id
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
         assert!(!delivery.event.occurred_at.is_empty());
     }
 
-    fn sequence(event: &Event) -> u64 {
-        event
-            .event_id
-            .rsplit('-')
-            .next()
-            .and_then(|number| number.parse().ok())
-            .expect("an event id ends in a number")
-    }
-
     #[tokio::test]
-    async fn a_controller_taking_over_numbers_events_from_its_lease() {
-        let mut sink = sink(StatusCode::OK).await;
-        let emitter = Emitter::new(config(&sink.url)).unwrap();
-        emitter.count_from(1_790_330_400_000_000);
-        emitter.emit(EventType::NodeRegistered, node("guest-1"));
-        emitter.emit(EventType::NodeRegistered, node("guest-1"));
-
-        assert_eq!(sink.next().await.event.event_id, "guest-1-1790330400000000");
-        assert_eq!(sink.next().await.event.event_id, "guest-1-1790330400000001");
-    }
-
-    #[tokio::test]
-    async fn a_restarted_emitter_sends_ids_the_earlier_one_did_not() {
+    async fn emitters_started_together_never_share_an_event_id() {
         let mut sink = sink(StatusCode::OK).await;
         let earlier = Emitter::new(config(&sink.url)).unwrap();
-        for _ in 0..3 {
+        let later = Emitter::new(config(&sink.url)).unwrap();
+        for _ in 0..50 {
             earlier.emit(EventType::NodeRegistered, node("guest-1"));
+            later.emit(EventType::NodeRegistered, node("guest-1"));
         }
-        let mut sent = Vec::new();
-        for _ in 0..3 {
-            sent.push(sequence(&sink.next().await.event));
+
+        let mut ids = std::collections::HashSet::new();
+        for _ in 0..100 {
+            assert!(ids.insert(sink.next().await.event.event_id));
         }
-        drop(earlier);
-        tokio::time::sleep(Duration::from_millis(5)).await;
-
-        let restarted = Emitter::new(config(&sink.url)).unwrap();
-        restarted.emit(EventType::NodeRegistered, node("guest-1"));
-        let first = sequence(&sink.next().await.event);
-
-        assert!(sent.windows(2).all(|pair| pair[0] < pair[1]), "{sent:?}");
-        assert!(
-            sent.iter().all(|earlier| *earlier < first),
-            "{first} repeats or precedes {sent:?}"
-        );
     }
 
     #[tokio::test]
