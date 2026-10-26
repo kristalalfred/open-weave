@@ -208,7 +208,7 @@ mod tests {
         let sample = clock.sample().unwrap();
         clock.state.lock().unwrap().previous = Some(ClockSample {
             tai_ns: sample.tai_ns + 3_000_000,
-            uncertainty_ns: 3_050_000,
+            uncertainty_ns: sample.uncertainty_ns + 3_000_000,
             ..sample
         });
         assert!(clock.sample().is_ok());
