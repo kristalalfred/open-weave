@@ -914,15 +914,6 @@ async fn reconcile_tick(state: &AppState) {
         status.observed_generation = Some(stored.generation);
     }
 
-    for stream in &outcome.streams {
-        tracing::info!(stream = %stream.name, status = ?stream.status, "stream status");
-    }
-    tracing::info!(
-        status = ?outcome.report.status,
-        summary = %outcome.report.summary,
-        "reconcile tick"
-    );
-
     let desired = desired::snapshots(outcome.desired_by_node);
     for (node_id, snapshot) in &desired {
         tracing::debug!(%node_id, revision = %snapshot.revision, hops = snapshot.hops.len(), "desired snapshot");
@@ -931,6 +922,8 @@ async fn reconcile_tick(state: &AppState) {
     let mut view = state.view.write().await;
     stamp_condition_transition_times(&mut outcome.streams, &view.streams, &now_rfc3339());
     let changed = changed_streams(&outcome.streams, &view.streams);
+    log_stream_statuses(&outcome.streams, &changed);
+    log_report(&outcome.report, view.report.as_ref());
     let mut to_store = std::mem::take(&mut state.unsaved().streams);
     to_store.extend(changed.iter().map(|stream| stream.name.clone()));
     let statuses: Vec<StreamStatus> = outcome
@@ -956,6 +949,30 @@ async fn reconcile_tick(state: &AppState) {
     }
     for stream in &changed {
         state.emit(EventType::StreamChanged, StreamSummary::from(stream));
+    }
+}
+
+fn log_stream_statuses(streams: &[StreamStatus], changed: &[StreamStatus]) {
+    for stream in streams {
+        if changed.iter().any(|changed| changed.name == stream.name) {
+            let unmet: Vec<StreamConditionReason> = stream
+                .conditions
+                .iter()
+                .filter(|condition| condition.status != StreamConditionStatus::True)
+                .map(|condition| condition.reason)
+                .collect();
+            tracing::info!(stream = %stream.name, status = ?stream.status, ?unmet, "stream status");
+        } else {
+            tracing::debug!(stream = %stream.name, status = ?stream.status, "stream status");
+        }
+    }
+}
+
+fn log_report(report: &ReconcileReport, previous: Option<&ReconcileReport>) {
+    if previous == Some(report) {
+        tracing::debug!(status = ?report.status, summary = %report.summary, "controller status");
+    } else {
+        tracing::info!(status = ?report.status, summary = %report.summary, "controller status");
     }
 }
 
@@ -3045,7 +3062,7 @@ fn reconcile_with_revisions(
                 status
             }
             Err(error) => {
-                tracing::warn!(stream = %stream.name, error = %ErrorChain(&error), "cannot place stream; retrying next tick");
+                tracing::debug!(stream = %stream.name, error = %ErrorChain(&error), "cannot place stream; retrying next tick");
                 let conditions = placement_failed_conditions(stream, &error);
                 stream_statuses.push(StreamStatus {
                     format_policy: stream.format_policy,
