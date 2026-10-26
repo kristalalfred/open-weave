@@ -3,7 +3,6 @@ target
 .claude
 .github
 bench
-backlog
 deploy
 nodes
 **/*.md

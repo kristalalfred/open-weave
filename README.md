@@ -20,8 +20,7 @@ destinations:
 something pulls from the studio destination.
 
 HTTP routes and payloads may change between pre-release versions without a
-deprecation window. See [open issues](BACKLOG.md) and the
-[media test cases](bench/cases/).
+deprecation window. See the [media test cases](bench/cases/).
 
 ## Quickstart
 

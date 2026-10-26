@@ -32,9 +32,9 @@ Comments are forbidden. Preserve executable directives such as shebangs and
 Dockerfile syntax directives. Put CLI help in explicit argument metadata.
 
 Keep documentation concise and check claims against code. Remove obsolete or
-unsupported prose and completed backlog items. Do not treat backlog claims as
-proof. Distinguish unit-test coverage from media verified on the bench.
+unsupported prose. Distinguish unit-test coverage from media verified on the
+bench.
 
 `README.md` holds the quickstart and links. `docs/` holds contracts,
 `bench/README.md` the local media test setup, and `deploy/README.md` the Compose
-setup. `just board` lists open work.
+setup.

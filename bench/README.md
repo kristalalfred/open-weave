@@ -157,8 +157,6 @@ just bench browser-down
 `browser-up video` captures video only. `browser-stream` fills the camera and
 return templates with the page's node ID and attaches SRT test peers.
 `browser-b2b` connects the two pages through Strom's WHIP/WHEP profile.
-Video-only restart recovery on the pinned Strom needs
-[reverification](../backlog/OW-46-video-only-page-restart-waits.md).
 
 For a browser on the Docker host:
 
